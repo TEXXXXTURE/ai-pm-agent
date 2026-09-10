@@ -55,12 +55,13 @@ $piArgs = @('-ne')
 
 # 加载外置演示工具包中"环境已就绪"的技能（T5；工具清单与状态见 references/外置工具路由.md）
 # 说明：外置技能不复制进项目，pi 通过 --skill <目录> 从外置包直接加载（外置包不在则跳过，不影响启动）；
-# 只登记环境已就绪的技能——未就绪的（如待配 Python venv 的 ppt-master、待装 mermaid-cli 的
-# diagram-mermaid）不加载，避免 Agent 误以为可用；环境配好后在此追加一行即可。
-# [C 2026-09-10] T5-1 外置技能加载接线
+# 只登记环境已就绪的技能——未就绪的（如待配 Python venv 的 ppt-master）不加载，
+# 避免 Agent 误以为可用；环境配好后在此追加一行即可。
+# [C 2026-09-10] T5-1 外置技能加载接线；T5-2 追加 diagram-mermaid
 $ExtSkillPaths = @(
     'D:\Agent外置工具包\演示工具包\skills\frontend-slides',
-    'D:\Agent外置工具包\演示工具包\skills\lieflat-charts'
+    'D:\Agent外置工具包\演示工具包\skills\lieflat-charts',
+    'D:\Agent外置工具包\演示工具包\skills\diagram-mermaid'
 )
 foreach ($skillDir in $ExtSkillPaths) {
     if (Test-Path (Join-Path $skillDir 'SKILL.md')) {
