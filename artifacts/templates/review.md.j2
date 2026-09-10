@@ -1,0 +1,97 @@
+{# [C 2026-09-10] PRD 评审报告 Markdown 模板（.md 产物，doc_type=review）：
+   容错渲染——字段缺失/为空自动跳过；结论 verdict 由 nodes/review.py 代码硬判后传入。
+   forced=True（3 轮上限强制放行）时在顶部显著标注"待人工裁决"。 #}
+# PRD 评审报告 — {{ requirement_name }}
+
+生成日期：{{ generated_at }} · 评审轮次：{% if review.get("round", 0) >= 1 %}第 {{ review.get("round") }} 轮修订后复审{% else %}首轮评审{% endif %}{# [C 2026-09-10] 轮次文案：0/缺失显示"首轮评审"，>=1 显示"第 N 轮修订后复审" #}
+{%- if review.forced %}
+
+> **【强制放行】已达 3 轮修订上限，本稿仍未完全达标，系统强制放行待人工裁决。**
+> 请人工先看下方 blockers 与低分维度，再决定是否进入开发或退回线下继续改。
+{%- endif %}
+{%- if review.verdict == "pass" %}
+
+**结论**：通过（均分 {{ review.avg }}/5，最低分 {{ review.minimum }}/5）
+{%- elif review.verdict == "pass_with_warning" %}
+
+**结论**：⚠️ 带警告通过（均分 {{ review.avg }}/5，最低分 {{ review.minimum }}/5）
+{%- elif review.verdict == "reject" %}
+
+**结论**：❌ 打回（均分 {{ review.avg }}/5，最低分 {{ review.minimum }}/5）
+{%- else %}
+
+**结论**：{{ review.verdict }}（均分 {{ review.avg }}/5，最低分 {{ review.minimum }}/5）
+{%- endif %}
+
+判定规则（系统硬性执行，评审模型不决定走向）：均分 < 3.5 打回；均分 ≥ 3.5 但任一维 ≤ 2 带警告通过；均分 ≥ 3.5 且全部维 ≥ 3 通过。打回最多修订 3 轮，第 3 轮仍不达标强制放行。
+{%- if review.restatement %}
+
+## 一句话复述
+
+{{ review.restatement }}
+{%- endif %}
+
+## 总评
+
+{{ review.summary }}
+
+## 五维评分
+
+| 维度 | 分数 | 锚点理由（引用具体章节/原文） |
+|---|---|---|
+{% for item in review.get("scores", []) -%}
+| {{ item.dimension }} | {{ item.score }}/5 | {{ item.rationale }} |
+{% endfor %}
+| **均分** | **{{ review.avg }}/5** | 最低分 {{ review.minimum }}/5 |
+{%- set blockers = review.get("blockers", []) -%}
+{%- if blockers %}
+
+## {% if review.forced %}强制放行遗留问题（系统已放行，须人工优先处理，{{ blockers | length }} 条）{% elif review.verdict == "reject" %}Blockers（必须修后复审，{{ blockers | length }} 条）{% else %}待跟进问题（本轮已放行，建议人工跟进，{{ blockers | length }} 条）{% endif %}{# [C 2026-09-10] 标题随结论切换：forced/ reject / 放行态三档；表格列与内容不变，blockers 为空时整节仍不渲染 #}
+
+| # | 严重程度 | 所在章节/位置 | 问题 | 改法方向 |
+|---|---|---|---|---|
+{% for item in blockers -%}
+| {{ loop.index }} | {{ item.severity }} | {{ item.location }} | {{ item.issue }} | {{ item.suggestion }} |
+{% endfor %}
+{%- endif %}
+{%- set warnings = review.get("warnings", []) -%}
+{%- if warnings %}
+
+## Warnings（建议修，不阻断放行，{{ warnings | length }} 条）
+
+| # | 严重程度 | 所在章节/位置 | 问题 | 建议 |
+|---|---|---|---|---|
+{% for item in warnings -%}
+| {{ loop.index }} | {{ item.severity }} | {{ item.location }} | {{ item.issue }} | {{ item.suggestion }} |
+{% endfor %}
+{%- endif %}
+{%- set hypotheses = review.get("hypotheses", []) -%}
+{%- if hypotheses %}
+
+## 红队假设质询（承重墙假设，{{ hypotheses | length }} 条）
+
+| # | 承重墙假设 | 若……则失败 | 本周能拿到的证据 | 杀掉标准（阈值） | 最便宜的验证 |
+|---|---|---|---|---|---|
+{% for item in hypotheses -%}
+| {{ loop.index }} | {{ item.hypothesis }} | {{ item.fail_if }} | {{ item.evidence }} | {{ item.kill_criterion }} | {{ item.cheapest_test }} |
+{% endfor %}
+{%- endif %}
+{%- if review.strengths %}
+
+## 论证扎实的地方
+
+{{ review.strengths }}
+{%- endif %}
+{%- set unassessable = review.get("unassessable", []) -%}
+{%- if unassessable %}
+
+## 无法评估 / 待确认问题
+
+{% for item in unassessable -%}
+- {{ item }}
+{% endfor %}
+{%- endif %}
+
+---
+**评审边界**：本报告只审不改——改稿由 PRD 生成节点（按打回意见重写）或人工完成。
+**修订规则**：打回最多 3 轮；复审只复验上一轮 blockers（修订引入的新问题除外）；第 3 轮仍不达标则强制放行，分歧点交人工裁决。

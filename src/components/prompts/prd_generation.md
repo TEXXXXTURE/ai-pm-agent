@@ -9,6 +9,13 @@
 - 已确认的需求：{{ confirmed_requirement }}
 - 章节裁剪计划（参考，可不拘泥）：{{ section_plan }}
 - 用户洞察（参考）：{{ user_insights }}
+{% if red_team_review and red_team_review.verdict == "reject" %}
+## 上一轮评审打回意见（第 {{ red_team_review["round"] }} 轮修订）
+独立评审门没有放行上一版 PRD。请先通读下列打回意见，**逐条针对性解决**，然后输出**完整修订版 PRD**（不是只输出改动片段，全文仍须满足下方输出格式）。复审只复验这些项（修订引入的新问题除外），不要为应付意见堆砌无实质内容的补丁章节：
+
+{{ red_team_review.revision_feedback }}
+{% endif %}
+{# [C 2026-09-10] 评审打回时注入 revision_feedback；首轮 red_team_review 为空 dict，本块不渲染，原 prompt 行为不变 #}
 
 ## 章节怎么组织——你是作者，不是填空的人
 下面是一份常见 PRD 章节清单，仅供你打开思路：

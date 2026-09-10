@@ -35,11 +35,31 @@ def make_artifact_persist(deps):
         ).strip()
         insights_path = deps.artifacts.save(insights_md, name, "insights", ext=".md")
 
+        # 3. PRD 评审报告：red_team_review 非空时渲染 review.md.j2 落 .md；
+        #    为空（理论上评审门必有输出）容错跳过，不阻断 PRD/洞察落盘。 [C 2026-09-10]
+        artifacts_dict = {
+            "prd": str(prd_path),
+            "insights": str(insights_path),
+        }
+        review = state.get("red_team_review") or {}
+        if review:
+            review_md = deps.artifacts.render(
+                "review.md.j2",
+                {
+                    "requirement_name": name,
+                    "generated_at": generated_at,
+                    "review": review,
+                },
+            ).strip()
+            review_path = deps.artifacts.save(review_md, name, "review", ext=".md")
+            artifacts_dict["review"] = str(review_path)
+
         return {
             "prd_markdown": md,
-            "artifacts": {"prd": str(prd_path), "insights": str(insights_path)},
+            "artifacts": artifacts_dict,
         }
         # [C 2026-09-09] T1 产物落 .md：prd_markdown 原文 + insights.md.j2 渲染
+        # [C 2026-09-10] 新增评审报告 review.md.j2 渲染落盘 + artifacts["review"]
 
     return artifact_persist
 
