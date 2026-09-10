@@ -1,0 +1,61 @@
+# AI PM Agent 全局配置
+# 密钥一律通过环境变量读取，不硬编码在此文件
+
+llm:
+  default_provider: deepseek
+  temperature: 0.3
+  max_retries: 2
+
+  # [C 2026-09-09] providers 改为 LiteLLM 模型串格式：
+  # litellm_model = "<provider>/<model>"，一个接口适配 OpenAI兼容/Anthropic/Gemini/Ollama 等协议；
+  # api_key_env 为密钥所在环境变量名；本地模型（如 ollama）留空字符串 "" 即可。
+  providers:
+    deepseek:
+      litellm_model: "deepseek/deepseek-v4-flash"
+      api_key_env: "DEEPSEEK_API_KEY"
+
+    # ── 以下 Provider 为注释模板，按需取消注释启用 ──
+    # anthropic:
+    #   litellm_model: "anthropic/claude-3-5-sonnet-latest"
+    #   api_key_env: "ANTHROPIC_API_KEY"
+    # gemini:
+    #   litellm_model: "gemini/gemini-2.0-flash"
+    #   api_key_env: "GEMINI_API_KEY"
+    # ollama-local:
+    #   litellm_model: "ollama/qwen2.5"
+    #   api_key_env: ""   # 本地模型无密钥，留空字符串
+    # ── 旧 base_url + model 格式参考（OpenAI 兼容协议，可用 openai/ 前缀 + api_base 走 LiteLLM）──
+    # hunyuan:
+    #   litellm_model: "openai/hy3"
+    #   api_base: "https://api.hunyuan.cloud.tencent.com/v1"
+    #   api_key_env: "HUNYUAN_API_KEY"
+    # zhipu:
+    #   litellm_model: "openai/glm-4"
+    #   api_base: "https://open.bigmodel.cn/api/paas/v4"
+    #   api_key_env: "ZHIPU_API_KEY"
+    # qwen:
+    #   litellm_model: "openai/qwen-plus"
+    #   api_base: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    #   api_key_env: "DASHSCOPE_API_KEY"
+    # moonshot:
+    #   litellm_model: "openai/moonshot-v1-8k"
+    #   api_base: "https://api.moonshot.cn/v1"
+    #   api_key_env: "MOONSHOT_API_KEY"
+
+kb:
+  store_path: ./kb_store
+  feishu_app_id: ""
+  feishu_app_secret: ""
+
+artifacts:
+  output_root: ./output
+  template_dir: ./artifacts/templates
+
+persistence:
+  db_path: ./ai_pm_agent.db
+
+graph:
+  max_prd_revisions: 3
+  node_timeout: 120
+
+# [MA 2026-09-08]

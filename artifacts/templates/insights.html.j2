@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<!-- [C 2026-09-09] M4 产物系统 - 需求洞察自包含 HTML 模板（脱机、无外部引用） -->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ requirement_name }} 需求洞察</title>
+<style>{{ style_css | safe }}</style>
+</head>
+<body>
+<div class="toolbar" contenteditable="false" data-doctype="insights"
+     data-filename="{{ filename | default(requirement_name ~ '-insights') }}.html">
+  <span class="brand">AI PM Agent · 需求洞察</span>
+  <span class="edit-hint">正文区域可直接编辑</span>
+  <button type="button" id="btn-save">保存</button>
+  <button type="button" id="btn-copy">复制为图片</button>
+  <button type="button" id="btn-print">打印</button>
+</div>
+<article id="doc" contenteditable="true">
+  <header class="doc-header">
+    <h1 class="doc-title">{{ requirement_name }} 需求洞察</h1>
+    <p class="meta">生成日期：{{ generated_at }}</p>
+  </header>
+  {% set labels = {
+    "目标用户": "目标用户",
+    "target_users": "目标用户",
+    "users": "目标用户",
+    "使用场景": "使用场景",
+    "use_scenarios": "使用场景",
+    "scenarios": "使用场景",
+    "核心痛点": "核心痛点",
+    "pain_points": "核心痛点",
+    "pains": "核心痛点",
+    "现有方案": "现有方案",
+    "existing_solutions": "现有方案",
+    "current_solutions": "现有方案",
+    "alternatives": "现有方案",
+    "期望差距": "期望差距",
+    "expected_gap": "期望差距",
+    "gaps": "期望差距",
+    "gap": "期望差距",
+    "成功标准": "成功标准",
+    "success_criteria": "成功标准",
+    "criteria": "成功标准"
+  } %}
+  {% for key, value in user_insights.items() %}
+  <section class="insight-block">
+    <h2>{{ labels.get(key, key) }}</h2>
+    {% if value is string %}
+    <p>{{ value }}</p>
+    {% elif value is mapping %}
+    <dl>
+      {% for sub_key, sub_value in value.items() %}
+      <dt>{{ sub_key }}</dt>
+      <dd>{{ sub_value }}</dd>
+      {% endfor %}
+    </dl>
+    {% elif value is iterable %}
+    <ul>
+      {% for item in value %}
+      <li>{{ item }}</li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p>{{ value }}</p>
+    {% endif %}
+  </section>
+  {% endfor %}
+</article>
+<script>{{ editor_js | safe }}</script>
+</body>
+</html>

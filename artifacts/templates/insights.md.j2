@@ -1,0 +1,57 @@
+{# [C 2026-09-09] T1 需求洞察 Markdown 模板（.md 产物）：
+   容错渲染——字段缺失/为空自动跳过不报错；值为字符串/字典/列表/标量均可渲染；
+   schema 之外的额外洞察字段兜底追加。对应 UserInsightsSchema 的 6 类洞察。 #}
+# {{ requirement_name }} 需求洞察
+
+生成日期：{{ generated_at }}
+{%- set labels = {
+  "target_users": "目标用户",
+  "scenarios": "使用场景",
+  "pain_points": "核心痛点",
+  "current_solutions": "现有方案",
+  "gaps": "期望差距",
+  "success_criteria": "成功标准"
+} -%}
+{%- set order = ["target_users", "scenarios", "pain_points", "current_solutions", "gaps", "success_criteria"] -%}
+{%- for key in order %}
+{%- set items = user_insights.get(key, []) %}
+{%- if items %}
+
+## {{ labels[key] }}
+
+{% if items is string -%}
+- {{ items }}
+{%- elif items is mapping -%}
+{% for sub_key, sub_value in items.items() -%}
+- **{{ sub_key }}**：{{ sub_value }}
+{% endfor -%}
+{%- elif items is iterable -%}
+{% for item in items -%}
+- {{ item }}
+{% endfor -%}
+{%- else -%}
+- {{ items }}
+{%- endif %}
+{%- endif %}
+{%- endfor %}
+{#- 兜底：模型若返回 schema 之外的额外洞察字段，按字段名（或 labels 中文名）追加渲染 #}
+{%- for key, items in user_insights.items() %}
+{%- if key not in order and items %}
+
+## {{ labels.get(key, key) }}
+
+{% if items is string -%}
+- {{ items }}
+{%- elif items is mapping -%}
+{% for sub_key, sub_value in items.items() -%}
+- **{{ sub_key }}**：{{ sub_value }}
+{% endfor -%}
+{%- elif items is iterable -%}
+{% for item in items -%}
+- {{ item }}
+{% endfor -%}
+{%- else -%}
+- {{ items }}
+{%- endif %}
+{%- endif %}
+{%- endfor %}

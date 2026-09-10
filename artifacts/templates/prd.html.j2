@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<!-- [C 2026-09-09] M4 产物系统 - PRD 自包含 HTML 模板（脱机、无外部引用） -->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ requirement_name }} PRD</title>
+<style>{{ style_css | safe }}</style>
+</head>
+<body>
+<div class="toolbar" contenteditable="false" data-doctype="prd"
+     data-filename="{{ filename | default(requirement_name ~ '-prd') }}.html">
+  <span class="brand">AI PM Agent · 产品需求文档（PRD）</span>
+  <span class="edit-hint">正文区域可直接编辑</span>
+  <button type="button" id="btn-save">保存</button>
+  <button type="button" id="btn-copy">复制为图片</button>
+  <button type="button" id="btn-print">打印</button>
+</div>
+<article id="doc" contenteditable="true">
+  <header class="doc-header">
+    <h1 class="doc-title">{{ requirement_name }} PRD</h1>
+    <p class="meta">生成日期：{{ generated_at }}</p>
+  </header>
+  {% for section in sections %}
+  <section class="prd-section">
+    <h2>{{ section.title }}</h2>
+    <div class="section-body">{{ section.body_html | safe }}</div>
+  </section>
+  {% endfor %}
+</article>
+<script>{{ editor_js | safe }}</script>
+</body>
+</html>
