@@ -20,4 +20,16 @@ kb_store/
 .idea/
 *.swp
 
-# [MA 2026-09-08]
+# 外部参考库（已移至 D:\PM项目参考\，不纳入版本控制）
+references/10x-pm/
+references/ai-product-manager-skills/
+references/pm-agent-harness-kit/
+references/PM-K12--skills/
+references/pm-skills/
+references/product-management-skill/
+references/product-manager/
+references/Product-Manager-Skills/
+references/product-teardown-skill/
+references/vibe-check/
+
+# [MA 2026-09-08] 更新于 2026-09-10：外部参考库移至项目外 <!-- [MA 2026-09-10] -->
