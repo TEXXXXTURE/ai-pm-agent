@@ -19,28 +19,26 @@ if (-not (Test-Path $EnvFile)) {
     exit 1
 }
 
-# 解析 .env 中的 DEEPSEEK_API_KEY，兼容 KEY=value 与 KEY="value" / KEY='value' 写法
-$apiKey = $null
+# 通用解析 .env：逐行注入所有 KEY=VALUE 到当前进程环境变量
+# 兼容 KEY=value 与 KEY="value" / KEY='value'；# 开头的注释行与空行跳过
+# [MA 2026-09-10] S019：从"只解析 DEEPSEEK_API_KEY"升级为通用注入（新增 ARK_API_KEY 等）
 foreach ($line in Get-Content $EnvFile) {
-    if ($line -match '^\s*DEEPSEEK_API_KEY\s*=\s*(.*)$') {
-        $val = $Matches[1].Trim()
+    if ($line -match '^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$') {
+        $envName = $Matches[1]
+        $val = $Matches[2].Trim()
         if ($val.Length -ge 2 -and
             (($val.StartsWith('"') -and $val.EndsWith('"')) -or
              ($val.StartsWith("'") -and $val.EndsWith("'")))) {
             $val = $val.Substring(1, $val.Length - 2)
         }
-        $apiKey = $val
-        break
+        Set-Item -Path "Env:$envName" -Value $val
     }
 }
 
-if ([string]::IsNullOrWhiteSpace($apiKey)) {
+if ([string]::IsNullOrWhiteSpace($env:DEEPSEEK_API_KEY)) {
     Write-Error ".env 中未找到 DEEPSEEK_API_KEY 配置。请在 $EnvFile 中添加一行：DEEPSEEK_API_KEY=sk-你的密钥"
     exit 1
 }
-
-# 注入当前进程环境变量
-$env:DEEPSEEK_API_KEY = $apiKey
 
 # 清空代理环境变量（进程级）
 foreach ($proxyVar in 'HTTP_PROXY','HTTPS_PROXY','http_proxy','https_proxy') {
@@ -55,18 +53,28 @@ $piArgs = @('-ne')
 
 # 加载外置演示工具包中"环境已就绪"的技能（T5；工具清单与状态见 references/外置工具路由.md）
 # 说明：外置技能不复制进项目，pi 通过 --skill <目录> 从外置包直接加载（外置包不在则跳过，不影响启动）；
-# 只登记环境已就绪的技能——未就绪的（如待配 Python venv 的 ppt-master）不加载，
-# 避免 Agent 误以为可用；环境配好后在此追加一行即可。
+# 只登记环境已就绪的技能——未就绪的不加载，避免 Agent 误以为可用；环境配好后在此追加一行即可。
 # [C 2026-09-10] T5-1 外置技能加载接线；T5-2 追加 diagram-mermaid
+# [MA 2026-09-10] T5-3 追加 ppt-master（技能在仓库嵌套目录 skills\ppt-master 内）
 $ExtSkillPaths = @(
     'D:\Agent外置工具包\演示工具包\skills\frontend-slides',
     'D:\Agent外置工具包\演示工具包\skills\lieflat-charts',
-    'D:\Agent外置工具包\演示工具包\skills\diagram-mermaid'
+    'D:\Agent外置工具包\演示工具包\skills\diagram-mermaid',
+    'D:\Agent外置工具包\演示工具包\skills\ppt-master\skills\ppt-master'
 )
 foreach ($skillDir in $ExtSkillPaths) {
     if (Test-Path (Join-Path $skillDir 'SKILL.md')) {
         $piArgs += @('--skill', $skillDir)
     }
+}
+
+# T5-3：ppt-master 独立 venv（Python 3.12，依赖装于此外置包内，与 hermes venv 隔离）。
+# 若该 venv 存在，将其 Scripts 前置到 PATH——技能脚本中的 python3/python 命令即命中本 venv
+# （Scripts 下有 python.exe 与 python3.cmd 别名）；不影响 run-tool.sh（它用 hermes 绝对路径）。
+# [MA 2026-09-10]
+$PptVenvScripts = 'D:\Agent外置工具包\演示工具包\tools\ppt-master-venv\Scripts'
+if (Test-Path (Join-Path $PptVenvScripts 'python.exe')) {
+    $env:PATH = "$PptVenvScripts;$env:PATH"
 }
 
 # 透传用户传入的所有参数

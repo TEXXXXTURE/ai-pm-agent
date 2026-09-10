@@ -65,5 +65,6 @@
 - 项目根目录即本文件（`AGENTS.md`）所在目录；调用任何项目脚本前，工作目录应在项目根。
 - Python 流水线使用指定解释器（`C:\Users\A\AppData\Local\hermes\hermes-agent\venv\Scripts\python.exe`），运行时需 `PYTHONPATH=src`、cwd 为项目根，且调用模型前必须清空代理环境变量（`HTTP_PROXY/HTTPS_PROXY/http_proxy/https_proxy`，代理会掐断 DeepSeek 长响应）。这些环境细节已由启动脚本 `scripts/run-pi.ps1` 统一封装，正常通过该脚本启动时无需手动处理；你自己用 bash 调 Python 脚本时留意上述约定即可。
 - 模型为 DeepSeek（OpenAI 兼容接口直连），密钥从环境变量 `DEEPSEEK_API_KEY` 读取。
+- **调模型前必看 `.trae/rules/model-usage.md`（模型调用规则）**：工作日 09:00–12:00、14:00–18:00 高峰价时段不调用 DeepSeek（含本流水线），先看本机时间；峰时不紧急的活延到谷时，紧急的走免费渠道 CodeBuddy（`codebuddy -p "任务" --model hy3`，已登录可用）或火山 Agent Plan（Pi 内 `--provider ark-plan`，包月积分；但**流水线脚本禁止裸调该 key**，合规红线见规则文件）。 <!-- [MA 2026-09-10] S019 -->
 
 <!-- [C 2026-09-09] T2 PM 人格 -->
