@@ -21,6 +21,8 @@ from jinja2 import Environment, FileSystemLoader
 _DOC_DIR_MAP = {
     "prd": "需求文档",
     "insights": "需求洞察",
+    # [C 2026-09-11] 研发工单清单落「研发工单」子目录；review 目录维持英文原样不动
+    "issues": "研发工单",
 }
 
 # 文件系统非法字符（Windows 全量，跨平台保守处理）

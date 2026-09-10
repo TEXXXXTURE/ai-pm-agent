@@ -277,21 +277,22 @@ class TestRouter(unittest.TestCase):
         state = {"red_team_review": {"verdict": "reject"}}
         self.assertEqual(route_after_review(state), "prd_generation")
 
-    def test_pass_and_warn_to_persist(self):
+    def test_pass_and_warn_to_issue_splitting(self):
+        # [C 2026-09-11] 块1：通过分支不再直连落盘，改走 issue_splitting 拆研发工单
         self.assertEqual(
             route_after_review({"red_team_review": {"verdict": "pass"}}),
-            "artifact_persist",
+            "issue_splitting",
         )
         self.assertEqual(
             route_after_review(
                 {"red_team_review": {"verdict": "pass_with_warning", "forced": True}}
             ),
-            "artifact_persist",
+            "issue_splitting",
         )
 
     def test_empty_review_safe(self):
-        # 缺评审 dict 时不应炸（默认送去落盘，由落盘节点容错）
-        self.assertEqual(route_after_review({}), "artifact_persist")
+        # 缺评审 dict 时不应炸（默认送去拆单，由下游节点容错）
+        self.assertEqual(route_after_review({}), "issue_splitting")
 
 
 # ────────────────────────── 4. 图接线 ──────────────────────────
@@ -310,12 +311,14 @@ class TestGraphWiring(unittest.TestCase):
             node_names = set(graph.get_graph().nodes.keys())
             self.assertIn("prd_review", node_names)
             self.assertIn("prd_generation", node_names)
+            self.assertIn("issue_splitting", node_names)  # [C 2026-09-11] 块1新节点
             self.assertIn("artifact_persist", node_names)
 
-            # 静态断言条件边存在：prd_review 的 mermaid 连线指向两个目标
+            # 静态断言条件边存在：prd_review 的 mermaid 连线指向打回/拆单两个目标
             drawn = graph.get_graph().draw_mermaid()
             self.assertIn("prd_review", drawn)
             self.assertIn("prd_generation", drawn)
+            self.assertIn("issue_splitting", drawn)
             self.assertIn("artifact_persist", drawn)
 
 

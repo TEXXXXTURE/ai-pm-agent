@@ -1,0 +1,119 @@
+{# [C 2026-09-11] 研发工单清单 Markdown 模板（.md 产物，doc_type=issues）：
+   容错渲染——字段缺失/为空自动跳过；跨工单结构错误（shape_errors）来自
+   nodes/issues.py 代码硬判，两轮自检仍有错时在顶部醒目展示交人工。 #}
+# 研发工单清单 — {{ requirement_name }}，{{ generated_at }}
+
+- 来源 PRD：prd.md
+- 可开工状态：{% if plan.get("readiness") == "pass" %}pass（可按单开工）{% elif plan.get("readiness") == "needs_clarification" %}needs_clarification（有澄清项，部分可开工）{% elif plan.get("readiness") == "blocked" %}blocked（整份方案受阻，见状态说明）{% else %}{{ plan.get("readiness", "未标注") }}{% endif %}
+{%- if plan.self_fixed %}
+- 结构自检：首轮方案曾被检出结构问题，已带反馈重生成（请留意下方是否仍有残留错误）
+{%- endif %}
+{%- set rn = plan.get("readiness_notes", "") %}
+{%- if rn %}
+
+**状态说明**：{{ rn }}
+{%- endif %}
+{%- set assumptions = plan.get("assumptions", []) %}
+{%- if assumptions %}
+
+## 拆单假设
+
+{% for a in assumptions -%}
+- {{ a }}
+{% endfor %}
+{%- endif %}
+{%- set shape_errors = plan.get("shape_errors", []) %}
+{%- set shape_warnings = plan.get("shape_warnings", []) %}
+{%- if shape_errors %}
+
+> **【结构错误 {{ shape_errors | length }} 条】以下问题经系统自检重生成后仍未解决，本清单不可直接开工，须人工修复：**
+{% for e in shape_errors -%}
+>
+> {{ loop.index }}. {{ e }}
+{% endfor %}
+{%- endif %}
+{%- if shape_warnings %}
+
+> **【结构警告 {{ shape_warnings | length }} 条，不阻断，建议人工确认】**
+{% for w in shape_warnings -%}
+>
+> {{ loop.index }}. {{ w }}
+{% endfor %}
+{%- endif %}
+{%- set versions = plan.get("version_map", []) %}
+{%- set issues = plan.get("issues", []) %}
+{%- if versions %}
+
+## 版本地图（分期交付）
+
+| 版本 | 交付后用户能完成什么 | 本版范围 | 不做什么 | 外部依赖 | 整版验收口径 |
+|---|---|---|---|---|---|
+{% for v in versions -%}
+| {{ v.get("version_id", "") }} | {{ v.get("outcome", "") }} | {{ v.get("in_scope", "") }} | {{ v.get("out_of_scope", "") or "—" }} | {{ v.get("dependencies", "") or "—" }} | {{ v.get("acceptance", "") }} |
+{% endfor %}
+{%- endif %}
+
+## 工单清单（{{ issues | length }} 张）
+{% if not issues %}
+
+本方案当前没有可执行工单。{% if plan.get("readiness") == "blocked" %}readiness=blocked：整份方案存在硬阻断，详见上方"状态说明"，阻断解除后需重新拆单。{% else %}请检查 readiness 状态说明或上游 PRD / 评审结果。{% endif %}
+{%- endif %}
+{% for it in issues %}
+
+### {{ it.get("id", "?") }} {{ it.get("title", "（无标题）") }}
+
+- 类型：{% if it.get("issue_type") == "HITL" %}**HITL·有待拍板决策**{% elif it.get("issue_type") == "AFK" %}AFK·研发可直接动手{% else %}{{ it.get("issue_type", "未标注") }}{% endif %}
+{%- if it.get("issue_type") == "HITL" %}
+- **待决策**：{{ it.get("decision_needed", "") or "（未填写——须补充后才能开工）" }}
+{%- endif %}
+- 优先级：{{ it.get("priority", "未标注") }}
+{%- set labels = it.get("labels", []) %}
+{%- if labels %}
+- 标签：{% for l in labels %}{{ l }}{% if not loop.last %}、{% endif %}{% endfor %}
+{%- endif %}
+{%- set sources = it.get("source_sections", []) %}
+- 来源章节：{% if sources %}{% for s in sources %}{{ s }}{% if not loop.last %}、{% endif %}{% endfor %}{% else %}未标注{% endif %}
+- 用户价值：{{ it.get("user_value", "") }}
+- 做什么：{{ it.get("what_to_build", "") }}
+
+验收标准：
+{% set ac = it.get("acceptance_criteria", []) %}
+{%- if ac %}
+{% for c in ac -%}
+- [ ] {{ c }}
+{% endfor %}
+{%- else %}
+- [ ] （模型未提供验收标准，须人工补充）
+{%- endif %}
+
+- 验证方式：{{ it.get("verification", "") or "未填写" }}
+{%- set deps = it.get("blocked_by", []) %}
+- 依赖工单：{% if deps %}{% for d in deps %}{{ d }}{% if not loop.last %}、{% endif %}{% endfor %}{% else %}无{% endif %}
+{%- set oqs = it.get("open_questions", []) %}
+{%- if oqs %}
+- 开放问题：
+{% for q in oqs -%}
+  - {{ q }}
+{% endfor %}
+{%- endif %}
+{% endfor %}
+{%- set coverage = plan.get("coverage", []) %}
+{%- if coverage %}
+
+## 覆盖矩阵（PRD → 工单）
+
+| PRD 需求点 | 状态 | 覆盖工单 | 备注 |
+|---|---|---|---|
+{% for c in coverage -%}
+| {{ c.get("prd_item", "") }} | {% if c.get("status") == "covered" %}covered（已覆盖）{% elif c.get("status") == "excluded" %}excluded（不做）{% elif c.get("status") == "clarify" %}clarify（待澄清）{% else %}{{ c.get("status", "") }}{% endif %} | {% set refs = c.get("covered_by", []) %}{% if refs %}{% for r in refs %}{{ r }}{% if not loop.last %}、{% endif %}{% endfor %}{% else %}—{% endif %} | {{ c.get("notes", "") }} |
+{% endfor %}
+{%- endif %}
+{%- if plan.get("summary") %}
+
+## 总览
+
+{{ plan.get("summary", "") }}
+{%- endif %}
+
+---
+可自行粘贴到工单系统；如环境有 gh 可用 `gh issue create --title "I1 工单标题" --body-file <工单正文文件>` 逐条创建，本流水线不自动发布。

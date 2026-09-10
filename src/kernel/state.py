@@ -49,6 +49,15 @@ class PMState(TypedDict, total=False):
     red_team_review: dict             # 红队审查反馈
     prd_revision_count: int           # PRD 修订次数（上限 3 轮）
 
+    # ─── 工单拆解（issue_splitting + issue_confirm 确认门）───
+    # [C 2026-09-11] 块1：评审通过后拆研发工单；块2 在 issue_splitting 后插人工确认门
+    issue_plan: dict                  # 研发工单拆解方案（含 shape_errors/warnings/self_fixed）
+    issue_revision_count: int         # 工单方案修订次数（确认门前 2 轮自动重拆，之后升级暂停）
+    issue_revision_feedback: str      # 工单方案上轮修改意见（注入拆单 prompt，消费即清零）
+    # [C 2026-09-11] 块2：确认门"回PRD"回炉专用
+    issue_prd_redo_count: int         # 回炉重写 PRD 次数（硬上限 1 次）
+    prd_rewrite_feedback: str         # 工单阶段发起的 PRD 回炉意见（注入 prd_generation，消费即清零）
+
     # ─── 评估阶段 ───
     metrics_tree: dict                # 指标树
     experiment_design: dict           # 实验设计
@@ -104,6 +113,13 @@ def default_state() -> dict[str, Any]:
         "prd_sections": [],   # [T1 退役] 保留默认值供旧检查点兼容，不再写入
         "red_team_review": {},
         "prd_revision_count": 0,
+        # 工单拆解 [C 2026-09-11]
+        "issue_plan": {},
+        "issue_revision_count": 0,
+        "issue_revision_feedback": "",
+        # [C 2026-09-11] 块2 确认门回炉字段
+        "issue_prd_redo_count": 0,
+        "prd_rewrite_feedback": "",
         # 评估阶段
         "metrics_tree": {},
         "experiment_design": {},

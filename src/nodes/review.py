@@ -160,12 +160,13 @@ def make_prd_review(deps):
 
 
 def route_after_review(state: dict) -> str:
-    """条件边路由：reject 回 prd_generation 重写；其余去 artifact_persist 落盘。"""
+    """条件边路由：reject 回 prd_generation 重写；其余去 issue_splitting 拆研发工单。"""
     review = state.get("red_team_review") or {}
     if review.get("verdict") == "reject":
         return "prd_generation"
-    return "artifact_persist"
+    return "issue_splitting"
     # [C 2026-09-10] 评审门条件边路由函数
+    # [C 2026-09-11] 块1：通过分支由 artifact_persist 改走 issue_splitting（拆单后再落盘）
 
 
 # [C 2026-09-10] nodes/review.py 新增完成

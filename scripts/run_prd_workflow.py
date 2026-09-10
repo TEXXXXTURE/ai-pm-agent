@@ -201,7 +201,17 @@ def _emit_hitl(
     question = _build_question(node_name, payload, state)
 
     materials_lines: list[str] = []
-    payload_lines = _format_materials(PAYLOAD_RECAP_FIELDS, payload)
+    # [C 2026-09-11] 升级暂停三字段（status/reason/prior_feedbacks）仅对
+    # issue_confirm 载荷追加：先从共用元组中剔除，再按节点显式补回，保证
+    # ① STATUS 块不重复打印；② 绝不污染 requirement_confirm 等其他节点
+    # （即便其载荷碰巧出现同名字段）。list/dict 由 _format_materials 走 JSON。
+    issue_only_fields = ("status", "reason", "prior_feedbacks")
+    common_recap_fields = tuple(
+        f for f in PAYLOAD_RECAP_FIELDS if f not in issue_only_fields
+    )
+    payload_lines = _format_materials(common_recap_fields, payload)
+    if node_name == "issue_confirm" and isinstance(interrupt_value, dict):
+        payload_lines.extend(_format_materials(issue_only_fields, payload))
     if payload_lines:
         materials_lines.append("[中断载荷]")
         materials_lines.extend(payload_lines)
@@ -246,14 +256,34 @@ def _emit_error(thread_id: str, message: str) -> None:
 def _build_question(node_name: str, payload: dict, state: dict) -> str:
     """把中断材料整理成 Pi 能读懂并转述给用户的一句话摘要。
 
-    节点特化：requirement_confirm 是当前唯一的 HITL 中断点，给出更贴切的提示；
-    其它节点用通用模板。详细材料见 STATUS 块的 --- 段。
+    节点特化：requirement_confirm（需求确认门）/ issue_confirm（工单确认门）
+    各给贴切的三选一提示；其它节点用通用模板。详细材料见 STATUS 块的 --- 段。
     """
     if node_name == "requirement_confirm":
         return (
             "节点「requirement_confirm」进入需求确认门。"
             "请审阅下方需求理解与能力边界三色表，确认无误后回复 confirmed，"
             "或回复修改意见。"
+        )
+    if node_name == "issue_confirm":
+        if payload.get("status") == "escalated":
+            # [C 2026-09-11] 升级暂停特化文案：明确流水线已停、原因见 reason；
+            # 三选一中"回PRD"是否仍可回炉以 reason 说明为准，额度用尽时不承诺可回炉
+            return (
+                "节点「issue_confirm」工单确认门：流水线已升级暂停"
+                "（已看完第 3 版工单，或 PRD 回炉额度已用尽），"
+                "暂停原因见下方中断材料的 reason 字段，历轮意见见 prior_feedbacks。"
+                "请三选一：① 回复「确认」按当前版落盘；"
+                "② 让 Pi 协助调查后，回复一条带来新决策的具体意见，再主动拆一轮；"
+                "③ 回复「回PRD」——是否还能回炉以 reason 的说明为准"
+                "（回炉额度用尽时不再承诺可以回炉重写 PRD）。"
+            )
+        # [C 2026-09-11] 块2 工单确认门 draft 原文案（status 缺省也按 draft 处理）
+        return (
+            "节点「issue_confirm」工单确认门。请审阅工单清单草案："
+            "回复「确认」落盘；回复「回PRD」回炉重写 PRD（限1次）；"
+            "其他文本作为修改意见打回重拆（最多2轮，之后进入升级暂停，"
+            "可让 Pi 协助调查后带新决策再拆）。"
         )
     return (
         f"节点「{node_name}」请求人确认。"

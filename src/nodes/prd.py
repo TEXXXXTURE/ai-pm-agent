@@ -16,7 +16,7 @@ from kernel.spec import NodeSpec
 
 
 def make_prd_generation(deps):
-    """PRD 生成：模型原生输出 Markdown 全文，返回 {"prd_markdown": text}。"""
+    """PRD 生成：模型原生输出 Markdown 全文，返回 prd_markdown 并清零回炉意见。"""
 
     def prd_generation(state: dict) -> dict:
         prompt = deps.registry.read_prompt("prd_generation")
@@ -27,7 +27,9 @@ def make_prd_generation(deps):
             prompt_template=prompt,
         )
         text = deps.runner.run_text(spec, state)
-        return {"prd_markdown": text}
+        # [C 2026-09-11] 块2：工单确认门"回PRD"意见只注入本轮重写一次，消费即清零，
+        # 避免后续评审打回重跑时陈旧回炉意见被反复注入
+        return {"prd_markdown": text, "prd_rewrite_feedback": ""}
 
     return prd_generation
 

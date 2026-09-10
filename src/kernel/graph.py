@@ -2,13 +2,23 @@
 # [C 2026-09-09] M6 纵切联调 - 注册 nodes 包构建的 6 个真实节点，build_graph(deps, db_path)
 # [C 2026-09-10] 插入 prd_review 评审门：prd_generation → prd_review，
 #     条件边按硬判 verdict 回 prd_generation（打回，最多 3 轮）或去 artifact_persist
-"""LangGraph 图装配：纵切 7 节点真实接线 + requirement_confirm HITL 中断。
+# [C 2026-09-11] 块1 插入 issue_splitting：评审通过分支改走拆单，拆单后直连 artifact_persist
+#     （人工确认门块2再插在 issue_splitting → artifact_persist 之间）
+# [C 2026-09-11] 块2 插入 issue_confirm 工单确认门：拆单先进确认门，条件边三分支
+#     （确认落盘 / 意见回 issue_splitting 重拆 / 回PRD 回炉 prd_generation，回炉限 1 次、
+#       第 3 版仍有意见进入升级暂停中断，由人主动发起下一步，不自动空转）
+"""LangGraph 图装配：纵切 9 节点真实接线 + requirement_confirm / issue_confirm 两扇 HITL 门。
 
 节点函数由 nodes.build_nodes(deps) 构建（依赖通过 NodeDeps 注入）。
 图结构：kb_lookup → intake → requirement_confirm(HITL)
 → needs_discovery → prd_generation → prd_review
     →（verdict == "reject" 回 prd_generation 重写，最多 3 轮）
-    →（pass / pass_with_warning / 第 3 轮强制放行）artifact_persist → END。
+    →（pass / pass_with_warning / 第 3 轮强制放行）issue_splitting
+    → issue_confirm(HITL 工单确认门) → 条件边三分支：
+        artifact_persist（确认，落盘 prd/insights/review/issues 四份）
+        issue_splitting（修改意见打回重拆；前 2 轮自动，第 3 版起升级暂停）
+        prd_generation（"回PRD"回炉重写，全程限 1 次；重写后自动复审→重拆→重回确认门）
+    → artifact_persist → END。
 """
 from typing import Any
 
@@ -35,6 +45,7 @@ def build_graph(deps: Any, db_path: str | None = None) -> Any:
     # 放函数内导入可避免 kernel <-> nodes 循环导入。 [C 2026-09-09]
     from nodes import build_nodes
     from nodes.review import route_after_review  # [C 2026-09-10] 评审门条件边
+    from nodes.issues import route_after_issue_confirm  # [C 2026-09-11] 块2 工单确认门条件边
 
     nodes = build_nodes(deps)
 
@@ -58,7 +69,20 @@ def build_graph(deps: Any, db_path: str | None = None) -> Any:
     graph.add_conditional_edges(
         "prd_review",
         route_after_review,
-        {"prd_generation": "prd_generation", "artifact_persist": "artifact_persist"},
+        # [C 2026-09-11] 通过分支去 issue_splitting 拆单（块1直连落盘，块2插确认门）
+        {"prd_generation": "prd_generation", "issue_splitting": "issue_splitting"},
+    )
+    # [C 2026-09-11] 块2：拆单后不再直连落盘，先进工单确认门（HITL）
+    graph.add_edge("issue_splitting", "issue_confirm")
+    graph.add_conditional_edges(
+        "issue_confirm",
+        route_after_issue_confirm,
+        # 确认 -> artifact_persist；修改意见 -> issue_splitting 重拆；回PRD -> prd_generation 回炉
+        {
+            "issue_splitting": "issue_splitting",
+            "prd_generation": "prd_generation",
+            "artifact_persist": "artifact_persist",
+        },
     )
     graph.add_edge("artifact_persist", END)
 

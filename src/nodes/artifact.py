@@ -54,12 +54,28 @@ def make_artifact_persist(deps):
             review_path = deps.artifacts.save(review_md, name, "review", ext=".md")
             artifacts_dict["review"] = str(review_path)
 
+        # 4. 研发工单清单：issue_plan 非空时渲染 issues.md.j2 落 .md；
+        #    为空（未经拆单节点）容错跳过，不阻断前三份产物。 [C 2026-09-11]
+        issue_plan = state.get("issue_plan") or {}
+        if issue_plan:
+            issues_md = deps.artifacts.render(
+                "issues.md.j2",
+                {
+                    "requirement_name": name,
+                    "generated_at": generated_at,
+                    "plan": issue_plan,
+                },
+            ).strip()
+            issues_path = deps.artifacts.save(issues_md, name, "issues", ext=".md")
+            artifacts_dict["issues"] = str(issues_path)
+
         return {
             "prd_markdown": md,
             "artifacts": artifacts_dict,
         }
         # [C 2026-09-09] T1 产物落 .md：prd_markdown 原文 + insights.md.j2 渲染
         # [C 2026-09-10] 新增评审报告 review.md.j2 渲染落盘 + artifacts["review"]
+        # [C 2026-09-11] 新增工单清单 issues.md.j2 渲染落盘 + artifacts["issues"]
 
     return artifact_persist
 
