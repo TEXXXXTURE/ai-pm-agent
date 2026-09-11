@@ -51,16 +51,18 @@ Set-Location $ProjectRoot
 # 组装启动参数
 $piArgs = @('-ne')
 
-# 加载外置演示工具包中"环境已就绪"的技能（T5；工具清单与状态见 references/外置工具路由.md）
-# 说明：外置技能不复制进项目，pi 通过 --skill <目录> 从外置包直接加载（外置包不在则跳过，不影响启动）；
+# 加载演示工具包中"环境已就绪"的技能（T5；工具清单与状态见 references/外置工具路由.md）
+# 说明：技能实体不复制进项目 .pi/skills，pi 通过 --skill <目录> 直接加载（工具包不在则跳过，不影响启动）；
 # 只登记环境已就绪的技能——未就绪的不加载，避免 Agent 误以为可用；环境配好后在此追加一行即可。
-# [C 2026-09-10] T5-1 外置技能加载接线；T5-2 追加 diagram-mermaid
+# [C 2026-09-10] T5-1 技能加载接线；T5-2 追加 diagram-mermaid
 # [MA 2026-09-10] T5-3 追加 ppt-master（技能在仓库嵌套目录 skills\ppt-master 内）
+# [MA 2026-09-12] S028：工具包随参考库迁入项目内 工具与参考\Agent外置工具包\，路径改为基于 $ProjectRoot 推算
+$DemoToolkit = Join-Path $ProjectRoot '工具与参考\Agent外置工具包\演示工具包'
 $ExtSkillPaths = @(
-    'D:\Agent外置工具包\演示工具包\skills\frontend-slides',
-    'D:\Agent外置工具包\演示工具包\skills\lieflat-charts',
-    'D:\Agent外置工具包\演示工具包\skills\diagram-mermaid',
-    'D:\Agent外置工具包\演示工具包\skills\ppt-master\skills\ppt-master'
+    (Join-Path $DemoToolkit 'skills\frontend-slides'),
+    (Join-Path $DemoToolkit 'skills\lieflat-charts'),
+    (Join-Path $DemoToolkit 'skills\diagram-mermaid'),
+    (Join-Path $DemoToolkit 'skills\ppt-master\skills\ppt-master')
 )
 foreach ($skillDir in $ExtSkillPaths) {
     if (Test-Path (Join-Path $skillDir 'SKILL.md')) {
@@ -72,7 +74,7 @@ foreach ($skillDir in $ExtSkillPaths) {
 # 若该 venv 存在，将其 Scripts 前置到 PATH——技能脚本中的 python3/python 命令即命中本 venv
 # （Scripts 下有 python.exe 与 python3.cmd 别名）；不影响 run-tool.sh（它用 hermes 绝对路径）。
 # [MA 2026-09-10]
-$PptVenvScripts = 'D:\Agent外置工具包\演示工具包\tools\ppt-master-venv\Scripts'
+$PptVenvScripts = Join-Path $DemoToolkit 'tools\ppt-master-venv\Scripts'
 if (Test-Path (Join-Path $PptVenvScripts 'python.exe')) {
     $env:PATH = "$PptVenvScripts;$env:PATH"
 }

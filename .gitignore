@@ -28,7 +28,7 @@ kb_store/
 .idea/
 *.swp
 
-# 外部参考库（已移至 D:\PM项目参考\，不纳入版本控制）
+# 外部参考库旧位置规则（实体现位于 工具与参考/PM项目参考/，由上方规则统一排除；以下条目保留以防实体被误放回 references/）
 references/10x-pm/
 references/ai-product-manager-skills/
 references/pm-agent-harness-kit/
@@ -40,4 +40,4 @@ references/Product-Manager-Skills/
 references/product-teardown-skill/
 references/vibe-check/
 
-# [MA 2026-09-08] 更新于 2026-09-10：外部参考库移至项目外 <!-- [MA 2026-09-10] -->
+# [MA 2026-09-08] 更新于 2026-09-10：外部参考库一度移至项目外；[MA 2026-09-12] S028 迁回项目内 工具与参考/PM项目参考/ <!-- [MA 2026-09-10] -->
