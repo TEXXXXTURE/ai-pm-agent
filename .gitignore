@@ -12,8 +12,14 @@ venv/
 # 运行时数据
 ai_pm_agent.db
 ai_pm_agent.db-journal
+ai_pm_agent.db-shm
+ai_pm_agent.db-wal
 output/
 kb_store/
+
+# 用户迁入项目的外置工具包与参考库（含 Python venv/node 依赖等大体积可重装文件，不纳入版本控制；文件仍在磁盘可用）
+工具与参考/
+# [MA 2026-09-11] S026：db 临时文件 + 工具与参考目录忽略 <!-- [MA 2026-09-11] -->
 
 # IDE
 .vscode/
