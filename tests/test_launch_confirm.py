@@ -54,6 +54,7 @@ from kernel.runner import NodeRunner  # noqa: E402
 from nodes import NodeDeps  # noqa: E402
 from nodes.issues import make_issue_splitting  # noqa: E402
 from nodes.launch_plan import (  # noqa: E402
+    MAX_ESCALATION_DEPTH,
     MAX_LAUNCH_REVISIONS,
     _REDO_ESCALATION_REASON,
     _REVISION_ESCALATION_REASON,
@@ -281,6 +282,19 @@ class TestClassifyLaunchAnswer(unittest.TestCase):
         self.assertEqual(classify_launch_answer("不需要回工单"), "feedback")
         self.assertEqual(classify_launch_answer("先别回工单"), "feedback")
 
+    def test_negated_redo_issues_expanded_words(self):
+        # [C 2026-09-12 by pi-deepseek-flash] 第③项修复：此前漏配「无需」，
+        # 「无需回工单」被误判为 redo_issues；补词后一律落 feedback
+        for word in (
+            "无需回工单",
+            "无需回 工单",
+            "无需重拆工单",
+            "不需要重新拆单",
+        ):
+            self.assertEqual(classify_launch_answer(word), "feedback", msg=word)
+        # 反向回归：不带否定回工单关键词仍判 redo_issues
+        self.assertEqual(classify_launch_answer("需要回工单"), "redo_issues")
+
     def test_spaced_redo_issues_keywords(self):
         # [C 2026-09-11] 关键词内部带空格（含全角空格）归一化后仍判 redo_issues
         self.assertEqual(classify_launch_answer("回 工单"), "redo_issues")
@@ -461,6 +475,88 @@ class TestLaunchConfirmNode(unittest.TestCase):
         self.assertEqual(kinds, ["feedback", "redo_issues"])
         rounds = [item["round"] for item in out["human_feedback"]]
         self.assertEqual(rounds, ["draft-feedback-3", "redo-1"])
+
+    # ── [C 2026-09-12 by pi-deepseek-flash] 第⑥项修复：升级深度硬上限 ──
+
+    def test_escalation_depth_cap_stops_auto_rework(self):
+        # 已达升级深度上限仍继续喂意见：暂停循环反复抛同一 escalated 中断等真人输入，
+        # 前几次意见都停在 escalated、不自动重调；只有最后一次「确认」才跳出循环落盘。
+        # [C 2026-09-12 by pi-deepseek-flash-r2] 第⑥项返工：非确认不得静默落盘。
+        state = confirm_state(
+            launch_revision_count=MAX_LAUNCH_REVISIONS,
+            launch_escalation_depth=MAX_ESCALATION_DEPTH,
+        )
+        out, payloads = run_confirm_node(
+            state,
+            [
+                "第四版还不满意-AAA",
+                "再来一轮-BBB",
+                "第三次意见-CCC",
+                "确认",
+            ],
+        )
+        # draft -> 上限暂停 3 次；前两次意见各停一轮，最后一次确认才结束
+        self.assertEqual(len(payloads), 4)
+        for payload in payloads[1:]:
+            self.assertEqual(payload["status"], "escalated")
+            self.assertIn("人工介入上限", payload["reason"])
+            self.assertIn("线下核实", payload["reason"])
+        self.assertNotIn("launch_revision_feedback", out)
+        self.assertNotIn("launch_revision_count", out)
+        self.assertNotIn("launch_escalation_depth", out)
+        # 四次喂入答复恰好各留痕一条，末条才是确认
+        self.assertEqual(set(out.keys()), {"human_feedback"})
+        self.assertEqual(len(out["human_feedback"]), 4)
+        self.assertEqual(
+            [item["kind"] for item in out["human_feedback"]],
+            ["feedback", "feedback", "feedback", "confirm"],
+        )
+        self.assertEqual(
+            route_after_launch_confirm(
+                {**confirm_state(launch_revision_count=2), **out}
+            ),
+            "artifact_persist",
+        )
+
+    def test_escalation_depth_cap_confirm_lands(self):
+        # 上限暂停后回「确认」仍可按当前版落盘
+        state = confirm_state(
+            launch_revision_count=MAX_LAUNCH_REVISIONS,
+            launch_escalation_depth=MAX_ESCALATION_DEPTH,
+        )
+        out, payloads = run_confirm_node(state, ["还有意见-AAA", "确认"])
+        self.assertEqual(payloads[1]["status"], "escalated")
+        self.assertEqual(set(out.keys()), {"human_feedback"})
+        self.assertEqual(out["human_feedback"][-1]["kind"], "confirm")
+
+    def test_escalation_recursion_bounded_by_depth_cap(self):
+        # 回工单额度用尽 + 3 版保险丝：连续喂意见时升级深度递增，
+        # 达上限后不再自动重调，而是反复停在 escalated 等真人决策；
+        # 只有最后的「确认」才落盘。
+        # [C 2026-09-12 by pi-deepseek-flash-r2] 第⑥项返工：末端改停 escalated。
+        state = confirm_state(
+            launch_issue_redo_count=1,
+            launch_revision_count=MAX_LAUNCH_REVISIONS,
+            launch_escalation_depth=0,
+        )
+        out, payloads = run_confirm_node(
+            state, ["回工单", "新决策意见-A", "仍然不同意-B", "确认"]
+        )
+        self.assertEqual(len(payloads), 4)  # draft -> redo升级 -> 上限暂停 x2
+        self.assertEqual(payloads[1]["status"], "escalated")
+        self.assertIn("回工单重拆 1 次", payloads[1]["reason"])
+        # 达上限后的两次喂入意见都停在 escalated，不自动递归重调
+        self.assertEqual(payloads[2]["status"], "escalated")
+        self.assertIn("人工介入上限", payloads[2]["reason"])
+        self.assertEqual(payloads[3]["status"], "escalated")
+        self.assertIn("人工介入上限", payloads[3]["reason"])
+        # 未产出重调意见 -> 只写 human_feedback，确认后才落盘
+        self.assertNotIn("launch_revision_feedback", out)
+        self.assertEqual(set(out.keys()), {"human_feedback"})
+        self.assertEqual(out["human_feedback"][-1]["kind"], "confirm")
+        self.assertEqual(
+            route_after_launch_confirm({**state, **out}), "artifact_persist"
+        )
 
 
 # ────────────────────────── 3. 条件边路由 ──────────────────────────

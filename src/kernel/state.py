@@ -57,6 +57,8 @@ class PMState(TypedDict, total=False):
     # [C 2026-09-11] 块2：确认门"回PRD"回炉专用
     issue_prd_redo_count: int         # 回炉重写 PRD 次数（硬上限 1 次）
     prd_rewrite_feedback: str         # 工单阶段发起的 PRD 回炉意见（注入 prd_generation，消费即清零）
+    # [C 2026-09-12 by pi-deepseek-flash] 第⑥项修复：升级暂停后再给意见的硬深度上限计数
+    issue_escalation_depth: int       # 已批准的升级后重拆轮数（达上限后保持 escalated 暂停不自动空转）
 
     # ─── 发布计划（launch_plan 节点；块2 会插 launch_confirm HITL 门）───
     # [C 2026-09-11] 块1：工单确认门通过后产发布计划；关键字段非空由 judge 硬判
@@ -67,6 +69,8 @@ class PMState(TypedDict, total=False):
     launch_revision_count: int         # 发布计划重调计数（块2 用）
     launch_revision_feedback: str      # 发布计划上轮修改意见（块2 注入，消费即清零）
     launch_issue_redo_count: int       # 发布计划回工单计数（块2 用）
+    # [C 2026-09-12 by pi-deepseek-flash] 第⑥项修复：升级暂停后再给意见的硬深度上限计数
+    launch_escalation_depth: int       # 已批准的升级后重调轮数（达上限后保持 escalated 暂停不自动空转）
 
     # ─── 评估阶段 ───
     metrics_tree: dict                # 指标树
@@ -130,6 +134,8 @@ def default_state() -> dict[str, Any]:
         # [C 2026-09-11] 块2 确认门回炉字段
         "issue_prd_redo_count": 0,
         "prd_rewrite_feedback": "",
+        # [C 2026-09-12 by pi-deepseek-flash] 第⑥项修复：升级深度上限计数
+        "issue_escalation_depth": 0,
         # 发布计划 [C 2026-09-11]
         "launch_plan": {},
         "launch_plan_errors": [],
@@ -138,6 +144,8 @@ def default_state() -> dict[str, Any]:
         "launch_revision_count": 0,
         "launch_revision_feedback": "",
         "launch_issue_redo_count": 0,
+        # [C 2026-09-12 by pi-deepseek-flash] 第⑥项修复：升级深度上限计数
+        "launch_escalation_depth": 0,
         # 评估阶段
         "metrics_tree": {},
         "experiment_design": {},

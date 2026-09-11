@@ -3,7 +3,9 @@
    nodes/issues.py 代码硬判，两轮自检仍有错时在顶部醒目展示交人工。 #}
 # 研发工单清单 — {{ requirement_name }}，{{ generated_at }}
 
-- 来源 PRD：prd.md
+{#- [C 2026-09-12 by pi-deepseek-flash] 第①项修复：来源 PRD 用渲染变量真实文件名，
+   缺省容错为「未知」，不写死 prd.md #}
+- 来源 PRD：{{ prd_filename or "未知" }}
 - 可开工状态：{% if plan.get("readiness") == "pass" %}pass（可按单开工）{% elif plan.get("readiness") == "needs_clarification" %}needs_clarification（有澄清项，部分可开工）{% elif plan.get("readiness") == "blocked" %}blocked（整份方案受阻，见状态说明）{% else %}{{ plan.get("readiness", "未标注") }}{% endif %}
 {%- if plan.self_fixed %}
 - 结构自检：首轮方案曾被检出结构问题，已带反馈重生成（请留意下方是否仍有残留错误）

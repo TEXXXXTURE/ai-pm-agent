@@ -54,13 +54,18 @@ def judge_launch_plan(plan: dict) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
 
+    # [C 2026-09-12 by codebuddy-hy3] 第⑤项修复：plan 为 None 或非 dict 时一律按缺失计入
+    # errors，不得抛异常；嵌套 dict/列表内字段为 None 时各取值链路均已用 `or 默认值` 兜底
+    if not isinstance(plan, dict):
+        plan = {}
+
     tier = str(plan.get("tier") or "")
     positioning = str(plan.get("positioning") or "")
     workstreams = plan.get("workstreams") or []
     timeline = plan.get("timeline") or []
-    rollback = plan.get("rollback") or {}
+    rollback = plan.get("rollback") if isinstance(plan.get("rollback"), dict) else {}
     checklist = plan.get("go_no_go_checklist") or []
-    on_call = plan.get("on_call") or {}
+    on_call = plan.get("on_call") if isinstance(plan.get("on_call"), dict) else {}
     risks = plan.get("risks") or []
     tier1_ext = plan.get("tier1_extension")
 
@@ -246,6 +251,16 @@ _LAUNCH_CONFIRM_WORDS: frozenset[str] = frozenset(
 # 计数达到该值后仍有意见 -> 升级暂停，额外重调只能由人在升级中断里主动发起）
 MAX_LAUNCH_REVISIONS = 2
 
+# [C 2026-09-12 by pi-deepseek-flash] 第⑥项修复：升级暂停后继续喂意见的硬深度上限。
+# 升级后再给意见最多 1 轮；超过则保持 escalated 暂停、不再自动重调，防理论无限递归。
+MAX_ESCALATION_DEPTH = 1
+
+# [C 2026-09-12 by pi-deepseek-flash] 第⑥项修复：已达升级深度硬上限的暂停说明。
+_ESCALATION_LIMIT_REASON = (
+    "已达人工介入上限（升级暂停后再给意见最多 1 轮），流水线保持升级暂停、不再自动重调；"
+    "请与 Pi 线下核实后重新发起流水线，或回复「确认」按当前版落盘。"
+)
+
 # 回工单额度用尽后仍要求回工单的升级暂停说明 [C 2026-09-11]
 _REDO_ESCALATION_REASON = (
     "已回工单重拆 1 次仍无法产出满意的发布计划，流水线升级暂停，不再自动空转。"
@@ -271,6 +286,7 @@ _REDO_ISSUES_NEGATIONS: tuple[str, ...] = (
     "不会",
     "不想",
     "不需要",
+    "无需",  # [C 2026-09-12 by pi-deepseek-flash] 第③项修复：补齐否定词（「无需回工单」）
     "别",
     "勿",
     "不",
@@ -397,6 +413,8 @@ def make_launch_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节点保�
       写 issue_revision_feedback（注入 issue_splitting）-> 条件边回 issue_splitting；
       redo_issues（redo>=1）-> 升级暂停，二次答复不再回工单
       （再次要求回工单按"仍需回工单："前缀的发布计划意见处理）。
+    - [C 2026-09-12 by pi-deepseek-flash] 第⑥项：升级深度硬上限（最多 1 轮），
+      超限保持 escalated 暂停、不再自动重调，防理论无限递归。
     """
 
     def launch_confirm(state: dict) -> dict:
@@ -407,6 +425,9 @@ def make_launch_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节点保�
             for item in (state.get("human_feedback") or [])
             if isinstance(item, dict)
         ]
+        # [C 2026-09-12 by pi-deepseek-flash] 第⑥项修复：入口读已批准的升级后重调轮数，
+        # 供本次是否触达硬上限判断（升级后再给意见最多 MAX_ESCALATION_DEPTH 轮）
+        escalation_depth = int(state.get("launch_escalation_depth") or 0)
 
         def append_log(kind: str, text: str, round_label: str) -> None:
             feedback_log.append(
@@ -423,10 +444,10 @@ def make_launch_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节点保�
             append_log(kind, text, round_label)
             return {"human_feedback": feedback_log}
 
-        def feedback_update(text: str, count: int) -> dict:
+        def feedback_update(text: str, count: int, depth: int | None = None) -> dict:
             # 打回重调：计数 +1，意见按固定格式包装后供 launch_plan prompt 注入
             new_count = count + 1
-            return {
+            update = {
                 "launch_revision_count": new_count,
                 "launch_revision_feedback": (
                     f"【第{new_count}轮发布计划修改意见】{text}\n"
@@ -434,6 +455,10 @@ def make_launch_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节点保�
                 ),
                 "human_feedback": feedback_log,
             }
+            if depth is not None:
+                # [C 2026-09-12 by pi-deepseek-flash] 第⑥项：记录已批准的升级后重调轮数
+                update["launch_escalation_depth"] = depth
+            return update
 
         def escalation_interrupt(reason: str):
             """升级暂停：抛出第二个 interrupt 请人主动决策（不自动空转）。"""
@@ -448,8 +473,39 @@ def make_launch_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节点保�
                 }
             )
 
-        def ask_then_route(text: str, count: int, round_label: str) -> dict:
+        def escalation_limit_stop(round_label: str) -> dict:
+            """已达人工介入上限：暂停循环，反复抛同一 escalated 中断等真人答复。
+
+            只有「确认」才跳出循环、走 confirm_update 按当前版落盘；
+            非确认答复（feedback / redo_issues 一律）不写任何意见、计数、深度字段，
+            恰好留痕一条后继续抛中断等下一轮真人输入。
+            人工驱动的反复暂停不是空转：空转指无人值守自动调模型重调，
+            本循环每轮都在等真人输入、不调模型。
+
+            [C 2026-09-12 by pi-deepseek-flash] 第⑥项修复：硬深度上限落点。
+            [C 2026-09-12 by pi-deepseek-flash-r2] 第⑥项返工：非确认答复由
+            「返回留痕 dict」改为「继续暂停」，杜绝被条件边当确认而静默落盘。
+            """
+            seq = 0
+            while True:
+                seq += 1
+                answer = escalation_interrupt(_ESCALATION_LIMIT_REASON)
+                kind2, text2 = _normalize_answer(answer)
+                # round 标签带序号区分：首轮沿用原标签，其后追加 -2/-3…
+                label = round_label if seq == 1 else f"{round_label}-{seq}"
+                if kind2 == "confirm":
+                    # 仅确认跳出循环落盘：confirm_update 恰好为该答复留痕一条
+                    return confirm_update(kind2, text2, f"{label}-confirm")
+                # 非确认答复：不写任何意见/计数/深度字段，仅留痕一条后继续暂停
+                append_log(kind2, text2, label)
+
+        def ask_then_route(
+            text: str, count: int, round_label: str, depth: int = 0
+        ) -> dict:
             """第 3 版仍有意见：升级暂停，按二次答复分流。"""
+            if depth >= MAX_ESCALATION_DEPTH:
+                # [C 2026-09-12 by pi-deepseek-flash] 第⑥项：超限保持 escalated，不自动重调
+                return escalation_limit_stop(f"{round_label}-escalation-limit")
             second_answer = escalation_interrupt(_REVISION_ESCALATION_REASON)
             kind2, text2 = _normalize_answer(second_answer)
             if kind2 == "confirm":
@@ -457,14 +513,17 @@ def make_launch_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节点保�
             if kind2 == "redo_issues":
                 # 二次答复改选回工单：交回工单判定（redo=0 正常回工单 / redo=1 再升级）；
                 # 留痕由 handle_redo_issues 按最终动作统一记录，避免重复
-                return handle_redo_issues(text2)
-            # 人带来新决策的具体意见：主动发起再调一轮（计数照常 +1）
+                return handle_redo_issues(text2, depth + 1)
+            # 人带来新决策的具体意见：主动发起再调一轮（计数照常 +1，升级深度 +1）
             append_log(kind2, text2, "escalation-feedback")
-            return feedback_update(text2, count)
+            return feedback_update(text2, count, depth + 1)
 
-        def handle_redo_issues(text: str) -> dict:
+        def handle_redo_issues(text: str, depth: int = 0) -> dict:
             redo = int(state.get("launch_issue_redo_count") or 0)
             if redo >= 1:
+                if depth >= MAX_ESCALATION_DEPTH:
+                    # [C 2026-09-12 by pi-deepseek-flash] 第⑥项：超限保持 escalated，不再递归
+                    return escalation_limit_stop("redo-escalation-limit")
                 # 回工单额度已用尽：升级暂停。二次答复只有确认/带意见再调，不再回工单。
                 second_answer = escalation_interrupt(_REDO_ESCALATION_REASON)
                 kind2, text2 = _normalize_answer(second_answer)
@@ -477,8 +536,10 @@ def make_launch_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节点保�
                 append_log("feedback", text2, "redo-escalation-feedback")
                 if count >= MAX_LAUNCH_REVISIONS:
                     # 同时触达 3 版保险丝：再给一次升级选择，不自动空转
-                    return ask_then_route(text2, count, "redo-escalation-feedback")
-                return feedback_update(text2, count)
+                    return ask_then_route(
+                        text2, count, "redo-escalation-feedback", depth + 1
+                    )
+                return feedback_update(text2, count, depth + 1)
 
             # redo=0：发起全程唯一一次回工单——清空发布计划、回工单计数置 1、
             # 发布计划修订计数归零、写 issue_revision_feedback 注入 issue_splitting。
@@ -490,6 +551,8 @@ def make_launch_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节点保�
                 "launch_revision_count": 0,
                 "launch_revision_feedback": "",
                 "issue_revision_feedback": _build_issue_redo_feedback(text),
+                # [C 2026-09-12 by pi-deepseek-flash] 第⑥项：回工单后重新计升级深度
+                "launch_escalation_depth": 0,
                 "human_feedback": feedback_log,
             }
 
@@ -511,13 +574,15 @@ def make_launch_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节点保�
             # [C 2026-09-11] 不在 draft 分支留痕：redo=0 由 handle_redo_issues
             # 统一记 redo-1；redo>=1 进入升级暂停，留痕按二次答复的最终动作记录，
             # 与 ask_then_route 改选回工单路径保持"恰好一次"约定
-            return handle_redo_issues(text)
+            return handle_redo_issues(text, escalation_depth)
 
         # feedback：2 轮保险丝内直接重调；第 3 版起先升级暂停
         count = int(state.get("launch_revision_count") or 0)
         append_log(kind, text, f"draft-feedback-{count + 1}")
         if count >= MAX_LAUNCH_REVISIONS:
-            return ask_then_route(text, count, f"draft-feedback-{count + 1}")
+            return ask_then_route(
+                text, count, f"draft-feedback-{count + 1}", escalation_depth
+            )
         return feedback_update(text, count)
 
     return launch_confirm

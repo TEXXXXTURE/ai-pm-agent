@@ -44,7 +44,11 @@ from kernel.graph import build_graph  # noqa: E402
 from kernel.runner import NodeRunner  # noqa: E402
 from nodes import NodeDeps  # noqa: E402
 from nodes.artifact import make_artifact_persist  # noqa: E402
-from nodes.issues import judge_issue_plan, make_issue_splitting  # noqa: E402
+from nodes.issues import (  # noqa: E402
+    judge_issue_plan,
+    make_issue_splitting,
+    parse_summary_counts,
+)
 from nodes.review import route_after_review  # noqa: E402
 
 COMPONENTS_DIR = SRC_DIR / "components"
@@ -258,6 +262,65 @@ class TestJudgeIssuePlan(unittest.TestCase):
         self.assertEqual(judged["errors"], [])
         self.assertTrue(any("共同覆盖" in w for w in judged["warnings"]))
 
+    # ── [C 2026-09-12 by pi-deepseek-flash] 第④项修复：summary 自报计数校验 ──
+
+    def test_parse_summary_counts(self):
+        # 常见写法：N 张 AFK / AFK N 张 / 共 N 张 / N 张工单
+        self.assertEqual(
+            parse_summary_counts("3 张 AFK、1 张 HITL，共 4 张"),
+            {"AFK": 3, "HITL": 1, "TOTAL": 4},
+        )
+        self.assertEqual(parse_summary_counts("AFK 2 张"), {"AFK": 2})
+        self.assertEqual(parse_summary_counts("9 张工单，整体可开工"), {"TOTAL": 9})
+        self.assertEqual(parse_summary_counts("无法给出数量"), {})
+        self.assertEqual(parse_summary_counts(""), {})
+
+    def test_summary_self_report_mismatch_warns(self):
+        # 实际 2 张全 AFK，summary 却自报 9 张/3 AFK/1 HITL -> 告警但不阻断、不加 error
+        issues = [make_issue("I1"), make_issue("I2")]
+        judged = judge_issue_plan(
+            plan_payload(
+                issues=issues,
+                coverage=[
+                    {"prd_item": "x", "status": "covered", "covered_by": ["I1"], "notes": ""}
+                ],
+                summary="共 9 张，其中 3 张 AFK、1 张 HITL，整体可开工",
+            )
+        )
+        self.assertEqual(judged["errors"], [])
+        mismatch = [
+            w for w in judged["warnings"] if "自报计数与实际工单不一致" in w
+        ]
+        self.assertEqual(len(mismatch), 1)
+        self.assertIn("工单总数自报 9，实际 2", mismatch[0])
+        self.assertIn("AFK 数自报 3，实际 2", mismatch[0])
+        self.assertIn("HITL 数自报 1，实际 0", mismatch[0])
+
+    def test_summary_self_report_correct_no_warning(self):
+        # 自报与实际一致 -> 不得出现计数告警
+        issues = [
+            make_issue("I1"),
+            make_issue(
+                "I2",
+                issue_type="HITL",
+                decision_needed="待拍板退款口径",
+                open_questions=["本期是否做退款"],
+            ),
+        ]
+        judged = judge_issue_plan(
+            plan_payload(
+                issues=issues,
+                coverage=[
+                    {"prd_item": "x", "status": "covered", "covered_by": ["I1"], "notes": ""}
+                ],
+                summary="共 2 张，其中 1 张 AFK、1 张 HITL",
+            )
+        )
+        self.assertEqual(judged["errors"], [])
+        self.assertFalse(
+            any("自报计数与实际工单不一致" in w for w in judged["warnings"])
+        )
+
 
 # ────────────────────────── 2. 节点级行为 ──────────────────────────
 
@@ -399,10 +462,16 @@ class TestGraphWiring(unittest.TestCase):
 # ────────────────────────── 5. 模板渲染（四场景）──────────────────────────
 
 
-def render_issues(deps, plan):
+def render_issues(deps, plan, prd_filename="launch-smoke-prd.md"):
+    # [C 2026-09-12 by pi-deepseek-flash] 第①项修复：渲染上下文补 prd_filename
     return deps.artifacts.render(
         "issues.md.j2",
-        {"requirement_name": "demo-req", "generated_at": "2026-09-11", "plan": plan},
+        {
+            "requirement_name": "demo-req",
+            "generated_at": "2026-09-11",
+            "plan": plan,
+            "prd_filename": prd_filename,
+        },
     )
 
 
@@ -421,7 +490,17 @@ class TestIssuesTemplate(unittest.TestCase):
             self.assertIn("覆盖矩阵", md)
             self.assertIn("无", md)  # 空依赖显示"无"
             self.assertIn("gh issue create", md)  # 末尾发布提示
-            self.assertIn("prd.md", md)  # 来源标注
+            self.assertIn("launch-smoke-prd.md", md)  # [C 2026-09-12 by pi-deepseek-flash] 来源标注用真实文件名
+            self.assertNotIn("来源 PRD：prd.md", md)  # 不再写死 prd.md
+
+    def test_render_missing_prd_filename_falls_back(self):
+        # [C 2026-09-12 by pi-deepseek-flash] 第①项修复：缺 prd_filename 直接渲染不炸，容错为「未知」
+        with tempfile.TemporaryDirectory() as tmp:
+            deps = make_deps(Path(tmp))
+            plan = dict(plan_payload())
+            plan.update({"shape_errors": [], "shape_warnings": [], "self_fixed": False})
+            md = render_issues(deps, plan, prd_filename=None)
+            self.assertIn("来源 PRD：未知", md)
 
     def test_render_blocked_empty_issues(self):
         with tempfile.TemporaryDirectory() as tmp:

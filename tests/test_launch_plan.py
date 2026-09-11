@@ -157,7 +157,7 @@ def valid_plan(tier="2", **overrides):
             "oncall_roster": [
                 {"day": "Day1", "owner": "王五", "focus": "盯错误率与核心转化"}
             ],
-            "first_retro_date": "T+7（对照 D7 目标做首次复盘）",
+            "first_retro_date": "T+7",
         },
         "risks": [
             {
@@ -248,6 +248,32 @@ class TestJudgeLaunchPlan(unittest.TestCase):
     def test_empty_risks(self):
         errors, _ = judge_launch_plan(valid_plan(risks=[]))
         self.assertTrue(any("risks 为空" in e for e in errors))
+
+    def test_plan_none_no_raise_counts_as_missing(self):
+        # [C 2026-09-12 by codebuddy-hy3] 第⑤项修复：
+        # plan 为 None 不得抛异常，一律按关键字段缺失计入 errors
+        errors, _ = judge_launch_plan(None)
+        self.assertTrue(errors)
+        self.assertTrue(any("tier 为空" in e for e in errors))
+        self.assertTrue(any("positioning 为空" in e for e in errors))
+        self.assertTrue(any("on_call 为空" in e for e in errors))
+
+    def test_plan_empty_dict_no_raise_counts_as_missing(self):
+        # [C 2026-09-12 by codebuddy-hy3] 第⑤项修复：
+        # plan 为空 dict 不得抛异常，一律按关键字段缺失计入 errors
+        errors, _ = judge_launch_plan({})
+        self.assertTrue(errors)
+        self.assertTrue(any("tier 为空" in e for e in errors))
+        self.assertTrue(any("workstreams 为空" in e for e in errors))
+        self.assertTrue(any("risks 为空" in e for e in errors))
+
+    def test_nested_none_field_no_raise(self):
+        # [C 2026-09-12 by codebuddy-hy3] 第⑤项修复：
+        # 嵌套字段为 None（如 on_call=None）不得抛异常，按缺失计入 errors
+        errors, _ = judge_launch_plan(valid_plan(on_call=None))
+        self.assertTrue(any("on_call 为空" in e for e in errors))
+        errors2, _ = judge_launch_plan(valid_plan(rollback=None))
+        self.assertTrue(any("rollback 为空" in e for e in errors2))
 
     def test_tier1_without_extension_errors(self):
         # Tier1 时 tier1_extension 必填；None/空都判错
@@ -441,10 +467,16 @@ class TestGraphWiring(unittest.TestCase):
 # ────────────────────────── 5. 模板渲染（三场景）──────────────────────────
 
 
-def render_launch(deps, plan):
+def render_launch(deps, plan, prd_filename="launch-smoke-prd.md"):
+    # [C 2026-09-12 by pi-deepseek-flash] 第①项修复：渲染上下文补 prd_filename
     return deps.artifacts.render(
         "launch_plan.md.j2",
-        {"requirement_name": "demo-req", "generated_at": "2026-09-11", "plan": plan},
+        {
+            "requirement_name": "demo-req",
+            "generated_at": "2026-09-11",
+            "plan": plan,
+            "prd_filename": prd_filename,
+        },
     )
 
 
@@ -466,11 +498,25 @@ class TestLaunchPlanTemplate(unittest.TestCase):
             self.assertIn("Top", md)
             self.assertIn("错误率 > 2%", md)
             self.assertIn("【CP】是", md)  # 关键路径标注
+            # [C 2026-09-12 by codebuddy-hy3] 第②项修复：first_retro_date 字段值只写日期本身，
+            # 括注由模板统一追加，渲染结果只出现一次括注（不应出现双括注）
+            self.assertIn("首次复盘日期：T+7（届时调用 retro 技能", md)
+            self.assertNotIn("对照 D7 目标做首次复盘）", md)
             self.assertIn("prd.md", md)  # 来源标注
+            self.assertIn("launch-smoke-prd.md", md)  # [C 2026-09-12 by pi-deepseek-flash] 来源用真实文件名
             # Tier2 不渲染 Tier1 扩展段（用段标题与滩头市场判断，避免误命中署名注释）
             self.assertNotIn("## Tier1 扩展", md)
             self.assertNotIn("滩头市场", md)
             self.assertNotIn("ICP（理想客户画像）", md)
+
+    def test_render_missing_prd_filename_falls_back(self):
+        # [C 2026-09-12 by pi-deepseek-flash] 第①项修复：缺 prd_filename 直接渲染不炸，容错为「未知」
+        with tempfile.TemporaryDirectory() as tmp:
+            deps = make_deps(Path(tmp))
+            plan = dict(valid_plan())
+            plan.update({"shape_errors": [], "shape_warnings": [], "self_fixed": False})
+            md = render_launch(deps, plan, prd_filename=None)
+            self.assertIn("来源 PRD：未知", md)
 
     def test_render_tier1_with_extension(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -627,4 +673,6 @@ class TestLaunchPromptConditional(unittest.TestCase):
 if __name__ == "__main__":
     unittest.main(verbosity=2)
 
-# [C 2026-09-11] tests/test_launch_plan.py 块1 新增完成（28 条假 LLM 自测）
+# [C 2026-09-11] tests/test_launch_plan.py 块1 新增完成
+# [C 2026-09-12 by codebuddy-hy3] 修正过期条数注释：原写 28 条，实际 33 条；
+# 第⑤项新增 plan=None/空dict/嵌套None 三个用例后，现共 36 条假 LLM 自测

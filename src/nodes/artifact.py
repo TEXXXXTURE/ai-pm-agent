@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 
 from kernel.exceptions import NodeExecutionError
 
@@ -23,6 +24,9 @@ def make_artifact_persist(deps):
         if not md:
             raise NodeExecutionError("artifact_persist", "prd_markdown 为空，无法落盘")
         prd_path = deps.artifacts.save(md, name, "prd", ext=".md")
+        # [C 2026-09-12 by pi-deepseek-flash] 第①项修复：真实落盘文件名带需求名前缀
+        # （如 launch-smoke-prd.md），下游模板不再写死 "prd.md"；取 basename 传入渲染上下文。
+        prd_filename = Path(prd_path).name
 
         # 2. 需求洞察：Markdown 版 Jinja2 模板容错渲染后落盘（T1）
         insights_md = deps.artifacts.render(
@@ -64,6 +68,7 @@ def make_artifact_persist(deps):
                     "requirement_name": name,
                     "generated_at": generated_at,
                     "plan": issue_plan,
+                    "prd_filename": prd_filename,  # [C 2026-09-12 by pi-deepseek-flash] 第①项
                 },
             ).strip()
             issues_path = deps.artifacts.save(issues_md, name, "issues", ext=".md")
@@ -79,6 +84,7 @@ def make_artifact_persist(deps):
                     "requirement_name": name,
                     "generated_at": generated_at,
                     "plan": launch_plan,
+                    "prd_filename": prd_filename,  # [C 2026-09-12 by pi-deepseek-flash] 第①项
                 },
             ).strip()
             launch_path = deps.artifacts.save(launch_md, name, "launch_plan", ext=".md")

@@ -102,7 +102,9 @@ class OnCall(BaseModel):
     oncall_roster: list[OncallRosterEntry] = Field(
         min_length=1, description="Day1-7 值班表（至少 1 行）"
     )
-    first_retro_date: str = Field(description="首次复盘日期（届时调用 retro 技能）")
+    first_retro_date: str = Field(
+        description="首次复盘日期（只写日期本身，如 T+7 或具体日期；括注说明由模板统一追加，值里不带括注）"
+    )
 
 
 class Risk(BaseModel):

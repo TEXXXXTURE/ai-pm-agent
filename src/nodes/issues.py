@@ -41,6 +41,10 @@ SELF_FIX_MAX = 1
 # 计数达到该值后仍有意见 -> 升级暂停，额外重拆只能由人在升级中断里主动发起）
 MAX_ISSUE_REVISIONS = 2
 
+# [C 2026-09-12 by pi-deepseek-flash] 第⑥项修复：升级暂停后继续喂意见的硬深度上限。
+# 升级后再给意见最多 1 轮；超过则保持 escalated 暂停、不再自动重拆，防理论无限递归。
+MAX_ESCALATION_DEPTH = 1
+
 # "回PRD"包含判定关键词（统一小写匹配，命中即回炉；优先级高于确认精确匹配） [C 2026-09-11]
 _BACK_TO_PRD_KEYWORDS: tuple[str, ...] = (
     "回prd",
@@ -93,6 +97,13 @@ _REVISION_ESCALATION_REASON = (
     "③ 回复「确认」按当前版落盘。"
 )
 
+# [C 2026-09-12 by pi-deepseek-flash] 第⑥项修复：已达升级深度硬上限的暂停说明。
+# 与常规升级暂停文案区分，明确要求用户线下决策，不再自动重拆。
+_ESCALATION_LIMIT_REASON = (
+    "已达人工介入上限（升级暂停后再给意见最多 1 轮），流水线保持升级暂停、不再自动重拆；"
+    "请与 Pi 线下核实后重新发起流水线，或回复「确认」按当前版落盘。"
+)
+
 # 工单数量粒度告警阈值
 TOO_MANY_ISSUES = 12
 # 单个需求点被多少张工单共同覆盖时告警（疑似切分过碎）
@@ -100,6 +111,34 @@ COVERAGE_FANOUT_WARN = 3
 
 # 横切票标题黑名单正则：命中即告警（按技术层/活动切分而非端到端用户价值）
 _HORIZONTAL_TITLE_RE = re.compile(r"前端|后端|接口|联调|测试|单测|重构|美化|样式|边缘|异常情况")
+
+
+# [C 2026-09-12 by pi-deepseek-flash] 第④项修复：summary 自报计数校验用正则。
+# 真机出现过模型自报"10 张/8 AFK"而实际 9 张/7 AFK；从 issues 列表实算，不符则告警。
+_SUMMARY_TYPE_COUNT_RE = re.compile(
+    r"(\d+)\s*张\s*(AFK|HITL)|(AFK|HITL)\s*(\d+)\s*张", re.IGNORECASE
+)
+_SUMMARY_TOTAL_RE = re.compile(
+    r"(?:共|合计|总计)\s*(\d+)\s*张|(\d+)\s*张\s*工单", re.IGNORECASE
+)
+
+
+def parse_summary_counts(summary: str) -> dict[str, int]:
+    """从 summary 自由文本抽取自报计数，键为 TOTAL/AFK/HITL（未出现的不放键）。
+
+    兼容"3 张 AFK""AFK 3 张""共 9 张""9 张工单"等常见写法。 [C 2026-09-12 by pi-deepseek-flash]
+    """
+    text = str(summary or "").upper()
+    reported: dict[str, int] = {}
+    for match in _SUMMARY_TYPE_COUNT_RE.finditer(text):
+        if match.group(1) is not None:
+            reported[match.group(2)] = int(match.group(1))
+        else:
+            reported.setdefault(match.group(3), int(match.group(4)))
+    for match in _SUMMARY_TOTAL_RE.finditer(text):
+        reported["TOTAL"] = int(match.group(1) or match.group(2))
+        break
+    return reported
 
 
 def judge_issue_plan(plan: dict) -> dict:
@@ -206,6 +245,34 @@ def judge_issue_plan(plan: dict) -> dict:
             "建议按用户旅程合并，或用 version_map 分期交付"
         )
 
+    # ── 7. summary 自报计数校验（不阻断、不触发重调）──
+    # [C 2026-09-12 by pi-deepseek-flash] 第④项修复：模型自报张数/类型数常与实际不符，
+    # 从 issues 列表实算总数/AFK 数/HITL 数，与 summary 抽取的数字比对，不符只加告警。
+    summary_text = str(plan.get("summary") or "").strip()
+    if summary_text:
+        actual_total = len(issues)
+        actual_afk = sum(
+            1 for it in issues if str(it.get("issue_type") or "").upper() == "AFK"
+        )
+        actual_hitl = sum(
+            1 for it in issues if str(it.get("issue_type") or "").upper() == "HITL"
+        )
+        reported = parse_summary_counts(summary_text)
+        mismatches: list[str] = []
+        for key, actual, label in (
+            ("TOTAL", actual_total, "工单总数"),
+            ("AFK", actual_afk, "AFK 数"),
+            ("HITL", actual_hitl, "HITL 数"),
+        ):
+            if key in reported and reported[key] != actual:
+                mismatches.append(f"{label}自报 {reported[key]}，实际 {actual}")
+        if mismatches:
+            warnings.append(
+                "summary 自报计数与实际工单不一致（"
+                + "；".join(mismatches)
+                + "），以实际 issues 列表为准，请核对 summary 表述"
+            )
+
     return {"errors": errors, "warnings": warnings}
     # [C 2026-09-11] 工单方案结构硬判纯函数，便于零 API 单测
 
@@ -306,9 +373,11 @@ def make_issue_splitting(deps):
 _BACK_TO_PRD_NEGATIONS: tuple[str, ...] = (
     "不用",
     "不要",
+    "不需要",  # [C 2026-09-12 by pi-deepseek-flash] 第③项修复：补齐否定词，修正「不需要回炉」误判
     "不必",
     "不会",
     "不想",
+    "无需",  # [C 2026-09-12 by pi-deepseek-flash] 第③项修复：补齐否定词（「无需回PRD」）
     "别",
     "勿",
     "不",
@@ -431,6 +500,8 @@ def make_issue_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节点保�
     - back_to_prd（redo=0）-> 清空 plan、redo 置 1、修订计数归零、写 prd_rewrite_feedback
       -> 条件边回 prd_generation；back_to_prd（redo>=1）-> 升级暂停，
       二次答复不再回 PRD（再次要求回炉按"仍需回炉PRD："前缀的工单意见处理）。
+    - [C 2026-09-12 by pi-deepseek-flash] 第⑥项：升级深度硬上限（最多 1 轮），
+      超限保持 escalated 暂停、不再自动重拆，防理论无限递归。
     """
 
     def issue_confirm(state: dict) -> dict:
@@ -441,6 +512,9 @@ def make_issue_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节点保�
             for item in (state.get("human_feedback") or [])
             if isinstance(item, dict)
         ]
+        # [C 2026-09-12 by pi-deepseek-flash] 第⑥项修复：入口读已批准的升级后重拆轮数，
+        # 供本次是否触达硬上限判断（升级后再给意见最多 MAX_ESCALATION_DEPTH 轮）
+        escalation_depth = int(state.get("issue_escalation_depth") or 0)
 
         def append_log(kind: str, text: str, round_label: str) -> None:
             feedback_log.append(
@@ -457,10 +531,10 @@ def make_issue_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节点保�
             append_log(kind, text, round_label)
             return {"human_feedback": feedback_log}
 
-        def feedback_update(text: str, count: int) -> dict:
+        def feedback_update(text: str, count: int, depth: int | None = None) -> dict:
             # 打回重拆：计数 +1，意见按固定格式包装后供 issue_splitting prompt 注入
             new_count = count + 1
-            return {
+            update = {
                 "issue_revision_count": new_count,
                 "issue_revision_feedback": (
                     f"【第{new_count}轮工单修改意见】{text}\n"
@@ -468,6 +542,10 @@ def make_issue_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节点保�
                 ),
                 "human_feedback": feedback_log,
             }
+            if depth is not None:
+                # [C 2026-09-12 by pi-deepseek-flash] 第⑥项：记录已批准的升级后重拆轮数
+                update["issue_escalation_depth"] = depth
+            return update
 
         def escalation_interrupt(reason: str):
             """升级暂停：抛出第二个 interrupt 请人主动决策（不自动空转）。"""
@@ -482,8 +560,39 @@ def make_issue_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节点保�
                 }
             )
 
-        def ask_then_route(text: str, count: int, round_label: str) -> dict:
+        def escalation_limit_stop(round_label: str) -> dict:
+            """已达人工介入上限：暂停循环，反复抛同一 escalated 中断等真人答复。
+
+            只有「确认」才跳出循环、走 confirm_update 按当前版落盘；
+            非确认答复（feedback / back_to_prd 一律）不写任何意见、计数、深度字段，
+            恰好留痕一条后继续抛中断等下一轮真人输入。
+            人工驱动的反复暂停不是空转：空转指无人值守自动调模型重拆，
+            本循环每轮都在等真人输入、不调模型。
+
+            [C 2026-09-12 by pi-deepseek-flash] 第⑥项修复：硬深度上限落点。
+            [C 2026-09-12 by pi-deepseek-flash-r2] 第⑥项返工：非确认答复由
+            「返回留痕 dict」改为「继续暂停」，杜绝被条件边当确认而静默落盘。
+            """
+            seq = 0
+            while True:
+                seq += 1
+                answer = escalation_interrupt(_ESCALATION_LIMIT_REASON)
+                kind2, text2 = _normalize_answer(answer)
+                # round 标签带序号区分：首轮沿用原标签，其后追加 -2/-3…
+                label = round_label if seq == 1 else f"{round_label}-{seq}"
+                if kind2 == "confirm":
+                    # 仅确认跳出循环落盘：confirm_update 恰好为该答复留痕一条
+                    return confirm_update(kind2, text2, f"{label}-confirm")
+                # 非确认答复：不写任何意见/计数/深度字段，仅留痕一条后继续暂停
+                append_log(kind2, text2, label)
+
+        def ask_then_route(
+            text: str, count: int, round_label: str, depth: int = 0
+        ) -> dict:
             """第 3 版仍有意见：升级暂停，按二次答复分流。"""
+            if depth >= MAX_ESCALATION_DEPTH:
+                # [C 2026-09-12 by pi-deepseek-flash] 第⑥项：超限保持 escalated，不自动重拆
+                return escalation_limit_stop(f"{round_label}-escalation-limit")
             second_answer = escalation_interrupt(_REVISION_ESCALATION_REASON)
             kind2, text2 = _normalize_answer(second_answer)
             if kind2 == "confirm":
@@ -491,14 +600,17 @@ def make_issue_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节点保�
             if kind2 == "back_to_prd":
                 # 二次答复改选回 PRD：交回炉判定（redo=0 正常回炉 / redo=1 再升级）；
                 # 留痕由 handle_back_to_prd 按最终动作统一记录，避免重复
-                return handle_back_to_prd(text2)
-            # 人带来新决策的具体意见：主动发起再拆一轮（计数照常 +1）
+                return handle_back_to_prd(text2, depth + 1)
+            # 人带来新决策的具体意见：主动发起再拆一轮（计数照常 +1，升级深度 +1）
             append_log(kind2, text2, "escalation-feedback")
-            return feedback_update(text2, count)
+            return feedback_update(text2, count, depth + 1)
 
-        def handle_back_to_prd(text: str) -> dict:
+        def handle_back_to_prd(text: str, depth: int = 0) -> dict:
             redo = int(state.get("issue_prd_redo_count") or 0)
             if redo >= 1:
+                if depth >= MAX_ESCALATION_DEPTH:
+                    # [C 2026-09-12 by pi-deepseek-flash] 第⑥项：超限保持 escalated，不再递归
+                    return escalation_limit_stop("redo-escalation-limit")
                 # 回炉额度已用尽：升级暂停。二次答复只有确认/带意见再拆，不再回 PRD。
                 second_answer = escalation_interrupt(_REDO_ESCALATION_REASON)
                 kind2, text2 = _normalize_answer(second_answer)
@@ -511,8 +623,10 @@ def make_issue_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节点保�
                 append_log("feedback", text2, "redo-escalation-feedback")
                 if count >= MAX_ISSUE_REVISIONS:
                     # 同时触达 3 版保险丝：再给一次升级选择，不自动空转
-                    return ask_then_route(text2, count, "redo-escalation-feedback")
-                return feedback_update(text2, count)
+                    return ask_then_route(
+                        text2, count, "redo-escalation-feedback", depth + 1
+                    )
+                return feedback_update(text2, count, depth + 1)
 
             # redo=0：发起全程唯一一次 PRD 回炉——清空工单、回炉计数置 1、
             # 工单修订计数归零（回炉后等同新一轮拆单）、评审打回计数不在此动。
@@ -523,6 +637,8 @@ def make_issue_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节点保�
                 "issue_revision_count": 0,
                 "issue_revision_feedback": "",
                 "prd_rewrite_feedback": _build_prd_redo_feedback(text),
+                # [C 2026-09-12 by pi-deepseek-flash] 第⑥项：回炉后重新计升级深度
+                "issue_escalation_depth": 0,
                 "human_feedback": feedback_log,
             }
 
@@ -544,13 +660,15 @@ def make_issue_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节点保�
             # [C 2026-09-11] 不在 draft 分支留痕：redo=0 由 handle_back_to_prd
             # 统一记 redo-1；redo>=1 进入升级暂停，留痕按二次答复的最终动作记录，
             # 与 ask_then_route 改选回PRD 路径保持"恰好一次"约定
-            return handle_back_to_prd(text)
+            return handle_back_to_prd(text, escalation_depth)
 
         # feedback：2 轮保险丝内直接重拆；第 3 版起先升级暂停
         count = int(state.get("issue_revision_count") or 0)
         append_log(kind, text, f"draft-feedback-{count + 1}")
         if count >= MAX_ISSUE_REVISIONS:
-            return ask_then_route(text, count, f"draft-feedback-{count + 1}")
+            return ask_then_route(
+                text, count, f"draft-feedback-{count + 1}", escalation_depth
+            )
         return feedback_update(text, count)
 
     return issue_confirm

@@ -4,7 +4,9 @@
    对照 .pi/skills/launch-plan/SKILL.md 第三节输出模板渲染。 #}
 # 发布计划 — {{ requirement_name }}，{{ generated_at }}
 
-- 来源 PRD：prd.md
+{#- [C 2026-09-12 by pi-deepseek-flash] 第①项修复：来源 PRD 用渲染变量真实文件名，
+   缺省容错为「未知」，不写死 prd.md #}
+- 来源 PRD：{{ prd_filename or "未知" }}
 - 分层：{% if plan.get("tier") == "1" %}**Tier 1（大发布）**{% elif plan.get("tier") == "2" %}Tier 2（中等发布）{% elif plan.get("tier") == "3" %}Tier 3（小发布）{% else %}{{ plan.get("tier", "未标注") }}{% endif %}
 {%- if plan.get("tier_rationale") %}
 

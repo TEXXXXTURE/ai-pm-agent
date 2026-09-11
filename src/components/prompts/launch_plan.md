@@ -74,7 +74,7 @@ positioning 写定位句：**对于【目标受众】中饱受【痛点】困扰
 - on_call.dashboard_owner 写谁盯哪个数据看板；
 - feedback_channels 写反馈从哪几个渠道汇到哪里、谁分流响应；
 - oncall_roster 排定 Day1-7 值班表（每条 day/owner/focus）；
-- first_retro_date 写首次复盘日期（届时调用 retro 技能，对照 D7 目标做上线后复盘）。
+- first_retro_date 只写首次复盘日期本身（如 T+7 或具体日期，例如 2026-09-18），不要在值里附带括注说明，括注由模板统一追加。
 
 ## 第 7 步：Top 3 风险
 risks 列出最值得防范的 3 个风险，每个都带 mitigation（缓解措施）与 early_warning（可观察的数字或事件，而不是"感觉不对"）。
@@ -124,7 +124,7 @@ Tier 1 在上述骨架之上，再补四件事；Tier2/3 给 null，避免臃肿
       {"day": "Day1", "owner": "王五", "focus": "盯错误率与核心转化"},
       {"day": "Day2", "owner": "张三", "focus": "盯客服工单峰值"}
     ],
-    "first_retro_date": "T+7（对照 D7 目标做首次复盘）"
+    "first_retro_date": "T+7"
   },
   "risks": [
     {"risk": "灰度阶段错误率超阈值", "mitigation": "每阶段带阈值，达标才进下一阶段", "early_warning": "错误率连续 15 分钟 >1%"},
