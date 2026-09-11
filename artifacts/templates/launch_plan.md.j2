@@ -1,0 +1,171 @@
+{# [C 2026-09-11] 发布计划 Markdown 模板（.md 产物，doc_type=launch_plan）：
+   容错渲染——字段缺失/为空自动跳过；字段自检错误（shape_errors）来自
+   nodes/launch_plan.py 代码硬判，两轮自检仍有错时在顶部醒目展示交人工。
+   对照 .pi/skills/launch-plan/SKILL.md 第三节输出模板渲染。 #}
+# 发布计划 — {{ requirement_name }}，{{ generated_at }}
+
+- 来源 PRD：prd.md
+- 分层：{% if plan.get("tier") == "1" %}**Tier 1（大发布）**{% elif plan.get("tier") == "2" %}Tier 2（中等发布）{% elif plan.get("tier") == "3" %}Tier 3（小发布）{% else %}{{ plan.get("tier", "未标注") }}{% endif %}
+{%- if plan.get("tier_rationale") %}
+
+**分层理由**：{{ plan.get("tier_rationale", "") }}{% endif %}
+{%- if plan.get("positioning") %}
+
+**定位一句话**：{{ plan.get("positioning", "") }}{% endif %}
+{%- set sm = plan.get("success_metrics") %}
+{%- if sm %}
+**成功定义**：D7 {{ sm.get("d7", "未填") }} · D30 {{ sm.get("d30", "未填") }}
+{%- endif %}
+{%- if plan.self_fixed %}
+- 字段自检：首轮计划曾被检出字段缺失，已带反馈重生成（请留意下方是否仍有残留错误）
+{%- endif %}
+{%- set shape_errors = plan.get("shape_errors", []) %}
+{%- set shape_warnings = plan.get("shape_warnings", []) %}
+{%- if shape_errors %}
+
+> **【字段错误 {{ shape_errors | length }} 条】以下问题经系统自检重生成后仍未解决，本计划不可直接落地，须人工修复：**
+{% for e in shape_errors -%}
+>
+> {{ loop.index }}. {{ e }}
+{% endfor %}
+{%- endif %}
+{%- if shape_warnings %}
+
+> **【字段警告 {{ shape_warnings | length }} 条，不阻断，建议人工确认】**
+{% for w in shape_warnings -%}
+>
+> {{ loop.index }}. {{ w }}
+{% endfor %}
+{%- endif %}
+{%- set workstreams = plan.get("workstreams", []) %}
+{%- if workstreams %}
+
+## 工作流矩阵（{{ workstreams | length }} 条）
+
+| 工作线 | 具名责任人 | 关键交付物 | 截止时间 | 状态 |
+|---|---|---|---|---|
+{% for w in workstreams -%}
+| {{ w.get("workstream", "") }} | {{ w.get("owner", "") }} | {{ w.get("deliverable", "") }} | {{ w.get("deadline", "") }} | {{ w.get("status", "未开始") }} |
+{% endfor %}
+{%- endif %}
+{%- set timeline = plan.get("timeline", []) %}
+{%- if timeline %}
+
+## 倒排时间线（关键路径以【CP】标注）
+
+| T-minus | 里程碑 | 责任人 | 关键路径 |
+|---|---|---|---|
+{% for t in timeline -%}
+| {{ t.get("t_minus", "") }} | {{ t.get("milestone", "") }} | {{ t.get("owner", "") }} | {% if t.get("is_critical_path") %}【CP】是{% else %}—{% endif %} |
+{% endfor %}
+{%- endif %}
+{%- set rollback = plan.get("rollback") %}
+{%- if rollback %}
+
+## 灰度与回滚
+{%- set stages = rollback.get("stages", []) %}
+{%- if stages %}
+放量阶段：{% for s in stages %}{{ s.get("stage", "") }}{% if not loop.last %} → {% endif %}{% endfor %}
+
+| 阶段 | 日期/进入条件 | 观测指标 | 通过阈值 |
+|---|---|---|---|
+{% for s in stages -%}
+| {{ s.get("stage", "") }} | {{ s.get("timing", "") }} | {{ s.get("metric", "") }} | {{ s.get("threshold", "") }} |
+{% endfor %}
+{%- endif %}
+
+**回滚触发条件**：{{ rollback.get("rollback_trigger", "未填") }}
+**操作步骤**：
+{% set steps = rollback.get("rollback_steps", []) -%}
+{%- if steps %}
+{% for st in steps -%}
+{{ loop.index }}. {{ st }}
+{% endfor %}
+{%- else %}
+- （未填写回滚步骤）
+{%- endif %}
+**回滚责任人**：{{ rollback.get("rollback_owner", "未填") }}
+{%- endif %}
+{%- set checklist = plan.get("go_no_go_checklist", []) %}
+{%- if checklist %}
+
+## Go/No-Go 检查清单（会议：T-2 或 T-3）
+{% for c in checklist -%}
+- [ ] {{ c.get("item", "") }} — {{ c.get("owner", "") }}
+{% endfor %}
+{%- endif %}
+{%- set on_call = plan.get("on_call") %}
+{%- if on_call %}
+
+## Day1-7 值班与首次复盘
+- 看板盯守人：{{ on_call.get("dashboard_owner", "未填") }}
+- 反馈汇集渠道：{% set channels = on_call.get("feedback_channels", []) %}{% if channels %}{% for ch in channels %}{{ ch }}{% if not loop.last %}；{% endif %}{% endfor %}{% else %}未填{% endif %}
+{%- set roster = on_call.get("oncall_roster", []) %}
+{%- if roster %}
+
+| 值班日 | 值班人 | 盯守重点 |
+|---|---|---|
+{% for r in roster -%}
+| {{ r.get("day", "") }} | {{ r.get("owner", "") }} | {{ r.get("focus", "") }} |
+{% endfor %}
+{%- endif %}
+- 首次复盘日期：{{ on_call.get("first_retro_date", "未填") }}（届时调用 retro 技能，对照 D7 目标做上线后复盘）
+{%- endif %}
+{%- set risks = plan.get("risks", []) %}
+{%- if risks %}
+
+## Top {{ risks | length }} 风险
+
+| 风险 | 缓解措施 | 早期预警信号 |
+|---|---|---|
+{% for r in risks -%}
+| {{ r.get("risk", "") }} | {{ r.get("mitigation", "") }} | {{ r.get("early_warning", "") }} |
+{% endfor %}
+{%- endif %}
+{%- set ext = plan.get("tier1_extension") %}
+{%- if ext %}
+
+## Tier1 扩展（仅 Tier 1 填写）
+{%- set bh = ext.get("beachhead") %}
+{%- if bh %}
+- **滩头市场**：{{ bh.get("segment", "") }}
+  - 选择理由：{{ bh.get("rationale", "") }}
+  - 相邻扩张人群：{{ bh.get("adjacent_expansion", "") }}
+{%- endif %}
+{%- set icp = ext.get("icp") %}
+{%- if icp %}
+- **ICP（理想客户画像）**：
+  - 关键属性：{{ icp.get("attributes", "") }}
+  - 决策人：{{ icp.get("decision_maker", "") }}
+  - JTBD：{{ icp.get("jtbd", "") }}
+  - 现用替代：{{ icp.get("current_alternative", "") }}
+  - 资格信号：{{ icp.get("qualifying_signal", "") }}
+{%- endif %}
+{%- set msgs = ext.get("audience_messages", []) %}
+{%- if msgs %}
+- **分受众信息**：
+
+| 角色 | 信息 | 证据点 |
+|---|---|---|
+{% for m in msgs -%}
+| {{ m.get("role", "") }} | {{ m.get("message", "") }} | {{ m.get("proof_point", "") }} |
+{% endfor %}
+{%- endif %}
+{%- set channels = ext.get("channel_ranking", []) %}
+{%- if channels %}
+- **渠道排序（按预期 ROI）**：
+
+| 渠道 | 可达量 | 成本 | 优先级 | pre-launch 动作 |
+|---|---|---|---|---|
+{% for c in channels -%}
+| {{ c.get("channel", "") }} | {{ c.get("reach", "") }} | {{ c.get("cost", "") }} | {{ c.get("priority", "") }} | {{ c.get("pre_launch_action", "") or "—" }} |
+{% endfor %}
+{%- endif %}
+{%- elif plan.get("tier") == "1" %}
+{# Tier1 但扩展为空时由 shape_errors 报错；此处不重复提示 #}
+{%- endif %}
+
+---
+发布计划可保存分享；如需做成 PPT 汇报、发布时间线图、作战看板等演示物，不自制 HTML，按项目规矩产出《演示需求交接单》交外置工具包处理。
+
+<!-- [C 2026-09-11] launch_plan.md.j2 新增：7 步骨架 + Tier1 扩展条件渲染 + errors/warnings 醒目展示 -->

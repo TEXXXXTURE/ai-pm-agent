@@ -202,16 +202,18 @@ def _emit_hitl(
 
     materials_lines: list[str] = []
     # [C 2026-09-11] 升级暂停三字段（status/reason/prior_feedbacks）仅对
-    # issue_confirm 载荷追加：先从共用元组中剔除，再按节点显式补回，保证
-    # ① STATUS 块不重复打印；② 绝不污染 requirement_confirm 等其他节点
+    # issue_confirm / launch_confirm 载荷追加：先从共用元组中剔除，再按节点显式补回，
+    # 保证 ① STATUS 块不重复打印；② 绝不污染 requirement_confirm 等其他节点
     # （即便其载荷碰巧出现同名字段）。list/dict 由 _format_materials 走 JSON。
-    issue_only_fields = ("status", "reason", "prior_feedbacks")
+    escalation_fields = ("status", "reason", "prior_feedbacks")
     common_recap_fields = tuple(
-        f for f in PAYLOAD_RECAP_FIELDS if f not in issue_only_fields
+        f for f in PAYLOAD_RECAP_FIELDS if f not in escalation_fields
     )
     payload_lines = _format_materials(common_recap_fields, payload)
-    if node_name == "issue_confirm" and isinstance(interrupt_value, dict):
-        payload_lines.extend(_format_materials(issue_only_fields, payload))
+    if node_name in ("issue_confirm", "launch_confirm") and isinstance(
+        interrupt_value, dict
+    ):
+        payload_lines.extend(_format_materials(escalation_fields, payload))
     if payload_lines:
         materials_lines.append("[中断载荷]")
         materials_lines.extend(payload_lines)
@@ -284,6 +286,26 @@ def _build_question(node_name: str, payload: dict, state: dict) -> str:
             "回复「确认」落盘；回复「回PRD」回炉重写 PRD（限1次）；"
             "其他文本作为修改意见打回重拆（最多2轮，之后进入升级暂停，"
             "可让 Pi 协助调查后带新决策再拆）。"
+        )
+    if node_name == "launch_confirm":
+        if payload.get("status") == "escalated":
+            # [C 2026-09-11] 升级暂停特化文案：明确流水线已停、原因见 reason；
+            # 三选一中"回工单"是否仍可回工单以 reason 说明为准，额度用尽时不承诺可回工单
+            return (
+                "节点「launch_confirm」发布计划确认门：流水线已升级暂停"
+                "（已看完第 3 版发布计划，或回工单额度已用尽），"
+                "暂停原因见下方中断材料的 reason 字段，历轮意见见 prior_feedbacks。"
+                "请三选一：① 回复「确认」按当前版落盘；"
+                "② 让 Pi 协助调查后，回复一条带来新决策的具体意见，再主动调一轮；"
+                "③ 回复「回工单」——是否还能回工单以 reason 的说明为准"
+                "（回工单额度用尽时不再承诺可以回 issue_splitting 重拆）。"
+            )
+        # [C 2026-09-11] 块2 发布计划确认门 draft 原文案（status 缺省也按 draft 处理）
+        return (
+            "节点「launch_confirm」发布计划确认门。请审阅发布计划草案："
+            "回复「确认」落盘 launch_plan.md；回复「回工单」回 issue_splitting 重拆（限1次）；"
+            "其他文本作为修改意见打回重调（最多2轮，之后进入升级暂停，"
+            "可让 Pi 协助调查后带新决策再调）。"
         )
     return (
         f"节点「{node_name}」请求人确认。"

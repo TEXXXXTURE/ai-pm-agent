@@ -22,6 +22,7 @@ DECISION_MATERIAL_FIELDS: tuple[str, ...] = (
     "ai_feasibility",
     "proceed_decision",
     "issue_plan",  # [C 2026-09-11] 块2 工单确认门：展示工单清单草案供用户审阅
+    "launch_plan",  # [C 2026-09-11] 块2 发布计划确认门：展示发布计划草案供用户审阅
 )
 
 
@@ -41,8 +42,9 @@ PAYLOAD_RECAP_FIELDS: tuple[str, ...] = (
     "info_completeness",
     "capability_boundary",
     "issue_plan",  # [C 2026-09-11] 块2 工单确认门中断载荷携带工单草案
+    "launch_plan",  # [C 2026-09-11] 块2 发布计划确认门中断载荷携带计划草案
     # [C 2026-09-11] 升级暂停信息透传：status=draft/escalated、暂停原因、历轮意见；
-    # 仅 issue_confirm 载荷携带这些键，其他节点载荷无键自动跳过，不污染其 recap
+    # 仅 issue_confirm / launch_confirm 载荷携带这些键，其他节点载荷无键自动跳过，不污染其 recap
     "status",
     "reason",
     "prior_feedbacks",

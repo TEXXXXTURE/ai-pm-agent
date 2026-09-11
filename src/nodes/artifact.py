@@ -69,6 +69,21 @@ def make_artifact_persist(deps):
             issues_path = deps.artifacts.save(issues_md, name, "issues", ext=".md")
             artifacts_dict["issues"] = str(issues_path)
 
+        # 5. 发布计划：launch_plan 非空时渲染 launch_plan.md.j2 落 .md； [C 2026-09-11]
+        #    为空（未经发布计划节点）容错跳过，不阻断前四份产物。
+        launch_plan = state.get("launch_plan") or {}
+        if launch_plan:
+            launch_md = deps.artifacts.render(
+                "launch_plan.md.j2",
+                {
+                    "requirement_name": name,
+                    "generated_at": generated_at,
+                    "plan": launch_plan,
+                },
+            ).strip()
+            launch_path = deps.artifacts.save(launch_md, name, "launch_plan", ext=".md")
+            artifacts_dict["launch_plan"] = str(launch_path)
+
         return {
             "prd_markdown": md,
             "artifacts": artifacts_dict,

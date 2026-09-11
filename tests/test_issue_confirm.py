@@ -514,7 +514,8 @@ class TestConsumeAndClearContracts(unittest.TestCase):
 
 
 class TestGraphWiring(unittest.TestCase):
-    def test_graph_compiles_with_nine_nodes_and_confirm_branch(self):
+    def test_graph_compiles_with_ten_nodes_and_launch_plan_branch(self):
+        # [C 2026-09-11] 块1 新增 launch_plan：确认分支改走 launch_plan -> artifact_persist
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             tmp_path = Path(tmp)
             deps = make_deps(tmp_path, FakeLLM())  # 队列空：只编译不执行
@@ -528,14 +529,15 @@ class TestGraphWiring(unittest.TestCase):
                 "prd_generation",
                 "prd_review",
                 "issue_splitting",
-                "issue_confirm",  # 块2 新节点
+                "issue_confirm",  # 块2 工单确认门
+                "launch_plan",    # [C 2026-09-11] 块1 发布计划节点
                 "artifact_persist",
             ):
                 self.assertIn(name, names)
             drawn = graph.get_graph().draw_mermaid()
-            # 三分支目标都在图上
+            # 确认分支经 launch_plan 到达 artifact_persist；三分支目标都在图上
             for token in ("issue_confirm", "issue_splitting", "prd_generation",
-                          "artifact_persist"):
+                          "launch_plan", "artifact_persist"):
                 self.assertIn(token, drawn)
 
 

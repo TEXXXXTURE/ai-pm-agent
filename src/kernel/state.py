@@ -58,6 +58,16 @@ class PMState(TypedDict, total=False):
     issue_prd_redo_count: int         # 回炉重写 PRD 次数（硬上限 1 次）
     prd_rewrite_feedback: str         # 工单阶段发起的 PRD 回炉意见（注入 prd_generation，消费即清零）
 
+    # ─── 发布计划（launch_plan 节点；块2 会插 launch_confirm HITL 门）───
+    # [C 2026-09-11] 块1：工单确认门通过后产发布计划；关键字段非空由 judge 硬判
+    launch_plan: dict                  # 发布计划 JSON（含 shape_errors/warnings/self_fixed）
+    launch_plan_errors: list           # 发布计划字段自检 errors（随产物醒目展示）
+    launch_plan_warnings: list         # 发布计划字段自检 warnings
+    # [C 2026-09-11] 块2 确认门预留字段（块1 恒空/恒 0，不写回全局 state）
+    launch_revision_count: int         # 发布计划重调计数（块2 用）
+    launch_revision_feedback: str      # 发布计划上轮修改意见（块2 注入，消费即清零）
+    launch_issue_redo_count: int       # 发布计划回工单计数（块2 用）
+
     # ─── 评估阶段 ───
     metrics_tree: dict                # 指标树
     experiment_design: dict           # 实验设计
@@ -120,6 +130,14 @@ def default_state() -> dict[str, Any]:
         # [C 2026-09-11] 块2 确认门回炉字段
         "issue_prd_redo_count": 0,
         "prd_rewrite_feedback": "",
+        # 发布计划 [C 2026-09-11]
+        "launch_plan": {},
+        "launch_plan_errors": [],
+        "launch_plan_warnings": [],
+        # [C 2026-09-11] 块2 确认门预留字段
+        "launch_revision_count": 0,
+        "launch_revision_feedback": "",
+        "launch_issue_redo_count": 0,
         # 评估阶段
         "metrics_tree": {},
         "experiment_design": {},
