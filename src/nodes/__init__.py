@@ -14,12 +14,17 @@
 #     ai_triage 分流判定 + resume 四态协议（确认/非AI/AI核心/自由文本修订）；
 #     prd_generation 按 ai_core 选 ai-native / 普通 PRD 模板。
 #     图结构不动（仍 11 节点），仅在节点内部分流，块 3 可行性门才插新节点与条件边。
-"""nodes 包：纵切 11 节点真实接线。
+# [C 2026-09-12 by codebuddy-ds41flash] S033 块3：新增验证AI可行性两节点（13 节点）：
+#     requirement_confirm 条件边（ai_core=True）→ feasibility_check → feasibility_confirm(HITL)
+#     → 四态条件边（pass/reclassify→prd_generation；reshape→requirement_confirm；abandon→END）；
+#     普通轨（ai_core=False）由条件边直接去 needs_discovery，不经可行性节点。
+"""nodes 包：纵切 13 节点真实接线。
 
 - NodeDeps：节点依赖容器（runner / registry / artifacts / kb）；
 - build_nodes(deps)：返回有序 dict，key 顺序即图执行顺序：
   kb_lookup → intake → requirement_confirm(HITL，含 AI 适用性分流)
-  → needs_discovery → prd_generation（按 ai_core 选 ai-native / 普通模板）
+  →（条件边 ai_core=True）feasibility_check → feasibility_confirm(HITL，四态)
+  →（条件边 ai_core=False）needs_discovery → prd_generation（按 ai_core 选 ai-native / 普通模板）
   → prd_review →（条件边：打回回 prd_generation / 否则）issue_splitting
   → issue_confirm（HITL；条件边：launch_plan / issue_splitting / prd_generation）
   → launch_plan → launch_confirm（HITL；条件边：artifact_persist / launch_plan / issue_splitting）。
@@ -46,6 +51,10 @@ from nodes.launch_plan import (  # [C 2026-09-11] 发布计划 + 发布计划确
     make_launch_confirm,
     make_launch_plan,
 )
+from nodes.feasibility import (  # [C 2026-09-12 by codebuddy-ds41flash] 验证AI可行性 + 确认AI可行性门
+    make_feasibility_check,
+    make_feasibility_confirm,
+)
 
 
 @dataclass
@@ -59,11 +68,15 @@ class NodeDeps:
 
 
 def build_nodes(deps: NodeDeps) -> dict:
-    """构建 11 个节点函数的有序 dict（key 顺序与图执行顺序一致）。"""
+    """构建 13 个节点函数的有序 dict（key 顺序与图执行顺序一致）。"""
     return {
         "kb_lookup": make_kb_lookup(deps),
         "intake": make_intake(deps),
         "requirement_confirm": make_requirement_confirm(deps),
+        # [C 2026-09-12 by codebuddy-ds41flash] 验证AI可行性：AI 核心需求经此两节点，
+        # 普通轨（ai_core=False）由 graph 条件边直接去 needs_discovery，不经此二节点
+        "feasibility_check": make_feasibility_check(deps),
+        "feasibility_confirm": make_feasibility_confirm(deps),
         "needs_discovery": make_needs_discovery(deps),
         "prd_generation": make_prd_generation(deps),
         # [C 2026-09-10] 评审门插在 PRD 生成之后，条件边由 graph.py 装配

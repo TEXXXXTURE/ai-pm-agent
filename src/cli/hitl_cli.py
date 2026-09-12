@@ -21,6 +21,9 @@ DECISION_MATERIAL_FIELDS: tuple[str, ...] = (
     "ai_triage",  # [C 2026-09-12 by MA] S033 块2a：确认门展示 AI 适用性分流建议
     "ai_core",  # [C 2026-09-12 by MA] S033 块2a：确认门后展示用户拍板的分流结果
     "ai_feasibility",
+    # [C 2026-09-12 by codebuddy-ds41flash] 验证AI可行性：展示可行性报告与确认门结论
+    "feasibility_report",
+    "feasibility_confirm",
     "proceed_decision",
     "issue_plan",  # [C 2026-09-11] 块2 工单确认门：展示工单清单草案供用户审阅
     "launch_plan",  # [C 2026-09-11] 块2 发布计划确认门：展示发布计划草案供用户审阅
@@ -42,6 +45,9 @@ PAYLOAD_RECAP_FIELDS: tuple[str, ...] = (
     "raw_requirement",
     "info_completeness",
     "ai_triage",  # [C 2026-09-12 by MA] S033 块2a：确认门中断载荷携带 AI 分流建议
+    # [C 2026-09-12 by codebuddy-ds41flash] 确认AI可行性门中断载荷携带可行性报告与结论
+    "feasibility_report",
+    "feasibility_confirm",
     "issue_plan",  # [C 2026-09-11] 块2 工单确认门中断载荷携带工单草案
     "launch_plan",  # [C 2026-09-11] 块2 发布计划确认门中断载荷携带计划草案
     # [C 2026-09-11] 升级暂停信息透传：status=draft/escalated、暂停原因、历轮意见；

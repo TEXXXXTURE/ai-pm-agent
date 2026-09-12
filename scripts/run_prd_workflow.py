@@ -210,7 +210,9 @@ def _emit_hitl(
         f for f in PAYLOAD_RECAP_FIELDS if f not in escalation_fields
     )
     payload_lines = _format_materials(common_recap_fields, payload)
-    if node_name in ("issue_confirm", "launch_confirm") and isinstance(
+    # [C 2026-09-12 by codebuddy-ds41flash] feasibility_confirm 升级暂停（重塑额度用尽）也
+    # 携带 status/reason/prior_feedbacks，一并透传
+    if node_name in ("issue_confirm", "launch_confirm", "feasibility_confirm") and isinstance(
         interrupt_value, dict
     ):
         payload_lines.extend(_format_materials(escalation_fields, payload))
@@ -267,6 +269,24 @@ def _build_question(node_name: str, payload: dict, state: dict) -> str:
             "请审阅下方需求理解与 AI 适用性分流建议，确认无误后回复 confirmed，"
             "或回复「非AI」改判普通轨、「AI核心」改判 AI 全轨；"
             "其他文本作为需求修订意见处理（分流沿用模型建议，不二次中断）。"
+        )
+    if node_name == "feasibility_confirm":
+        # [C 2026-09-12 by codebuddy-ds41flash] 确认AI可行性门：提示四态选项
+        if payload.get("status") == "escalated":
+            # 重塑额度用尽后的升级暂停：明确已停、由人重新拍板三选一
+            return (
+                "节点「feasibility_confirm」确认AI可行性门：流水线已升级暂停"
+                "（重塑额度已用尽，全程限 1 次），暂停原因见下方中断材料的 reason 字段，"
+                "历轮意见见 prior_feedbacks。请重新拍板：回复「通过」进 PRD；"
+                "回复「改判普通」转普通轨（ai_core=False，按普通 PRD 模板）；"
+                "回复「放弃」结束流程。"
+            )
+        return (
+            "节点「feasibility_confirm」确认AI可行性门。请审阅可行性报告，"
+            "人工执行探针方案后录入实测结论，四选一："
+            "回复「通过」进 ai-native PRD；回复「改判普通」转普通轨（探针证实传统方案即可）；"
+            "回复「重塑」回需求确认门调整范围后重过判定（限 1 次）；"
+            "回复「放弃」结束流程。自由文本作为补充意见，默认按通过处理。"
         )
     if node_name == "issue_confirm":
         if payload.get("status") == "escalated":
