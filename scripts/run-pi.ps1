@@ -58,11 +58,14 @@ $piArgs = @('-ne')
 # [MA 2026-09-10] T5-3 追加 ppt-master（技能在仓库嵌套目录 skills\ppt-master 内）
 # [MA 2026-09-12] S028：工具包随参考库迁入项目内 工具与参考\Agent外置工具包\，路径改为基于 $ProjectRoot 推算
 $DemoToolkit = Join-Path $ProjectRoot '工具与参考\Agent外置工具包\演示工具包'
+# [MA 2026-09-12] S031 块1：AI 评测工具包（Promptfoo 执行器外置），薄技能 ai-eval
+$AiEvalToolkit = Join-Path $ProjectRoot '工具与参考\Agent外置工具包\AI评测工具包'
 $ExtSkillPaths = @(
     (Join-Path $DemoToolkit 'skills\frontend-slides'),
     (Join-Path $DemoToolkit 'skills\lieflat-charts'),
     (Join-Path $DemoToolkit 'skills\diagram-mermaid'),
-    (Join-Path $DemoToolkit 'skills\ppt-master\skills\ppt-master')
+    (Join-Path $DemoToolkit 'skills\ppt-master\skills\ppt-master'),
+    (Join-Path $AiEvalToolkit 'skills\ai-eval')
 )
 foreach ($skillDir in $ExtSkillPaths) {
     if (Test-Path (Join-Path $skillDir 'SKILL.md')) {

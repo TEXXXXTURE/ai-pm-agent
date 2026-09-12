@@ -2,9 +2,11 @@
 
 > 版本：v1.0
 > 日期：2026-09-08
-> 状态：待用户确认
+> 状态：M1-M10 已全部建成（截至 S029 共 164 测试全绿、三门真机验收）；本文的机制设计（三件套、NodeRunner、HITL、组件架构）仍有效
 > 前置文档：[workflow-design.md](workflow-design.md)（节点级设计）、[PRD.md](PRD.md)（产品需求）
 > 核心问题：**Agent 如何按既定通路"思考"——通路不被模型自由发挥带偏，节点内有结构化推理，HITL 点能中断恢复**
+
+> ⚠️ **时效声明（S031，2026-09-12）**：本文第二节 State、第五节 G1-G9 映射、第六节图装配、第七节 M1-M10 拆解说的是 S007-S008 开建时的规划形态，与当前代码已有差异（实际 11 节点三门、Markdown 产物、评审/工单/发布计划三条流水线建成）。**工作流顺序、节点规划与新增门以 [workflow-design.md v3.0](workflow-design.md)（AI PM 融合工作流 12 段）为准**；实现新节点时按 v3.0 第八节实施队列分块更新本文对应章节，不再整体回写。 <!-- [MA 2026-09-12] -->
 
 ---
 
@@ -853,6 +855,65 @@ kb_lookup → intake → requirement_confirm(HITL) → needs_discovery → prd_g
 
 ---
 
+#### M5.2: RAG 领域知识库（独立模块，与业务档案库并行）
+
+> **性质**：功能模块开发，独立报批。与 M5 业务档案库底层独立，上层统一入口。
+> **前置依赖**：M5（知识库底座模式确立）、S030+ 融合工作流定稿
+> **完整实施规划**：见 `references/RAG知识库实施规划.md`
+
+**目标**：搭建 AI Agent 领域知识库 RAG 骨架，支持三层知识（概念/精选论文/追踪论文）的分层加权混合检索，作为 G4 知识库底座的领域知识补充。
+
+**涉及文件**：
+- `kb/rag/__init__.py` — 模块入口
+- `kb/rag/store.py` — RAGStore：分层加权混合检索
+- `kb/rag/ingest.py` — RAGIngest：文档分块 + 嵌入 + 入库
+- `kb/rag/splitter.py` — 分块器：section-aware + 整篇 chunk
+- `kb/rag/embeddings.py` — 嵌入模型封装：Doubao-embedding API
+- `scripts/rag_ingest.py` — 入库 CLI
+- `scripts/rag_query.py` — 检索 CLI
+- `domain_kb/chroma/` — ChromaDB 数据目录（嵌入式，自动创建）
+- `domain_kb/source/` — 原始文档源（concept/ + curated-papers/ + tracked-papers/）
+
+**三层知识结构**：
+
+| 层 | 来源 | 数量 | 权重 | 更新频率 | 分块方式 |
+|---|---|------|------|---------|---------|
+| 概念解读层 | agentic-ai-knowledge-base | 209 篇，32 分类 | ×2.0 | 每季度手动整篇更新 | Section-aware 分块 |
+| 精选论文层 | awesome-llm-agent-papers | 514 篇，10 分类 | ×1.5 | 每月 diff 追加 | 整篇一块 |
+| 新论文追踪层 | arXiv API + LLM 过滤 | 约 3000-5000 篇 | ×1.0 | 每周自动增量 | 整篇一块 |
+
+**技术选型**：
+- 向量数据库：ChromaDB（嵌入式，零运维，支持 metadata 过滤）
+- 嵌入模型：Doubao-embedding（火山引擎 API，中英文混合效果好）
+- 检索策略：分层加权混合检索（关键词 0.4 + 向量 0.6，再乘层权重）
+- 统一分类体系：~25 个分类，三层通过 `layer` + `category` metadata 对齐
+
+**ChromaDB Collection 设计**：
+- 单个 collection：`agent_knowledge`
+- 每个 chunk metadata 字段：`id` / `layer` / `category` / `source` / `title` / `curated` / `feishu_ref` / `chunk_index` / `section_title` / `chunking_version` / `source_category`
+- Chunk ID 规则：`concept-{hash}-{idx}` / `curated-{arxiv_id}` / `tracked-{arxiv_id}`
+
+**检索完整流程**：
+```
+查询 → 向量检索捞候选集 → 候选集内关键词打分 → 合并 → 融合分（0.4×关键词 + 0.6×向量）
+→ 分层加权（×layer_weight × curated_bonus × feishu_ref_bonus）→ 排序 → Top-K
+```
+
+**与业务档案库的关系**：
+- 两套库底层独立（KBStore vs RAGStore），各自维护
+- 上层通过 `kb_query.py` 扩展 `--domain` 参数统一入口（本期不做，留后续）
+- 飞书知识地图作为统一导航层，指向两套知识库的不同条目
+
+**验收标准**：
+- [ ] 概念层 209 篇文档可成功入库（section-aware 分块 + 向量嵌入）
+- [ ] 精选层 40 篇种子论文可成功入库（整篇 abstract + 向量嵌入）
+- [ ] `rag_query.py --query "ReAct 是什么"` 返回 5 条结果，概念层结果排序靠前
+- [ ] 按 `--layers concept --category planning` 过滤正常工作
+- [ ] 单元测试全绿（splitter / ingest / store 各有 mock 测试）
+- [ ] 真机冒烟测试通过（导入两层数据 → 3 个查询验证结果质量）
+
+---
+
 #### M6: 纵切节点实现
 
 **目标**：纵切 6 节点的完整 prompt + schema + guard + node spec，跑通完整最小闭环。
@@ -1021,6 +1082,7 @@ jinja2>=3.1
 rich>=13.0                  # CLI 美化
 httpx>=0.27                 # 异步 HTTP（工具用）
 beautifulsoup4>=4.12        # 网页抓取解析（竞品拆解用）
+chromadb>=0.5               # RAG 领域知识库：向量数据库
 ```
 
 ---
@@ -1082,6 +1144,26 @@ kb:
   feishu_app_id: ""
   feishu_app_secret: ""
 
+domain_kb:                    # RAG 领域知识库
+  chroma_path: ./domain_kb/chroma
+  source_path: ./domain_kb/source
+  embedding:
+    provider: doubao
+    model: doubao-embedding
+    api_key_env: "ARK_API_KEY"
+    api_base: "https://ark.cn-beijing.volces.com/api/v3"
+    dimensions: 2560
+  retrieval:
+    top_k: 5
+    keyword_weight: 0.4
+    vector_weight: 0.6
+    layer_weights:
+      concept: 2.0
+      curated-paper: 1.5
+      tracked-paper: 1.0
+    curated_bonus: 1.2
+    feishu_ref_bonus: 1.3
+
 artifacts:
   output_root: ./output
   template_dir: ./artifacts/templates
@@ -1107,6 +1189,7 @@ graph:
 | 红队循环 | State 计数 + 条件边，上限 3 轮 | 结构简单，超限自动 END 上报 |
 | G1 选型循环 | 子 LangGraph 图 | 查档案→bake-off→写回 是独立闭环 |
 | G4 知识库 | NodeRunner 内自动检索 + 交付时写回 | 对业务节点透明，横切全程 |
+| 知识库架构 | 两套独立（业务档案关键词检索 + 领域知识 RAG 向量检索） | 内容性质不同，技术选型差异化，上层统一入口 |
 | 首版纵切 | kb_lookup→intake→requirement_confirm→needs_discovery→prd_generation→artifact_persist | 一次打通四大主干 |
 
 <!-- [MA 2026-09-08] -->
