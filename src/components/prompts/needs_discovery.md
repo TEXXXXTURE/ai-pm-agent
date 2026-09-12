@@ -5,6 +5,15 @@
 ## 输入
 - 已确认的需求：{{ confirmed_requirement }}
 
+{% if domain_kb_context %}
+## AI 领域知识库参考（项目知识库检索结果，只用于理解领域背景，不是需求内容）
+{% for item in domain_kb_context %}
+{{ loop.index }}. {{ item.title }}（{{ item.layer }}/{{ item.category }}）
+{{ item.content[:220] }}
+{% endfor %}
+- 材料未覆盖的方面仍按需求本身推断；不得引入与本需求无关的内容；不得编造材料中没有的事实。
+
+{% endif %}
 ## 思考方向（参考，不是必答题）
 下面 6 个方向帮你打开思路，请带着这些问题去读需求：
 
@@ -44,3 +53,4 @@
 
 <!-- [C 2026-09-08] prompts/needs_discovery.md 实现完成 -->
 <!-- [C 2026-09-09] M7.5 needs_discovery prompt 改引导式：方向参考不硬凑，引导挖深 -->
+<!-- [C 2026-09-12 by codebuddy-ds41flash] R02：注入领域知识库检索结果 -->

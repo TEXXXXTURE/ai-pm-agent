@@ -9,6 +9,15 @@
 - 已确认需求：{{ confirmed_requirement }}
 - AI 适用性分流建议：{{ ai_triage }}
 
+{% if domain_kb_context %}
+## AI 领域知识库参考（项目知识库检索结果：概念解读与精选论文，用于支撑三色判断与风险扫描，不是结论）
+{% for item in domain_kb_context %}
+{{ loop.index }}. {{ item.title }}（{{ item.layer }}/{{ item.category }}）
+{{ item.content[:220] }}
+{% endfor %}
+- 参考材料只作为能力点判断依据之一；材料未覆盖的能力点仍须按需求独立判断；不得编造材料中没有的事实。
+
+{% endif %}
 ## 第 1 步：关键能力点三色判断
 逐个列出本需求依赖模型完成的关键能力点（如：长文本摘要、多轮上下文记忆、结构化抽取、意图分类、内容生成、工具调用等），每点标注：
 - **绿**：模型当前可稳定做到；
@@ -73,3 +82,4 @@ conclusion 写一两句初步判断（如"核心能力点以绿/黄为主，风�
 - 只输出 JSON，不要输出 JSON 之外的任何字符。
 
 <!-- [C 2026-09-12 by codebuddy-ds41flash] prompts/feasibility_check.md 新增：三色表 + PoL 探针方案 + 四类风险 + 成本区间，严格 JSON -->
+<!-- [C 2026-09-12 by codebuddy-ds41flash] R02：注入领域知识库检索结果 -->

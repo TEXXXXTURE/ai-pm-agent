@@ -19,6 +19,7 @@ from kernel.model import build_llm
 from kernel.runner import NodeRunner
 from kernel.state import default_state
 from kb.store import KBStore
+from kb.rag import build_rag_store_if_available  # [C 2026-09-12 by codebuddy-ds41flash] R02
 from nodes import NodeDeps
 
 from cli.hitl_cli import collect_interrupts, handle_hitl
@@ -182,8 +183,9 @@ def main(argv: list[str] | None = None) -> int:
         str(output_root), str(template_dir), str(assets_dir)
     )
     kb = KBStore(str(kb_store))
+    rag_store = build_rag_store_if_available(cfg)  # [C 2026-09-12 by codebuddy-ds41flash] R02
     runner = NodeRunner(llm=llm)
-    deps = NodeDeps(runner=runner, registry=registry, artifacts=artifacts_mgr, kb=kb)
+    deps = NodeDeps(runner=runner, registry=registry, artifacts=artifacts_mgr, kb=kb, rag=rag_store)
 
     console.print(
         f"[dim]配置已加载 | Provider: "

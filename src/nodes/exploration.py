@@ -1,4 +1,5 @@
 # [C 2026-09-09] M6 纵切联调 - 探索阶段节点（kb_lookup / intake / needs_discovery）
+# [C 2026-09-12 by codebuddy-ds41flash] R02：kb_lookup 追加 AI 领域知识库（kb.rag）检索，写入 domain_kb_context
 """探索阶段节点工厂：每个 make_xxx(deps) 返回一个签名 (state: dict) -> dict 的节点函数。"""
 from __future__ import annotations
 
@@ -6,11 +7,22 @@ from kernel.spec import NodeSpec
 
 
 def make_kb_lookup(deps):
-    """G4 查家底（确定性，不调模型）：检索知识库相关档案。"""
+    """G4 查家底（确定性，不调大模型）：检索业务档案库 + AI 领域知识库（R02）。"""
 
     def kb_lookup(state: dict) -> dict:
         result = deps.kb.retrieve_relevant(state.get("raw_requirement", ""))
-        return {"kb_context": result, "current_stage": "探索"}
+        update = {"kb_context": result, "current_stage": "探索"}
+        rag_store = getattr(deps, "rag", None)
+        if rag_store is None:
+            update["domain_kb_context"] = []
+            return update
+        query = state.get("raw_requirement", "")
+        try:
+            top_k = int(getattr(rag_store, "default_top_k", 5) or 5)
+            update["domain_kb_context"] = rag_store.search(query, top_k=top_k)
+        except Exception:
+            update["domain_kb_context"] = []
+        return update
 
     return kb_lookup
 
