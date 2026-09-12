@@ -3,6 +3,7 @@
 
 覆盖：
 1. judge_scores 硬判纯函数四场景（pass / pass_with_warning / reject / 边界 3.5）；
+1.5 阻断一票否决（阻断级 blocker 不看分数直接打回，重要/建议不否决） [C 2026-09-12]；
 2. 节点级：reject 计数递增+反馈文本、连续 reject 第 3 轮 forced 放行、pass 计数不变；
 3. route_after_review 路由；
 4. build_graph 图接线编译（不调模型）；
@@ -165,6 +166,73 @@ class TestJudgeScores(unittest.TestCase):
     def test_empty_scores_raises(self):
         with self.assertRaises(ValueError):
             judge_scores([])
+
+
+# ─────────────────── 1.5 阻断一票否决 [C 2026-09-12] ───────────────────
+
+
+class TestJudgeScoresBlockerVeto(unittest.TestCase):
+    """阻断级 blocker 一票否决：不看分数直接打回（建议1落地）。"""
+
+    def test_veto_rejects_even_all_high_scores(self):
+        # 五维全 5 分，但存在阻断级 blocker -> reject（均分最低分照常返回供展示）
+        payload = review_payload([5, 5, 5, 5, 5], blockers=[make_finding("核心功能未定义验收标准")])
+        avg, minimum, verdict = judge_scores(payload["scores"], payload["blockers"])
+        self.assertEqual((avg, minimum, verdict), (5.0, 5, "reject"))
+
+    def test_important_severity_does_not_veto(self):
+        # 仅「重要」级 blocker：不否决，按分数走原逻辑
+        payload = review_payload([5, 5, 5, 5, 5], blockers=[make_finding("重要问题", severity="重要")])
+        _, _, verdict = judge_scores(payload["scores"], payload["blockers"])
+        self.assertEqual(verdict, "pass")
+
+    def test_suggestion_severity_does_not_veto(self):
+        payload = review_payload([4, 4, 4, 4, 4], blockers=[make_finding("建议项", severity="建议")])
+        _, _, verdict = judge_scores(payload["scores"], payload["blockers"])
+        self.assertEqual(verdict, "pass")
+
+    def test_empty_blockers_unchanged(self):
+        # blockers 为空：行为与旧版逐字一致
+        payload = review_payload([5, 4, 5, 4, 4])
+        avg, minimum, verdict = judge_scores(payload["scores"], payload["blockers"])
+        self.assertEqual((avg, minimum, verdict), (4.4, 4, "pass"))
+
+    def test_mixed_blockers_one_blocking_vetoes(self):
+        # 多条 blocker 混合严重度：只要有一条「阻断」即否决
+        payload = review_payload(
+            [5, 5, 5, 5, 5],
+            blockers=[
+                make_finding("重要问题", severity="重要"),
+                make_finding("致命缺口"),
+            ],
+        )
+        _, _, verdict = judge_scores(payload["scores"], payload["blockers"])
+        self.assertEqual(verdict, "reject")
+
+    def test_node_level_veto_rejects_and_builds_feedback(self):
+        # 节点级：模型给高分但标了阻断项 -> verdict=reject、计数+1、反馈含阻断内容
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = FakeLLM(
+                json_queue=[
+                    review_payload(
+                        [5, 5, 4, 5, 4],
+                        blockers=[make_finding("高分但致命-EEE")],
+                    )
+                ]
+            )
+            deps = make_deps(Path(tmp), fake)
+            node = make_prd_review(deps)
+            state = {
+                "requirement_name": "demo",
+                "prd_markdown": "# demo PRD\n\nbody",
+                "prd_revision_count": 0,
+            }
+            out = node(state)
+            review = out["red_team_review"]
+            self.assertEqual(review["verdict"], "reject")
+            self.assertEqual(out["prd_revision_count"], 1)
+            self.assertFalse(review["forced"])
+            self.assertIn("高分但致命-EEE", review["revision_feedback"])
 
 
 # ────────────────────────── 2. 节点级行为 ──────────────────────────

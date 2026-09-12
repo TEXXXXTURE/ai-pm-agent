@@ -4,7 +4,8 @@
 图位置：prd_generation -> prd_review ->（条件边）-> prd_generation（打回重写）
                                             └─> artifact_persist（通过/带警告通过/强制放行）
 
-硬判规则（项目硬约束，模型不决定走向，不加 blocker 一票否决）：
+硬判规则（项目硬约束，模型不决定走向）：
+- blockers 中存在严重程度「阻断」的项 -> "reject"（一票否决，不看分数） [C 2026-09-12]
 - avg < 3.5                       -> "reject"（打回重写）
 - avg >= 3.5 且任一维 <= 2        -> "pass_with_warning"（带警告通过）
 - avg >= 3.5 且全部维 >= 3        -> "pass"（通过）
@@ -27,13 +28,20 @@ PASS_AVG = 3.5
 WARN_DIM_MAX = 2
 # 反馈文本中列入"评分短板"的维度分数线（低于该分的维度逐条点名）
 WEAK_DIM_MAX = 3
+# 一票否决严重度：blockers 中存在该严重程度的项直接判 reject（不看分数） [C 2026-09-12]
+VETO_SEVERITY = "阻断"
 
 
-def judge_scores(scores: list[dict]) -> tuple[float, int, str]:
-    """纯函数：按五维分数硬判三档结论（不看 blockers、不看模型意见）。
+def judge_scores(
+    scores: list[dict], blockers: list[dict] | None = None
+) -> tuple[float, int, str]:
+    """纯函数：按阻断一票否决 + 五维分数硬判三档结论（不看模型意见）。
 
     Args:
         scores: 每条至少含 {"score": int 1-5}，由 PrdReviewSchema 保证恰好 5 条。
+        blockers: 模型评审的打回项列表（FindingItem 同构 dict），可空。
+            存在 severity == "阻断" 的项时直接判 reject（对齐 prd-review 技能
+            「存在阻断级问题 -> 打回」与业界 critical 断言惯例）。 [C 2026-09-12]
 
     Returns:
         (avg, minimum, verdict)：均分（保留 1 位小数）、最低分、结论
@@ -42,6 +50,8 @@ def judge_scores(scores: list[dict]) -> tuple[float, int, str]:
     Note:
         verdict 用未四舍五入的原始均分与阈值比较，避免边界值被舍入影响；
         返回的 avg 仅用于展示/落盘。 [C 2026-09-10]
+        一票否决只在首轮判定时生效；第 3 轮仍 reject 时节点层强制放行逻辑
+        （forced pass_with_warning 交人工裁决）不受影响。 [C 2026-09-12]
     """
     # 生产路径分数由 PrdReviewSchema 保证为 1-5 的 int；此处不做 int() 强转，
     # 以便单测可直接用浮点构造均分边界（如恰好 3.5）。 [C 2026-09-10]
@@ -51,7 +61,11 @@ def judge_scores(scores: list[dict]) -> tuple[float, int, str]:
     avg_raw = sum(nums) / len(nums)
     minimum = min(nums)
     avg = round(avg_raw, 1)
-    if avg_raw < PASS_AVG:
+    # 阻断一票否决：优先于任何分数组合 [C 2026-09-12]
+    has_veto = any(
+        item.get("severity") == VETO_SEVERITY for item in (blockers or [])
+    )
+    if has_veto or avg_raw < PASS_AVG:
         verdict = "reject"
     elif minimum <= WARN_DIM_MAX:
         verdict = "pass_with_warning"
@@ -59,6 +73,7 @@ def judge_scores(scores: list[dict]) -> tuple[float, int, str]:
         verdict = "pass"
     return avg, minimum, verdict
     # [C 2026-09-10] 三档硬判规则落点，纯函数便于单测
+    # [C 2026-09-12] 增加阻断一票否决（建议1落地，对齐参考方法论与业界惯例）
 
 
 def build_revision_feedback(review: dict, round_no: int) -> str:
@@ -124,7 +139,10 @@ def make_prd_review(deps):
         result = deps.runner.run_raw(spec, state)
 
         # 2. 代码硬判三档结论（模型不决定走向） [C 2026-09-10]
-        avg, minimum, verdict = judge_scores(result["scores"])
+        #    [C 2026-09-12] 传入 blockers：阻断级项一票否决
+        avg, minimum, verdict = judge_scores(
+            result["scores"], result.get("blockers") or []
+        )
 
         # 3. 轮次计数 + 3 轮上限强制放行
         count = int(state.get("prd_revision_count") or 0)
