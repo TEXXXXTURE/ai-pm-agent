@@ -25,6 +25,9 @@ DECISION_MATERIAL_FIELDS: tuple[str, ...] = (
     "feasibility_report",
     "feasibility_confirm",
     "proceed_decision",
+    # [C 2026-09-12 by codebuddy-ds41flash] 第 5 段确认评测体系门：展示评测体系草案与确认结论
+    "eval_system",
+    "eval_confirm",
     "issue_plan",  # [C 2026-09-11] 块2 工单确认门：展示工单清单草案供用户审阅
     "launch_plan",  # [C 2026-09-11] 块2 发布计划确认门：展示发布计划草案供用户审阅
 )
@@ -48,6 +51,8 @@ PAYLOAD_RECAP_FIELDS: tuple[str, ...] = (
     # [C 2026-09-12 by codebuddy-ds41flash] 确认AI可行性门中断载荷携带可行性报告与结论
     "feasibility_report",
     "feasibility_confirm",
+    # [C 2026-09-12 by codebuddy-ds41flash] 确认评测体系门中断载荷携带评测体系草案
+    "eval_system",
     "issue_plan",  # [C 2026-09-11] 块2 工单确认门中断载荷携带工单草案
     "launch_plan",  # [C 2026-09-11] 块2 发布计划确认门中断载荷携带计划草案
     # [C 2026-09-11] 升级暂停信息透传：status=draft/escalated、暂停原因、历轮意见；

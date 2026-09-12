@@ -20,6 +20,7 @@ class PMState(TypedDict, total=False):
 
     # ─── 知识库底座（G4 横切）───
     kb_context: dict                  # G4: 开工前查家底的检索结果
+    domain_kb_context: list             # R02: AI 领域知识库（kb.rag）检索结果列表，kb_lookup 节点写入
     kb_written_back: list             # G4: 已写回知识库的档案 ID 列表
 
     # ─── 探索阶段 ───
@@ -48,6 +49,15 @@ class PMState(TypedDict, total=False):
 
     # ─── 评测集（G2）───
     eval_cases: list                  # G2: 需求确认门后建立的评测用例
+
+    # ─── 设计评测体系（eval_design + eval_confirm 确认门）───
+    # [C 2026-09-12 by codebuddy-ds41flash] 仅 AI 核心需求经过；普通轨字段恒空/恒 0
+    eval_system: dict                 # 四层考题集 + 每题评分方式 + 及格线建议值（模型起草）
+    eval_confirm: dict                # 确认门结论 {verdict, user_feedback}（pass/redraft）
+    eval_revision_count: int          # 评测体系重起草次数（前 2 轮自动，第 3 版起升级暂停）
+    eval_revision_feedback: str       # 评测体系上轮修改意见（注入 eval_design prompt，消费即清零）
+    eval_yaml_draft: str              # 确认落盘时渲染的 Promptfoo YAML 草案文本（写 state 不落文件）
+    eval_archive: dict                # 评测档案（预留第 11 段接口，本任务只构造 dict 写 state）
 
     # ─── PRD 阶段 ───
     section_plan: dict                # 章节裁剪计划
@@ -115,6 +125,7 @@ def default_state() -> dict[str, Any]:
         "current_stage": "",
         # 知识库底座
         "kb_context": {},
+        "domain_kb_context": [],  # R02: AI 领域知识库检索结果
         "kb_written_back": [],
         # 探索阶段
         "raw_requirement": "",
@@ -137,6 +148,13 @@ def default_state() -> dict[str, Any]:
         "feasibility_reshape_count": 0,
         # 评测集
         "eval_cases": [],
+        # 设计评测体系 [C 2026-09-12 by codebuddy-ds41flash]
+        "eval_system": {},
+        "eval_confirm": {},
+        "eval_revision_count": 0,
+        "eval_revision_feedback": "",
+        "eval_yaml_draft": "",
+        "eval_archive": {},
         # PRD 阶段
         "section_plan": {},
         "section_confirmed": False,

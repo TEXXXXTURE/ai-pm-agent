@@ -43,6 +43,7 @@ from kernel.model import build_llm
 from kernel.runner import NodeRunner
 from kernel.state import default_state
 from kb.store import KBStore
+from kb.rag import build_rag_store_if_available  # [C 2026-09-12 by codebuddy-ds41flash] R02
 from nodes import NodeDeps
 
 # 复用 cli.hitl_cli 的中断收集逻辑与决策材料字段定义（不调用 handle_hitl，
@@ -166,8 +167,9 @@ def _build_graph_and_config(cfg: dict[str, Any]) -> tuple[Any, dict]:
         str(output_root), str(template_dir), str(assets_dir)
     )
     kb = KBStore(str(kb_store))
+    rag_store = build_rag_store_if_available(cfg)  # [C 2026-09-12 by codebuddy-ds41flash] R02：库不存在/为空返回 None
     runner = NodeRunner(llm=llm)
-    deps = NodeDeps(runner=runner, registry=registry, artifacts=artifacts_mgr, kb=kb)
+    deps = NodeDeps(runner=runner, registry=registry, artifacts=artifacts_mgr, kb=kb, rag=rag_store)
 
     graph = build_graph(deps, db_path=str(db_path))
     config: dict = {"configurable": {}}
@@ -211,10 +213,13 @@ def _emit_hitl(
     )
     payload_lines = _format_materials(common_recap_fields, payload)
     # [C 2026-09-12 by codebuddy-ds41flash] feasibility_confirm 升级暂停（重塑额度用尽）也
-    # 携带 status/reason/prior_feedbacks，一并透传
-    if node_name in ("issue_confirm", "launch_confirm", "feasibility_confirm") and isinstance(
-        interrupt_value, dict
-    ):
+    # 携带 status/reason/prior_feedbacks，一并透传；eval_confirm 升级暂停同此模式
+    if node_name in (
+        "issue_confirm",
+        "launch_confirm",
+        "feasibility_confirm",
+        "eval_confirm",
+    ) and isinstance(interrupt_value, dict):
         payload_lines.extend(_format_materials(escalation_fields, payload))
     if payload_lines:
         materials_lines.append("[中断载荷]")
@@ -287,6 +292,26 @@ def _build_question(node_name: str, payload: dict, state: dict) -> str:
             "回复「通过」进 ai-native PRD；回复「改判普通」转普通轨（探针证实传统方案即可）；"
             "回复「重塑」回需求确认门调整范围后重过判定（限 1 次）；"
             "回复「放弃」结束流程。自由文本作为补充意见，默认按通过处理。"
+        )
+    if node_name == "eval_confirm":
+        # [C 2026-09-12 by codebuddy-ds41flash] 第 5 段确认评测体系门：提示两选一选项
+        if payload.get("status") == "escalated":
+            # 第 3 版仍提意见后的升级暂停：明确已停、由人重新拍板
+            return (
+                "节点「eval_confirm」确认评测体系门：流水线已升级暂停"
+                "（已看完第 3 版评测体系，或升级后重起草额度已用尽），"
+                "暂停原因见下方中断材料的 reason 字段，历轮意见见 prior_feedbacks。"
+                "请二选一：① 回复「确认」按当前版落盘（写 Promptfoo YAML 草案与评测档案）；"
+                "② 让 Pi 协助调查后，回复一条带来新决策的具体意见，"
+                "由你主动发起再起草一轮（是否还能重起草以 reason 的说明为准）。"
+            )
+        # draft：四层考题（典型/边界/对抗/线上回放）+ 及格线建议值，确认或提修改意见
+        return (
+            "节点「eval_confirm」确认评测体系门。请审阅评测体系草案"
+            "（四层考题：典型题/边界题/对抗题/线上回放题 + 每题评分方式 + 及格线建议值）："
+            "回复「确认」落盘（写 Promptfoo YAML 草案与评测档案进 state）；"
+            "其他文本一律作为修改意见打回重新起草（最多2轮，之后进入升级暂停，"
+            "可让 Pi 协助调查后带新决策再起草）。"
         )
     if node_name == "issue_confirm":
         if payload.get("status") == "escalated":

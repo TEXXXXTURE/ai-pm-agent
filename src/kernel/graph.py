@@ -20,7 +20,11 @@
 #     requirement_confirm 条件边分流：ai_core=True → feasibility_check → feasibility_confirm(HITL)
 #     → 四态条件边（pass/reclassify→prd_generation；reshape→requirement_confirm；abandon→END）；
 #     ai_core=False/None → needs_discovery（原路径，普通轨行为不变）。
-"""LangGraph 图装配：纵切 13 节点真实接线 + requirement_confirm / feasibility_confirm / issue_confirm / launch_confirm 四扇 HITL 门。
+# [C 2026-09-12 by codebuddy-ds41flash] 第 5 段：插入设计评测体系两节点（15 节点）。
+#     prd_review 条件边三态：reject→prd_generation；非 reject 且 ai_core=True→eval_design；
+#     其余→issue_splitting（普通轨逐字不变）。eval_design→eval_confirm(HITL)→两态条件边
+#     （pass→issue_splitting；redraft→eval_design）。
+"""LangGraph 图装配：纵切 15 节点真实接线 + requirement_confirm / feasibility_confirm / eval_confirm / issue_confirm / launch_confirm 五扇 HITL 门。
 
 节点函数由 nodes.build_nodes(deps) 构建（依赖通过 NodeDeps 注入）。
 图结构：kb_lookup → intake → requirement_confirm(HITL)
@@ -29,7 +33,10 @@
    ／ ai_core=False/None → needs_discovery → prd_generation）
 → prd_generation → prd_review
     →（verdict == "reject" 回 prd_generation 重写，最多 3 轮）
-    →（pass / pass_with_warning / 第 3 轮强制放行）issue_splitting
+    →（非 reject 且 ai_core=True）eval_design → eval_confirm(HITL 确认评测体系门)
+        → 条件边两态：pass → issue_splitting（确认落盘 YAML 草案与评测档案进 state）
+                       redraft → eval_design（修改意见重起草；前 2 轮自动，第 3 版起升级暂停）
+    →（非 reject 且普通轨）issue_splitting
     → issue_confirm(HITL 工单确认门) → 条件边三分支：
         launch_plan（确认：route 返回 "artifact_persist" 语义值映射到 launch_plan 节点）
         issue_splitting（修改意见打回重拆；前 2 轮自动，第 3 版起升级暂停）
@@ -70,6 +77,9 @@ def build_graph(deps: Any, db_path: str | None = None) -> Any:
     from nodes.feasibility import (  # [C 2026-09-12 by codebuddy-ds41flash] 验证AI可行性路由
         route_after_feasibility_confirm,
         route_after_requirement_confirm,
+    )
+    from nodes.eval_design import (  # [C 2026-09-12 by codebuddy-ds41flash] 确认评测体系门条件边
+        route_after_eval_confirm,
     )
 
     nodes = build_nodes(deps)
@@ -118,7 +128,27 @@ def build_graph(deps: Any, db_path: str | None = None) -> Any:
         "prd_review",
         route_after_review,
         # [C 2026-09-11] 通过分支去 issue_splitting 拆单（块1直连落盘，块2插确认门）
-        {"prd_generation": "prd_generation", "issue_splitting": "issue_splitting"},
+        # [C 2026-09-12 by codebuddy-ds41flash] 第 5 段三态：非 reject 且 ai_core=True
+        # 先走 eval_design（设计评测体系），普通轨仍直接去 issue_splitting
+        {
+            "prd_generation": "prd_generation",
+            "eval_design": "eval_design",
+            "issue_splitting": "issue_splitting",
+        },
+    )
+    # [C 2026-09-12 by codebuddy-ds41flash] 第 5 段：评测体系起草后先进确认门（HITL）
+    graph.add_edge("eval_design", "eval_confirm")
+    graph.add_conditional_edges(
+        "eval_confirm",
+        route_after_eval_confirm,
+        # 确认 -> issue_splitting（落盘 YAML 草案与评测档案进 state）；
+        # 修改意见 -> eval_design 重起草（前 2 轮自动，第 3 版起升级暂停）。
+        # 升级暂停靠节点内部第二次 interrupt 实现，二次答复最终只剩 pass/feedback 两类，
+        # 不会返回 graph 未映射的值，故无需 escalated 映射项。
+        {
+            "eval_design": "eval_design",
+            "issue_splitting": "issue_splitting",
+        },
     )
     # [C 2026-09-11] 块2：拆单后不再直连落盘，先进工单确认门（HITL）
     graph.add_edge("issue_splitting", "issue_confirm")

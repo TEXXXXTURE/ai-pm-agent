@@ -18,20 +18,27 @@
 #     requirement_confirm 条件边（ai_core=True）→ feasibility_check → feasibility_confirm(HITL)
 #     → 四态条件边（pass/reclassify→prd_generation；reshape→requirement_confirm；abandon→END）；
 #     普通轨（ai_core=False）由条件边直接去 needs_discovery，不经可行性节点。
-"""nodes 包：纵切 13 节点真实接线。
+# [C 2026-09-12 by codebuddy-ds41flash] 第 5 段：新增设计评测体系两节点（15 节点）：
+#     prd_review 非 reject 且 ai_core=True → eval_design → eval_confirm(HITL)
+#     → 两态条件边（pass→issue_splitting；redraft→eval_design）；
+#     普通轨（ai_core=False/None）由 route_after_review 直接去 issue_splitting，不经评测节点。
+"""nodes 包：纵切 15 节点真实接线。
 
 - NodeDeps：节点依赖容器（runner / registry / artifacts / kb）；
 - build_nodes(deps)：返回有序 dict，key 顺序即图执行顺序：
   kb_lookup → intake → requirement_confirm(HITL，含 AI 适用性分流)
   →（条件边 ai_core=True）feasibility_check → feasibility_confirm(HITL，四态)
   →（条件边 ai_core=False）needs_discovery → prd_generation（按 ai_core 选 ai-native / 普通模板）
-  → prd_review →（条件边：打回回 prd_generation / 否则）issue_splitting
+  → prd_review →（条件边：打回回 prd_generation / 非 reject 且 ai_core=True）eval_design
+  → eval_confirm（HITL；条件边：pass→issue_splitting / redraft→eval_design）
+  →（条件边：非 reject 且普通轨）issue_splitting
   → issue_confirm（HITL；条件边：launch_plan / issue_splitting / prd_generation）
   → launch_plan → launch_confirm（HITL；条件边：artifact_persist / launch_plan / issue_splitting）。
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from components.registry import ComponentRegistry
 from kernel.artifact import ArtifactManager
@@ -55,20 +62,25 @@ from nodes.feasibility import (  # [C 2026-09-12 by codebuddy-ds41flash] 验证A
     make_feasibility_check,
     make_feasibility_confirm,
 )
+from nodes.eval_design import (  # [C 2026-09-12 by codebuddy-ds41flash] 设计评测体系 + 确认评测体系门
+    make_eval_confirm,
+    make_eval_design,
+)
 
 
 @dataclass
 class NodeDeps:
-    """节点依赖容器：所有节点通过闭包访问这四个依赖。"""
+    """节点依赖容器：所有节点通过闭包访问这个依赖容器中的各个依赖。"""
 
     runner: NodeRunner
     registry: ComponentRegistry
     artifacts: ArtifactManager
     kb: KBStore
+    rag: Any = None  # [C 2026-09-12 by codebuddy-ds41flash] R02：AI 领域知识库 RAGStore；None=不接领域库
 
 
 def build_nodes(deps: NodeDeps) -> dict:
-    """构建 13 个节点函数的有序 dict（key 顺序与图执行顺序一致）。"""
+    """构建 15 个节点函数的有序 dict（key 顺序与图执行顺序一致）。"""
     return {
         "kb_lookup": make_kb_lookup(deps),
         "intake": make_intake(deps),
@@ -81,6 +93,11 @@ def build_nodes(deps: NodeDeps) -> dict:
         "prd_generation": make_prd_generation(deps),
         # [C 2026-09-10] 评审门插在 PRD 生成之后，条件边由 graph.py 装配
         "prd_review": make_prd_review(deps),
+        # [C 2026-09-12 by codebuddy-ds41flash] 第 5 段设计评测体系：
+        # AI 核心需求在评审通过后、拆单前先经这两节点；普通轨由条件边直接去 issue_splitting
+        "eval_design": make_eval_design(deps),
+        # [C 2026-09-12 by codebuddy-ds41flash] 确认评测体系门（HITL，不调模型），两态条件边由 graph.py 装配
+        "eval_confirm": make_eval_confirm(deps),
         # [C 2026-09-11] 块1 评审通过类去拆单；块2 拆单后先进工单确认门再落盘
         "issue_splitting": make_issue_splitting(deps),
         # [C 2026-09-11] 块2 工单确认门（HITL，不调模型），三分支条件边由 graph.py 装配

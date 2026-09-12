@@ -1,0 +1,739 @@
+# [C 2026-09-12 by codebuddy-ds41flash] 设计评测体系节点 + 确认评测体系门 自测
+"""eval_design / eval_confirm 零 API 测试：patch 掉 nodes.eval_design.interrupt，
+假 LLM 回放预制响应，不发起任何真实模型调用。
+
+覆盖：
+1. EvalDesignSchema 结构校验：四层齐全各一条；题量下限（典型≥3/边界≥3/对抗≥2）；
+   assertion 题必填 assertion；llm_judge 题必填 judge_rubric + 抽检比例>0；layer 一致性；
+2. classify_eval_answer 纯函数：确认词表精确命中 pass / 空串 pass / 其余任意文本 feedback
+   （含否定式「不确认」「先放一放」）；
+3. eval_design 节点（假 LLM）：产出 eval_system；轮次>0 时意见注入 prompt 且消费即清零；
+4. eval_confirm 节点（假 interrupt）：
+   - 首轮确认 -> verdict=pass、YAML 草案进 state、评测档案进 state、human_feedback 留痕；
+   - 第 1 轮意见 -> 计数 1、redraft；第 2 轮意见 -> 计数 2；
+   - 第 3 版仍意见 -> escalated 升级暂停；escalated 中确认 -> 落盘放行；
+   - 升级后带新决策意见 -> 计数 3 再起草一轮；
+   - 达人事上限后保持 escalated、不自动空转（只「确认」跳出循环）；
+   - 中断载荷 status=draft 携带 eval_system；
+5. render_promptfoo_yaml：yaml.safe_load 可解析、含 prompts/providers/tests 顶层键、
+   assertion 题与 llm-rubric 题各自映射正确、replay 占位层不产生 test 条目、provider 可覆盖；
+6. 路由：route_after_review 三态（reject / pass+ai_core=True / pass+普通轨 / forced 同 pass）；
+   route_after_eval_confirm 两态；
+7. 图编译：15 节点齐（新增 eval_design/eval_confirm）；mermaid 连线含
+   eval_design→eval_confirm→issue_splitting；
+8. QUESTION 文案：确认门 draft 载荷含「确认」「修改意见」与四层考题概要；escalated 文案；
+9. 普通轨零变化：ai_core=False 时 prd_review 的 pass 分支直达 issue_splitting（route 级断言）；
+10. 组件注册：registry 含 eval_design prompt 与 schema；hitl_cli/workflow 字段与文案。
+
+运行（PowerShell，cwd=项目根）：
+  $env:PYTHONPATH="src"
+  C:\\Users\\A\\AppData\\Local\\hermes\\hermes-agent\\venv\\Scripts\\python.exe -m pytest tests/test_eval_design.py -v
+"""
+from __future__ import annotations
+
+import importlib.util
+import io
+import sys
+import tempfile
+from contextlib import redirect_stdout
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+# Windows GBK 控制台兜底
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+SRC_DIR = REPO_ROOT / "src"
+sys.path.insert(0, str(SRC_DIR))
+
+import unittest  # noqa: E402
+
+import yaml  # noqa: E402
+from pydantic import ValidationError  # noqa: E402
+
+from components.registry import ComponentRegistry  # noqa: E402
+from components.schemas.eval_design import EvalDesignSchema  # noqa: E402
+from kernel.artifact import ArtifactManager  # noqa: E402
+from kernel.graph import build_graph  # noqa: E402
+from kernel.runner import NodeRunner  # noqa: E402
+from nodes import NodeDeps  # noqa: E402
+from nodes.eval_design import (  # noqa: E402
+    MAX_EVAL_REVISIONS,
+    MAX_EVAL_TOTAL_REVISIONS,
+    _REVISION_ESCALATION_REASON,
+    classify_eval_answer,
+    make_eval_confirm,
+    make_eval_design,
+    render_promptfoo_yaml,
+    route_after_eval_confirm,
+)
+from nodes.review import route_after_review  # noqa: E402
+
+COMPONENTS_DIR = SRC_DIR / "components"
+TEMPLATE_DIR = REPO_ROOT / "artifacts" / "templates"
+ASSETS_DIR = REPO_ROOT / "artifacts" / "assets"
+
+
+# ────────────────────────── 测试替身与夹具 ──────────────────────────
+
+
+class FakeLLM:
+    """按通道与调用次序返回预制响应的假模型（零网络、零花费）。"""
+
+    def __init__(self, json_queue=None, text_queue=None):
+        self.json_queue = list(json_queue or [])
+        self.text_queue = list(text_queue or [])
+        self.calls = []
+
+    def __call__(self, prompt, as_text=False):
+        self.calls.append({"as_text": as_text, "prompt": prompt})
+        if as_text:
+            return self.text_queue.pop(0)
+        return self.json_queue.pop(0)
+
+
+def make_deps(tmp_dir: Path, fake_llm=None) -> NodeDeps:
+    registry = ComponentRegistry(str(COMPONENTS_DIR))
+    artifacts = ArtifactManager(
+        str(tmp_dir / "output"), str(TEMPLATE_DIR), str(ASSETS_DIR)
+    )
+    runner = NodeRunner(llm=fake_llm if fake_llm is not None else FakeLLM())
+    return NodeDeps(runner=runner, registry=registry, artifacts=artifacts, kb=None)
+
+
+def _exam(exam_id: str, layer: str, scorer: str = "assertion") -> dict:
+    """构造一道合法考题（assertion 题含 assertion；llm_judge 题含 rubric + 抽检比例）。"""
+    base = {
+        "id": exam_id,
+        "layer": layer,
+        "description": f"{layer} 层考题 {exam_id}",
+        "prompt_hint": f"输入-{exam_id}",
+    }
+    if scorer == "llm_judge":
+        base.update(
+            {
+                "scorer": "llm_judge",
+                "assertion": None,
+                "judge_rubric": f"裁判标准-{exam_id}",
+                "manual_review_ratio": 0.2,
+            }
+        )
+    else:
+        base.update(
+            {
+                "scorer": "assertion",
+                "assertion": f"contains: 期望片段-{exam_id}",
+                "judge_rubric": None,
+                "manual_review_ratio": 0.0,
+            }
+        )
+    return base
+
+
+def valid_eval_system() -> dict:
+    """符合 EvalDesignSchema 的最小合法评测体系（四层齐全、题量达标、replay 为空占位）。"""
+    return {
+        "purpose": "证明该工具在真实会议转写稿上能稳定抽出待办且不泄露系统提示",
+        "exam_sets": [
+            {
+                "layer": "typical",
+                "exams": [
+                    _exam("T1", "typical", "assertion"),
+                    _exam("T2", "typical", "llm_judge"),
+                    _exam("T3", "typical", "assertion"),
+                ],
+                "placeholder_note": "",
+            },
+            {
+                "layer": "boundary",
+                "exams": [
+                    _exam("B1", "boundary", "llm_judge"),
+                    _exam("B2", "boundary", "assertion"),
+                    _exam("B3", "boundary", "assertion"),
+                ],
+                "placeholder_note": "",
+            },
+            {
+                "layer": "adversarial",
+                "exams": [
+                    _exam("A1", "adversarial", "assertion"),
+                    _exam("A2", "adversarial", "llm_judge"),
+                ],
+                "placeholder_note": "",
+            },
+            {
+                "layer": "replay",
+                "exams": [],
+                "placeholder_note": "本期为空占位；由第 11 段运营数据回流填充真实坏例",
+            },
+        ],
+        "pass_lines": {
+            "overall_pass_rate": 0.85,
+            "critical_pass_rate": 0.95,
+            "note": "按 PRD 可接受通过率与 kill 阈值推导；建议值，最终由用户确认",
+        },
+    }
+
+
+def eval_confirm_state(**overrides):
+    """确认评测体系门入口 state。"""
+    state = {
+        "requirement_name": "demo-ai-req",
+        "confirmed_requirement": "用模型把会议录音转写稿整理成待办",
+        "ai_core": True,
+        "eval_system": valid_eval_system(),
+        "eval_confirm": {},
+        "eval_revision_count": 0,
+        "eval_revision_feedback": "",
+        "human_feedback": [],
+    }
+    state.update(overrides)
+    return state
+
+
+def run_confirm_node(state, answers):
+    """patch 掉 nodes.eval_design.interrupt，按 answers 次序回放 resume 值。
+
+    返回 (节点输出 dict, 历次 interrupt 载荷 list)。
+    """
+    payloads: list[dict] = []
+    queue = list(answers)
+
+    def fake_interrupt(value):
+        payloads.append(value)
+        return queue.pop(0)
+
+    node = make_eval_confirm(None)  # deps 不使用：确认门不调模型、不取依赖
+    with patch("nodes.eval_design.interrupt", side_effect=fake_interrupt):
+        out = node(state)
+    return out, payloads
+
+
+# ────────────────────────── 1. Schema 校验 ──────────────────────────
+
+
+class TestEvalDesignSchema(unittest.TestCase):
+    def test_valid_system_accepted(self):
+        obj = EvalDesignSchema(**valid_eval_system())
+        self.assertEqual(len(obj.exam_sets), 4)
+        self.assertEqual(obj.pass_lines.overall_pass_rate, 0.85)
+        layers = {item.layer: len(item.exams) for item in obj.exam_sets}
+        self.assertEqual(layers["typical"], 3)
+        self.assertEqual(layers["replay"], 0)
+
+    def test_assertion_requires_assertion_field(self):
+        system = valid_eval_system()
+        system["exam_sets"][0]["exams"][0]["assertion"] = None
+        with self.assertRaises(ValidationError):
+            EvalDesignSchema(**system)
+
+    def test_llm_judge_requires_rubric_and_ratio(self):
+        system = valid_eval_system()
+        # 缺 rubric
+        system["exam_sets"][0]["exams"][1]["judge_rubric"] = ""
+        with self.assertRaises(ValidationError):
+            EvalDesignSchema(**system)
+        # 抽检比例必须 >0
+        system = valid_eval_system()
+        system["exam_sets"][0]["exams"][1]["manual_review_ratio"] = 0
+        with self.assertRaises(ValidationError):
+            EvalDesignSchema(**system)
+
+    def test_min_exam_counts_enforced(self):
+        system = valid_eval_system()
+        system["exam_sets"][0]["exams"] = system["exam_sets"][0]["exams"][:2]  # 典型只 2 条
+        with self.assertRaises(ValidationError):
+            EvalDesignSchema(**system)
+
+    def test_all_four_layers_required(self):
+        system = valid_eval_system()
+        system["exam_sets"] = system["exam_sets"][:3]  # 缺 replay 层
+        with self.assertRaises(ValidationError):
+            EvalDesignSchema(**system)
+
+    def test_exam_layer_must_match_set(self):
+        system = valid_eval_system()
+        system["exam_sets"][0]["exams"][0]["layer"] = "boundary"
+        with self.assertRaises(ValidationError):
+            EvalDesignSchema(**system)
+
+    def test_registry_loads_schema(self):
+        registry = ComponentRegistry(str(COMPONENTS_DIR))
+        registered = registry.get_registered()
+        self.assertIn("eval_design", registered["schemas"])
+        self.assertIn("eval_design", registered["prompts"])
+        # registry 动态加载的类名必须是约定名 EvalDesignSchema，且能校验合法评测体系
+        loaded = registry.load_schema("eval_design")
+        self.assertEqual(loaded.__name__, "EvalDesignSchema")
+        self.assertEqual(loaded.model_validate(valid_eval_system()).purpose, valid_eval_system()["purpose"])
+
+
+# ────────────────────────── 2. classify_eval_answer 纯函数 ──────────────────────────
+
+
+class TestClassifyEvalAnswer(unittest.TestCase):
+    def test_confirm_words_pass(self):
+        for word in (
+            "",
+            "   ",
+            "confirmed",
+            "confirm",
+            "ok",
+            "OK",
+            "yes",
+            "确认",
+            "同意",
+            "通过",
+            "没问题",
+            "可以",
+            "就这样",
+            "落盘",
+        ):
+            self.assertEqual(classify_eval_answer(word), "pass", msg=repr(word))
+
+    def test_none_is_pass(self):
+        self.assertEqual(classify_eval_answer(None), "pass")
+
+    def test_other_text_is_feedback(self):
+        for word in (
+            "不确认",
+            "先放一放",
+            "对抗题再加两条",
+            "及格线 0.85 太高",
+            "可以，但要改",
+            "回炉",
+        ):
+            self.assertEqual(classify_eval_answer(word), "feedback", msg=word)
+
+
+# ────────────────────────── 3. eval_design 节点 ──────────────────────────
+
+
+class TestEvalDesignNode(unittest.TestCase):
+    def test_generates_eval_system(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = FakeLLM(json_queue=[valid_eval_system()])
+            deps = make_deps(Path(tmp), fake)
+            state = {
+                "requirement_name": "demo-ai-req",
+                "confirmed_requirement": "整理会议待办",
+                "prd_markdown": "# PRD\nAI 协作边界表...",
+                "red_team_review": {"verdict": "pass", "avg": 4.2},
+                "eval_revision_feedback": "",
+            }
+            out = make_eval_design(deps)(state)
+            self.assertIn("eval_system", out)
+            self.assertEqual(out["eval_system"]["pass_lines"]["overall_pass_rate"], 0.85)
+            # 消费即清零：返回时意见字段写空
+            self.assertEqual(out["eval_revision_feedback"], "")
+            # JSON 通道、只调一次
+            self.assertEqual(len(fake.calls), 1)
+            self.assertFalse(fake.calls[0]["as_text"])
+            self.assertIn("四层", fake.calls[0]["prompt"])
+
+    def test_feedback_injected_when_revision(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = FakeLLM(json_queue=[valid_eval_system()])
+            deps = make_deps(Path(tmp), fake)
+            state = {
+                "requirement_name": "demo-ai-req",
+                "confirmed_requirement": "整理会议待办",
+                "prd_markdown": "# PRD",
+                "red_team_review": {},
+                "eval_revision_count": 1,
+                "eval_revision_feedback": "【第1轮评测体系修改意见】把对抗题加到 3 条-XXX",
+            }
+            out = make_eval_design(deps)(state)
+            prompt = fake.calls[0]["prompt"]
+            self.assertIn("上一轮评测体系修改意见", prompt)
+            self.assertIn("XXX", prompt)
+            # 消费即清零
+            self.assertEqual(out["eval_revision_feedback"], "")
+
+    def test_first_round_has_no_feedback_block(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = FakeLLM(json_queue=[valid_eval_system()])
+            deps = make_deps(Path(tmp), fake)
+            state = {
+                "requirement_name": "demo-ai-req",
+                "prd_markdown": "# PRD",
+                "eval_revision_feedback": "",
+            }
+            make_eval_design(deps)(state)
+            self.assertNotIn("上一轮评测体系修改意见", fake.calls[0]["prompt"])
+
+
+# ────────────────────────── 4. eval_confirm 节点 ──────────────────────────
+
+
+class TestEvalConfirmNode(unittest.TestCase):
+    def test_first_confirm_passes_and_lands(self):
+        for answer in ("", "确认", "confirmed", "同意"):
+            out, payloads = run_confirm_node(eval_confirm_state(), [answer])
+            self.assertEqual(payloads[0]["node"], "eval_confirm")
+            self.assertEqual(payloads[0]["status"], "draft")
+            self.assertIn("eval_system", payloads[0])
+            self.assertEqual(out["eval_confirm"]["verdict"], "pass", msg=repr(answer))
+            # YAML 草案与评测档案进 state
+            self.assertIn("eval_yaml_draft", out)
+            self.assertIn("eval_archive", out)
+            parsed = yaml.safe_load(out["eval_yaml_draft"])
+            self.assertEqual(sorted(parsed.keys()), ["prompts", "providers", "tests"])
+            self.assertEqual(out["eval_archive"]["archive_version"], 1)
+            self.assertEqual(out["eval_archive"]["exam_summary"]["adversarial"], 2)
+            self.assertEqual(
+                out["eval_archive"]["regression_trigger"],
+                {"enabled": False, "note": "二期第 11 段接入"},
+            )
+            # human_feedback 留痕
+            self.assertEqual(out["human_feedback"][-1]["node"], "eval_confirm")
+            self.assertEqual(out["human_feedback"][-1]["kind"], "pass")
+            # 路由：确认 -> issue_splitting
+            merged = {**eval_confirm_state(), **out}
+            self.assertEqual(route_after_eval_confirm(merged), "issue_splitting")
+
+    def test_first_feedback_redrafts(self):
+        out, payloads = run_confirm_node(
+            eval_confirm_state(), ["对抗题至少 3 条，且及格线提到 0.9-AAA"]
+        )
+        self.assertEqual(len(payloads), 1)
+        self.assertEqual(out["eval_confirm"]["verdict"], "redraft")
+        self.assertEqual(out["eval_revision_count"], 1)
+        feedback = out["eval_revision_feedback"]
+        self.assertTrue(feedback.startswith("【第1轮评测体系修改意见】"))
+        self.assertIn("AAA", feedback)
+        self.assertEqual(out["human_feedback"][-1]["kind"], "feedback")
+        # 路由：redraft -> eval_design
+        self.assertEqual(
+            route_after_eval_confirm({**eval_confirm_state(), **out}), "eval_design"
+        )
+        # 未落盘 YAML 草案
+        self.assertNotIn("eval_yaml_draft", out)
+
+    def test_second_feedback_counts_two(self):
+        out, _ = run_confirm_node(
+            eval_confirm_state(eval_revision_count=1), ["第二版还要加边界题-BBB"]
+        )
+        self.assertEqual(out["eval_revision_count"], 2)
+        self.assertTrue(out["eval_revision_feedback"].startswith("【第2轮评测体系修改意见】"))
+        self.assertIn("BBB", out["eval_revision_feedback"])
+        self.assertEqual(out["eval_confirm"]["verdict"], "redraft")
+
+    def test_third_version_escalation_then_confirm(self):
+        out, payloads = run_confirm_node(
+            eval_confirm_state(eval_revision_count=MAX_EVAL_REVISIONS),
+            ["第三版还不满意-CCC", "确认"],
+        )
+        self.assertEqual(len(payloads), 2)
+        esc = payloads[1]
+        self.assertEqual(esc["status"], "escalated")
+        self.assertEqual(esc["node"], "eval_confirm")
+        self.assertIn("升级", esc["reason"])
+        self.assertIn("eval_system", esc)
+        self.assertIn("prior_feedbacks", esc)
+        # 二次确认 -> pass 落盘
+        self.assertEqual(out["eval_confirm"]["verdict"], "pass")
+        self.assertIn("eval_yaml_draft", out)
+        self.assertEqual(out["human_feedback"][-1]["kind"], "pass")
+        self.assertEqual(
+            route_after_eval_confirm({**eval_confirm_state(), **out}), "issue_splitting"
+        )
+
+    def test_third_version_escalation_then_new_opinion_redrafts(self):
+        out, payloads = run_confirm_node(
+            eval_confirm_state(eval_revision_count=MAX_EVAL_REVISIONS),
+            ["第三版还不满意-CCC", "新决策：对抗题合并为两条-DDD"],
+        )
+        self.assertEqual(payloads[1]["status"], "escalated")
+        self.assertEqual(out["eval_revision_count"], MAX_EVAL_REVISIONS + 1)
+        self.assertEqual(out["eval_confirm"]["verdict"], "redraft")
+        self.assertIn("DDD", out["eval_revision_feedback"])
+        self.assertNotIn("CCC", out["eval_revision_feedback"])
+        self.assertEqual(
+            route_after_eval_confirm({**eval_confirm_state(), **out}), "eval_design"
+        )
+
+    def test_escalation_limit_keeps_escalated_until_confirm(self):
+        # 升级后重起草额度已用尽（count=总上限）：再喂意见一律停在 escalated，不自动重起草；
+        # 只有「确认」才跳出循环落盘。
+        state = eval_confirm_state(eval_revision_count=MAX_EVAL_TOTAL_REVISIONS)
+        out, payloads = run_confirm_node(
+            state, ["第四版还不满意-EEE", "再改一轮-FFF", "确认"]
+        )
+        self.assertEqual(len(payloads), 3)
+        for payload in payloads[1:]:
+            self.assertEqual(payload["status"], "escalated")
+            self.assertIn("人工介入上限", payload["reason"])
+        # 非确认答复不写计数/意见字段
+        self.assertNotIn("eval_revision_count", out)
+        self.assertNotIn("eval_revision_feedback", out)
+        self.assertEqual(out["eval_confirm"]["verdict"], "pass")
+        self.assertIn("eval_yaml_draft", out)
+        self.assertEqual(
+            [item["kind"] for item in out["human_feedback"]],
+            ["feedback", "feedback", "pass"],
+        )
+        self.assertEqual(
+            route_after_eval_confirm({**state, **out}), "issue_splitting"
+        )
+
+
+# ────────────────────────── 5. render_promptfoo_yaml ──────────────────────────
+
+
+class TestRenderPromptfooYaml(unittest.TestCase):
+    def test_renders_parseable_yaml_with_top_level_keys(self):
+        text = render_promptfoo_yaml(valid_eval_system())
+        parsed = yaml.safe_load(text)
+        self.assertIsInstance(parsed, dict)
+        self.assertEqual(sorted(parsed.keys()), ["prompts", "providers", "tests"])
+        self.assertEqual(len(parsed["prompts"]), 1)
+        # 裸 "deepseek" 占位补成 Promptfoo 合法的 "<provider>:<model>" id
+        self.assertEqual(parsed["providers"], ["deepseek:deepseek-v4-flash"])
+        # typical 3 + boundary 3 + adversarial 2 = 8；replay 空占位不产生条目
+        self.assertEqual(len(parsed["tests"]), 8)
+        for test in parsed["tests"]:
+            self.assertNotIn("[replay]", test["description"])
+            self.assertIn("input", test["vars"])
+            self.assertIn("assert", test)
+
+    def test_assertion_and_llm_judge_mapping(self):
+        parsed = yaml.safe_load(render_promptfoo_yaml(valid_eval_system()))
+        by_id = {t["vars"]["exam_id"]: t for t in parsed["tests"]}
+        # assertion 题：contains 类型，value 去掉前缀
+        self.assertEqual(by_id["T1"]["assert"][0]["type"], "contains")
+        self.assertEqual(by_id["T1"]["assert"][0]["value"], "期望片段-T1")
+        # llm_judge 题：llm-rubric 类型，带 rubric 文本
+        self.assertEqual(by_id["T2"]["assert"][0]["type"], "llm-rubric")
+        self.assertEqual(by_id["T2"]["assert"][0]["value"], "裁判标准-T2")
+        self.assertEqual(by_id["T2"]["vars"]["manual_review_ratio"], 0.2)
+
+    def test_equals_and_regex_prefixes(self):
+        system = valid_eval_system()
+        system["exam_sets"][0]["exams"][0]["assertion"] = "equals: 拒绝"
+        system["exam_sets"][0]["exams"][2]["assertion"] = "regex: ^待办\\d+$"
+        parsed = yaml.safe_load(render_promptfoo_yaml(system))
+        by_id = {t["vars"]["exam_id"]: t for t in parsed["tests"]}
+        self.assertEqual(by_id["T1"]["assert"][0], {"type": "equals", "value": "拒绝"})
+        self.assertEqual(by_id["T3"]["assert"][0]["type"], "regex")
+
+    def test_provider_override(self):
+        # 传入已含 ":" 的完整 provider id 时原样使用（第 6 段横向扩展的接线口径）
+        parsed = yaml.safe_load(
+            render_promptfoo_yaml(valid_eval_system(), provider="openai:gpt-4o")
+        )
+        self.assertEqual(parsed["providers"], ["openai:gpt-4o"])
+
+    def test_empty_system_still_valid(self):
+        parsed = yaml.safe_load(render_promptfoo_yaml({}))
+        self.assertEqual(parsed["tests"], [])
+        self.assertEqual(sorted(parsed.keys()), ["prompts", "providers", "tests"])
+
+
+# ────────────────────────── 6. 路由纯函数 ──────────────────────────
+
+
+class TestRoutes(unittest.TestCase):
+    def test_route_after_review_three_states(self):
+        # reject -> prd_generation（不看 ai_core）
+        for ai_core in (True, False, None):
+            self.assertEqual(
+                route_after_review(
+                    {"red_team_review": {"verdict": "reject"}, "ai_core": ai_core}
+                ),
+                "prd_generation",
+                msg=repr(ai_core),
+            )
+        # 非 reject 且 ai_core=True -> eval_design
+        self.assertEqual(
+            route_after_review(
+                {"red_team_review": {"verdict": "pass"}, "ai_core": True}
+            ),
+            "eval_design",
+        )
+        self.assertEqual(
+            route_after_review(
+                {"red_team_review": {"verdict": "pass_with_warning"}, "ai_core": True}
+            ),
+            "eval_design",
+        )
+        # forced 同 pass 分支
+        self.assertEqual(
+            route_after_review(
+                {
+                    "red_team_review": {"verdict": "pass_with_warning", "forced": True},
+                    "ai_core": True,
+                }
+            ),
+            "eval_design",
+        )
+
+    def test_route_after_review_normal_track_unchanged(self):
+        # 普通轨（ai_core=False/None/缺失）逐字不变：pass 直达 issue_splitting
+        for state in (
+            {"red_team_review": {"verdict": "pass"}, "ai_core": False},
+            {"red_team_review": {"verdict": "pass"}, "ai_core": None},
+            {"red_team_review": {"verdict": "pass"}},
+            {"red_team_review": {"verdict": "pass_with_warning", "forced": True}},
+            {},
+        ):
+            self.assertEqual(route_after_review(state), "issue_splitting", msg=repr(state))
+
+    def test_route_after_eval_confirm_two_states(self):
+        self.assertEqual(
+            route_after_eval_confirm({"eval_confirm": {"verdict": "redraft"}}),
+            "eval_design",
+        )
+        self.assertEqual(
+            route_after_eval_confirm({"eval_confirm": {"verdict": "pass"}}),
+            "issue_splitting",
+        )
+        # 缺失/空 -> 保守放行去 issue_splitting
+        self.assertEqual(route_after_eval_confirm({}), "issue_splitting")
+        self.assertEqual(
+            route_after_eval_confirm({"eval_confirm": {}}), "issue_splitting"
+        )
+
+
+# ────────────────────────── 7. 图接线 ──────────────────────────
+
+
+class TestGraphWiring(unittest.TestCase):
+    EXPECTED_NODES = (
+        "kb_lookup",
+        "intake",
+        "requirement_confirm",
+        "feasibility_check",
+        "feasibility_confirm",
+        "needs_discovery",
+        "prd_generation",
+        "prd_review",
+        "eval_design",
+        "eval_confirm",
+        "issue_splitting",
+        "issue_confirm",
+        "launch_plan",
+        "launch_confirm",
+        "artifact_persist",
+    )
+
+    def test_graph_compiles_with_fifteen_nodes(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            tmp_path = Path(tmp)
+            deps = make_deps(tmp_path, FakeLLM())
+            graph = build_graph(deps, db_path=str(tmp_path / "g.db"))
+            names = set(graph.get_graph().nodes.keys())
+            for name in self.EXPECTED_NODES:
+                self.assertIn(name, names, msg=name)
+            # 15 个真实节点（另加 langgraph 内置 __start__/__end__）
+            real_nodes = names - {"__start__", "__end__"}
+            self.assertEqual(len(real_nodes), 15)
+
+    def test_mermaid_wiring(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            tmp_path = Path(tmp)
+            deps = make_deps(tmp_path, FakeLLM())
+            graph = build_graph(deps, db_path=str(tmp_path / "g.db"))
+            drawn = graph.get_graph().draw_mermaid()
+            self.assertIn("eval_design --> eval_confirm", drawn)
+            self.assertIn("eval_confirm -.-> issue_splitting", drawn)
+            self.assertIn("eval_confirm -.-> eval_design", drawn)
+            self.assertIn("prd_review -.-> eval_design", drawn)
+            self.assertIn("prd_review -.-> issue_splitting", drawn)
+
+
+# ────────────────────────── 8/10. 流水线文案与字段 ──────────────────────────
+
+
+class TestWorkflowQuestionAndFields(unittest.TestCase):
+    @staticmethod
+    def _load_workflow_module():
+        script_path = REPO_ROOT / "scripts" / "run_prd_workflow.py"
+        spec = importlib.util.spec_from_file_location(
+            "run_prd_workflow_under_test_eval", script_path
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_eval_confirm_question_draft_has_four_layers(self):
+        module = self._load_workflow_module()
+        question = module._build_question("eval_confirm", {}, {})
+        self.assertIn("确认评测体系门", question)
+        self.assertIn("确认", question)
+        self.assertIn("修改意见", question)
+        # 四层考题概要
+        for word in ("典型", "边界", "对抗", "线上回放"):
+            self.assertIn(word, question, msg=word)
+
+    def test_eval_confirm_question_escalated(self):
+        module = self._load_workflow_module()
+        question = module._build_question(
+            "eval_confirm",
+            {"status": "escalated", "reason": _REVISION_ESCALATION_REASON},
+            {},
+        )
+        self.assertIn("升级暂停", question)
+        self.assertIn("reason", question)
+        self.assertNotEqual(
+            question, module._build_question("eval_confirm", {}, {})
+        )
+
+    def test_decision_material_fields_contain_eval(self):
+        module = self._load_workflow_module()
+        self.assertIn("eval_system", module.DECISION_MATERIAL_FIELDS)
+        self.assertIn("eval_confirm", module.DECISION_MATERIAL_FIELDS)
+        self.assertIn("eval_system", module.PAYLOAD_RECAP_FIELDS)
+
+    def test_emit_hitl_escalated_exposes_status_reason_priors(self):
+        module = self._load_workflow_module()
+        payload = {
+            "node": "eval_confirm",
+            "status": "escalated",
+            "reason": _REVISION_ESCALATION_REASON,
+            "requirement_name": "demo-ai-req",
+            "eval_system": {"purpose": "证明-EEE"},
+            "prior_feedbacks": [
+                {"kind": "feedback", "round": "draft-feedback-1", "feedback": "加边界题"}
+            ],
+        }
+        graph = MagicMock()
+        graph.get_state.return_value.values = {}
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            module._emit_hitl(graph, {}, "tid-eval-1", payload)
+        out = buf.getvalue()
+        self.assertIn("STATUS: HITL", out)
+        self.assertIn("NODE: eval_confirm", out)
+        self.assertIn("status: escalated", out)
+        self.assertIn("reason:", out)
+        self.assertIn("prior_feedbacks:", out)
+        self.assertIn("draft-feedback-1", out)
+        self.assertEqual(out.count("status: escalated"), 1)
+
+    def test_emit_hitl_draft_carries_eval_system(self):
+        module = self._load_workflow_module()
+        payload = {
+            "node": "eval_confirm",
+            "status": "draft",
+            "requirement_name": "demo-ai-req",
+            "eval_system": {"purpose": "证明-FFF"},
+        }
+        graph = MagicMock()
+        graph.get_state.return_value.values = {}
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            module._emit_hitl(graph, {}, "tid-eval-2", payload)
+        out = buf.getvalue()
+        self.assertIn("eval_system:", out)
+        self.assertIn("证明-FFF", out)
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)
+
+
+# [C 2026-09-12 by codebuddy-ds41flash] tests/test_eval_design.py 新增完成

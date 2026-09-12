@@ -178,13 +178,21 @@ def make_prd_review(deps):
 
 
 def route_after_review(state: dict) -> str:
-    """条件边路由：reject 回 prd_generation 重写；其余去 issue_splitting 拆研发工单。"""
+    """条件边路由三态：reject 回 prd_generation；AI 核心需求先设计评测体系；其余拆工单。
+
+    - verdict == "reject" -> ``prd_generation``（打回重写，最多 3 轮，行为不变）；
+    - 非 reject 且 ``ai_core is True`` -> ``eval_design``（AI 轨：先设计评测体系再拆单）；
+    - 其余（ai_core=False/None/缺失）-> ``issue_splitting``（普通轨逐字不变）。
+    """
     review = state.get("red_team_review") or {}
     if review.get("verdict") == "reject":
         return "prd_generation"
+    if state.get("ai_core") is True:
+        return "eval_design"
     return "issue_splitting"
     # [C 2026-09-10] 评审门条件边路由函数
     # [C 2026-09-11] 块1：通过分支由 artifact_persist 改走 issue_splitting（拆单后再落盘）
+    # [C 2026-09-12 by codebuddy-ds41flash] 第 5 段：非 reject 且 ai_core=True 先走 eval_design
 
 
 # [C 2026-09-10] nodes/review.py 新增完成
