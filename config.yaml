@@ -58,4 +58,28 @@ graph:
   max_prd_revisions: 3
   node_timeout: 120
 
+# [C 2026-09-12] RAG 领域知识库（AI 领域知识库，与业务档案库 kb 段独立）
+domain_kb:
+  chroma_path: ./domain_kb/chroma
+  source_path: ./domain_kb/source
+
+  embedding:
+    provider: siliconflow
+    model: Qwen/Qwen3-Embedding-8B
+    api_key_env: "SILICONFLOW_API_KEY"
+    api_base: "https://api.siliconflow.cn/v1"
+    dimensions: 4096
+    batch_size: 32
+
+  retrieval:
+    top_k: 5
+    keyword_weight: 0.4
+    vector_weight: 0.6
+    layer_weights:
+      concept: 2.0
+      curated-paper: 1.5
+      tracked-paper: 1.0
+    curated_bonus: 1.2
+    feishu_ref_bonus: 1.3
+
 # [MA 2026-09-08]

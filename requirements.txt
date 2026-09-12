@@ -14,3 +14,4 @@ httpx>=0.27
 beautifulsoup4>=4.12
 # [MA 2026-09-11] 测试运行器：tests/ 假 LLM 零 API 测试依赖（S026 补登记，venv 重建后曾丢失）
 pytest>=8.0
+chromadb>=0.5,<1.0
