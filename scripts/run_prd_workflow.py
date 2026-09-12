@@ -264,8 +264,9 @@ def _build_question(node_name: str, payload: dict, state: dict) -> str:
     if node_name == "requirement_confirm":
         return (
             "节点「requirement_confirm」进入需求确认门。"
-            "请审阅下方需求理解与能力边界三色表，确认无误后回复 confirmed，"
-            "或回复修改意见。"
+            "请审阅下方需求理解与 AI 适用性分流建议，确认无误后回复 confirmed，"
+            "或回复「非AI」改判普通轨、「AI核心」改判 AI 全轨；"
+            "其他文本作为需求修订意见处理（分流沿用模型建议，不二次中断）。"
         )
     if node_name == "issue_confirm":
         if payload.get("status") == "escalated":

@@ -18,7 +18,8 @@ DECISION_MATERIAL_FIELDS: tuple[str, ...] = (
     "requirement_name",
     "info_completeness",
     "confirmed_requirement",
-    "capability_boundary",
+    "ai_triage",  # [C 2026-09-12 by MA] S033 块2a：确认门展示 AI 适用性分流建议
+    "ai_core",  # [C 2026-09-12 by MA] S033 块2a：确认门后展示用户拍板的分流结果
     "ai_feasibility",
     "proceed_decision",
     "issue_plan",  # [C 2026-09-11] 块2 工单确认门：展示工单清单草案供用户审阅
@@ -40,7 +41,7 @@ PAYLOAD_RECAP_FIELDS: tuple[str, ...] = (
     "requirement_name",
     "raw_requirement",
     "info_completeness",
-    "capability_boundary",
+    "ai_triage",  # [C 2026-09-12 by MA] S033 块2a：确认门中断载荷携带 AI 分流建议
     "issue_plan",  # [C 2026-09-11] 块2 工单确认门中断载荷携带工单草案
     "launch_plan",  # [C 2026-09-11] 块2 发布计划确认门中断载荷携带计划草案
     # [C 2026-09-11] 升级暂停信息透传：status=draft/escalated、暂停原因、历轮意见；
@@ -98,12 +99,14 @@ def handle_hitl(graph: Any, config: dict, interrupt_value: Any) -> None:
 def _print_payload_recap(payload: dict) -> None:
     """用 rich Pretty 打印 interrupt 载荷中携带的 recap 材料（跳过空值）。
 
-    HITL 中断时节点尚未返回，capability_boundary 等材料只存在于载荷中，
+    HITL 中断时节点尚未返回，ai_triage 等材料只存在于载荷中，
     state 里还没有，因此需要单独打印载荷。
     """
     console.print(
         Panel.fit("[bold]需求确认材料（中断载荷）[/bold]", title="HITL recap", border_style="magenta")
     )
+    # [C 2026-09-12 by MA] S033 块2a：标题保留"需求确认材料"措辞，
+    # 因 ai_triage 与旧 capability_boundary 都是需求确认门的 recap 材料
     for field in PAYLOAD_RECAP_FIELDS:
         value = payload.get(field)
         if value in (None, "", {}, []):

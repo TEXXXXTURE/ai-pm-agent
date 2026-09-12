@@ -31,7 +31,12 @@ class PMState(TypedDict, total=False):
     opportunity_score: dict           # 机会评分（ODI/RICE）+ cost_feasibility
     competitor_teardown: dict         # 竞品拆解结果
     ai_feasibility: dict              # G5: 必须AI做/传统就能做/AI更差
-    capability_boundary: dict         # G8: 自动/工具/人工 三色表
+    capability_boundary: dict         # G8: 自动/工具/人工 三色表（[C 2026-09-12 by MA] S033 块2a：
+                                       #   确认门不再调用此组件，仅保留字段供旧检查点兼容；
+                                       #   块 3 可行性门将重新设计为语义不同的产品能力三色表）
+    # [C 2026-09-12 by MA] S033 块2a：AI 适用性分流判定字段（v3.0 第 1 段分流）
+    ai_triage: dict                   # 模型给出的分流建议 {suggestion, reason, signals}
+    ai_core: bool | None              # 用户拍板的最终分流：True=AI 全轨 / False=普通轨 / None=未判定
     component_candidates: list        # G8+G9: 组件候选 + 开源检查
     proceed_decision: bool | None     # 是否继续做（用户决策）
 
@@ -115,6 +120,9 @@ def default_state() -> dict[str, Any]:
         "competitor_teardown": {},
         "ai_feasibility": {},
         "capability_boundary": {},
+        # [C 2026-09-12 by MA] S033 块2a：AI 分流字段（默认 None=未判定，prd_generation 视为普通轨）
+        "ai_triage": {},
+        "ai_core": None,
         "component_candidates": [],
         "proceed_decision": None,
         # 评测集

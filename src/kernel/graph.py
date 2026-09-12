@@ -12,6 +12,10 @@
 # [C 2026-09-11] 块2 插入 launch_confirm 发布计划确认门：launch_plan 产出后先进确认门，
 #     条件边三分支（确认落盘 launch_plan.md / 意见回 launch_plan 重调 / 回工单回
 #     issue_splitting 重拆，回工单限 1 次、第 3 版仍有意见进入升级暂停中断）
+# [C 2026-09-12 by MA] S033 块2a：requirement_confirm 内部 capability_boundary 调用换成
+#     ai_triage 分流判定 + resume 四态协议；prd_generation 按 state["ai_core"] 选
+#     ai-native / 普通 PRD 模板。图结构不动（仍 11 节点），分流判定在确认门节点内部完成，
+#     模板选择在 prd_generation 节点内部完成；块 3 可行性门才新增节点与条件边。
 """LangGraph 图装配：纵切 11 节点真实接线 + requirement_confirm / issue_confirm / launch_confirm 三扇 HITL 门。
 
 节点函数由 nodes.build_nodes(deps) 构建（依赖通过 NodeDeps 注入）。

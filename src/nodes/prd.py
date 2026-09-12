@@ -16,10 +16,21 @@ from kernel.spec import NodeSpec
 
 
 def make_prd_generation(deps):
-    """PRD 生成：模型原生输出 Markdown 全文，返回 prd_markdown 并清零回炉意见。"""
+    """PRD 生成：模型原生输出 Markdown 全文，返回 prd_markdown 并清零回炉意见。
+
+    [C 2026-09-12 by MA] S033 块2a：按 state["ai_core"] 选模板——
+    - ai_core=True：读取 prd_generation_ai_native.md（AI-native 模板，八项必含）
+    - ai_core=False / None / 缺失：读取 prd_generation.md（普通模板，逐字不变）
+    普通轨行为零变化；模板选择只影响 prompt_template 字段。
+    """
 
     def prd_generation(state: dict) -> dict:
-        prompt = deps.registry.read_prompt("prd_generation")
+        # [C 2026-09-12 by MA] S033 块2a：分流选模板
+        ai_core = state.get("ai_core")
+        prompt_name = (
+            "prd_generation_ai_native" if ai_core is True else "prd_generation"
+        )
+        prompt = deps.registry.read_prompt(prompt_name)
         # [C 2026-09-09] T1 不传 output_schema（NodeSpec 默认 None）、不挂 self_checks；
         # 文本通道无需 schema 校验，创意质量由 prompt 的质量标杆自检引导
         spec = NodeSpec(
@@ -35,3 +46,4 @@ def make_prd_generation(deps):
 
 
 # [C 2026-09-09] T1 nodes/prd.py 改走 run_text 文本通道，输出 prd_markdown
+# [C 2026-09-12 by MA] S033 块2a：按 ai_core 选 ai-native / 普通 PRD 模板

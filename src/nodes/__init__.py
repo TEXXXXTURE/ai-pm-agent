@@ -10,12 +10,17 @@
 # [C 2026-09-11] 块2 新增 launch_confirm 发布计划确认门（11 节点）：
 #     launch_plan -> launch_confirm(HITL) -> 条件边三分支
 #     （确认落盘 / 意见回 launch_plan 重调 / 回工单回 issue_splitting 重拆，回工单限 1 次）
+# [C 2026-09-12 by MA] S033 块2a：requirement_confirm 内部 capability_boundary 调用换成
+#     ai_triage 分流判定 + resume 四态协议（确认/非AI/AI核心/自由文本修订）；
+#     prd_generation 按 ai_core 选 ai-native / 普通 PRD 模板。
+#     图结构不动（仍 11 节点），仅在节点内部分流，块 3 可行性门才插新节点与条件边。
 """nodes 包：纵切 11 节点真实接线。
 
 - NodeDeps：节点依赖容器（runner / registry / artifacts / kb）；
 - build_nodes(deps)：返回有序 dict，key 顺序即图执行顺序：
-  kb_lookup → intake → requirement_confirm → needs_discovery
-  → prd_generation → prd_review →（条件边：打回回 prd_generation / 否则）issue_splitting
+  kb_lookup → intake → requirement_confirm(HITL，含 AI 适用性分流)
+  → needs_discovery → prd_generation（按 ai_core 选 ai-native / 普通模板）
+  → prd_review →（条件边：打回回 prd_generation / 否则）issue_splitting
   → issue_confirm（HITL；条件边：launch_plan / issue_splitting / prd_generation）
   → launch_plan → launch_confirm（HITL；条件边：artifact_persist / launch_plan / issue_splitting）。
 """
