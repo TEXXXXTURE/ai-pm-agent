@@ -103,6 +103,24 @@ def make_artifact_persist(deps):
                 if path:
                     artifacts_dict[key] = str(path)
 
+        # 7. 对比选型产物（第 6 段 bake_off 已自行落盘）：把报告与逐模型配置/结果路径
+        #    并入 artifacts 清单；本节点不重复落盘。 [C 2026-09-13 by codebuddy-ds41flash]
+        bakeoff_artifacts = state.get("bakeoff_artifacts") or {}
+        if isinstance(bakeoff_artifacts, dict):
+            report_path = bakeoff_artifacts.get("report_path")
+            if report_path:
+                artifacts_dict["bakeoff_report"] = str(report_path)
+            for idx, path in enumerate(
+                bakeoff_artifacts.get("config_paths") or [], start=1
+            ):
+                if path:
+                    artifacts_dict[f"bakeoff_config_{idx}"] = str(path)
+            for idx, path in enumerate(
+                bakeoff_artifacts.get("results_paths") or [], start=1
+            ):
+                if path:
+                    artifacts_dict[f"bakeoff_results_{idx}"] = str(path)
+
         return {
             "prd_markdown": md,
             "artifacts": artifacts_dict,

@@ -18,6 +18,10 @@
 - tool_error  ：Promptfoo 退出码 1（工具/配置/网络错误），修好后恢复；
 - eval_failed ：工具跑通但未达及格线，工程师线下改 prompt/题/模型方案后恢复，**不设自动放行**。
 计数：每次实际执行（跑到出 results.json）eval_run_count +1；await_prompt 阶段不计。
+
+公共件（第 6 段 bake_off 复用）：``run_promptfoo_eval``（入口解析/env/subprocess/results 读取）
+与 ``collect_critical_exams`` / ``collect_critical_descriptions`` / ``critical_pass_stats``
+（关键题判定），均定义在本模块，行为与抽取前逐字一致。
 """
 from __future__ import annotations
 
@@ -227,8 +231,11 @@ def _match_exam_result(exam: dict, per_exam: list[dict]) -> dict | None:
     return None
 
 
-def _collect_critical_exams(exam_sets: list) -> list[dict]:
-    """收集关键题：对抗层全部题 + 典型层且 critical=True 的题。"""
+def collect_critical_exams(exam_sets: list) -> list[dict]:
+    """公共：收集关键题——对抗层全部题 + 典型层且 critical=True 的题。
+
+    关键题口径的唯一定义处，judge_eval_report 与 bake_off 汇总共用。
+    """
     critical: list[dict] = []
     for exam_set in exam_sets or []:
         if not isinstance(exam_set, dict):
@@ -246,6 +253,52 @@ def _collect_critical_exams(exam_sets: list) -> list[dict]:
             if is_critical:
                 critical.append({**exam, "_layer": layer})
     return critical
+    # [C 2026-09-13 by codebuddy-ds41flash] 由 _collect_critical_exams 提升为公共件，供 bake_off 复用
+
+
+def collect_critical_descriptions(exam_sets: list) -> list[str]:
+    """公共：收集关键题的标签列表（description 优先，其次 id）。
+
+    与 collect_critical_exams 顺序一一对应，供未过关键题展示与 bake_off 汇总共用。
+    """
+    return [
+        str(exam.get("description") or exam.get("id") or "").strip()
+        for exam in collect_critical_exams(exam_sets)
+    ]
+    # [C 2026-09-13 by codebuddy-ds41flash] 关键题标签收集公共件
+
+
+def critical_pass_stats(exam_sets: list, per_exam: list) -> dict:
+    """公共：按 eval_run 口径算关键题通过情况（judge_eval_report 与 bake_off 共用）。
+
+    关键题集合来自 collect_critical_exams；用 description 或 id 与 per_exam 匹配，
+    **匹配不到的关键题视为失败**。
+
+    Returns:
+        ``{"passed": int, "total": int, "rate": float, "failed_descriptions": list[str]}``；
+        关键题总数为 0 时 ``rate=1.0``（不设门槛）。
+    """
+    exams = collect_critical_exams(exam_sets if isinstance(exam_sets, list) else [])
+    labels = collect_critical_descriptions(
+        exam_sets if isinstance(exam_sets, list) else []
+    )
+    per = per_exam if isinstance(per_exam, list) else []
+    passed = 0
+    failed_descriptions: list[str] = []
+    for exam, label in zip(exams, labels):
+        matched = _match_exam_result(exam, per)
+        if matched is not None and bool(matched.get("success", False)):
+            passed += 1
+        else:
+            failed_descriptions.append(label)
+    total = len(exams)
+    return {
+        "passed": passed,
+        "total": total,
+        "rate": (passed / total) if total > 0 else 1.0,
+        "failed_descriptions": failed_descriptions,
+    }
+    # [C 2026-09-13 by codebuddy-ds41flash] 关键题通过统计公共件（eval_run/bake_off 共用）
 
 
 def judge_eval_report(parsed: dict, pass_lines: dict, exam_sets: list) -> dict:
@@ -272,18 +325,13 @@ def judge_eval_report(parsed: dict, pass_lines: dict, exam_sets: list) -> dict:
     total = _to_int(data.get("total"))
     overall_rate = (successes / total) if total > 0 else 0.0
 
-    critical_exams = _collect_critical_exams(exam_sets if isinstance(exam_sets, list) else [])
-    failed_critical_descriptions: list[str] = []
-    critical_passed = 0
-    for exam in critical_exams:
-        matched = _match_exam_result(exam, per_exam)
-        if matched is not None and bool(matched.get("success", False)):
-            critical_passed += 1
-        else:
-            label = str(exam.get("description") or exam.get("id") or "").strip()
-            failed_critical_descriptions.append(label)
-    critical_total = len(critical_exams)
-    critical_rate = (critical_passed / critical_total) if critical_total > 0 else 1.0
+    # [C 2026-09-13 by codebuddy-ds41flash] 关键题通过统计抽公共件（eval_run/bake_off 共用），
+    # 口径与原内联循环逐字一致：匹配不到的关键题视为失败。
+    critical_stats = critical_pass_stats(
+        exam_sets if isinstance(exam_sets, list) else [], per_exam
+    )
+    failed_critical_descriptions = critical_stats["failed_descriptions"]
+    critical_rate = critical_stats["rate"]
 
     overall_threshold = _to_float(thresholds.get("overall_pass_rate"))
     critical_threshold = _to_float(thresholds.get("critical_pass_rate"))
@@ -361,6 +409,78 @@ def _resolve_promptfoo_entry(promptfoo_dir: Path) -> Path:
     # [C 2026-09-12 by codebuddy-ds41flash] Promptfoo 入口版本无关解析（task 书 bin/promptfoo 为候选之一）
 
 
+def run_promptfoo_eval(
+    promptfoo_dir: object,
+    config_path: object,
+    eval_dir: object,
+    timeout: int = PROMPTFOO_TIMEOUT,
+) -> tuple[int, str, dict | None]:
+    """公共执行件：解析入口 + 剔除代理 env + subprocess 调 Promptfoo + 读 results.json。
+
+    eval_run 与 bake_off 共用；封装原 eval_run 内联执行循环的机械部分，
+    对照 eval_run 原逻辑逐字一致（入口解析 / env 处理 / 命令拼装 / 超时与启动失败处置 /
+    退出码与 results.json 读取）。
+
+    Args:
+        promptfoo_dir: Promptfoo 安装目录（含 node_modules/promptfoo）。
+        config_path: 本次评测的 Promptfoo 配置路径（绝对化后传给 -c）。
+        eval_dir: 执行目录（cwd），results.json 也从此目录读取。
+        timeout: 单次执行超时秒数。
+
+    Returns:
+        ``(returncode, stderr_tail, results_json)``：
+        - returncode：Promptfoo 退出码；超时/无法启动统一为 ``EXIT_TOOL_ERROR``；
+        - stderr_tail：stderr（空则 stdout）尾部，上限 500 字符；超时/启动失败为说明文本；
+        - results_json：退出码 0/100 且 ``<eval_dir>/results.json`` 存在且为合法 JSON 时返回
+          解析后 dict，否则 None（调用方据文件是否存在与内容给出与 eval_run 一致的提示）。
+    """
+    promptfoo_bin = _resolve_promptfoo_entry(Path(promptfoo_dir))
+    eval_dir_path = Path(eval_dir)
+    raw_results_path = eval_dir_path / "results.json"
+    env = {k: v for k, v in os.environ.items() if k not in _PROXY_ENV_KEYS}
+    # 用绝对路径：cwd 会切到 eval_dir，相对路径会解析错位。
+    command = [
+        "node",
+        str(promptfoo_bin),
+        "eval",
+        "-c",
+        str(Path(config_path).resolve()),
+        "-o",
+        str(raw_results_path.resolve()),
+        "--no-cache",
+    ]
+
+    try:
+        proc = subprocess.run(
+            command,
+            cwd=str(eval_dir_path),
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        returncode = proc.returncode
+        stderr_tail = _stderr_tail(proc)
+    except subprocess.TimeoutExpired as exc:
+        return EXIT_TOOL_ERROR, f"评测执行超时（>{timeout}s）：{exc}", None
+    except OSError as exc:
+        return EXIT_TOOL_ERROR, f"无法启动 Promptfoo：{exc}", None
+
+    # 非 0/100：工具错误（调用方中断）；返回码原样带回，stderr_tail 供展示
+    if returncode not in (EXIT_OK, EXIT_CONTENT_FAIL):
+        return returncode, stderr_tail, None
+
+    # 0/100：读 results.json；缺失/非法也判工具错误（调用方据文件状态给提示）
+    if not raw_results_path.exists():
+        return returncode, stderr_tail, None
+    try:
+        results_json = json.loads(raw_results_path.read_text(encoding="utf-8"))
+    except (ValueError, TypeError):
+        return returncode, stderr_tail, None
+    return returncode, stderr_tail, results_json
+    # [C 2026-09-13 by codebuddy-ds41flash] Promptfoo 执行公共件（eval_run/bake_off 共用）
+
+
 def make_eval_run(deps):
     """构建期跑评测节点工厂：返回签名 (state: dict) -> dict 的节点函数（不调模型）。
 
@@ -423,40 +543,18 @@ def make_eval_run(deps):
                 }
             )
 
-        promptfoo_bin = _resolve_promptfoo_entry(Path(eval_tool["promptfoo_dir"]))
         raw_results_path = eval_dir / "results.json"
-        env = {k: v for k, v in os.environ.items() if k not in _PROXY_ENV_KEYS}
-        # 用绝对路径：cwd 会切到 eval_dir，相对路径会解析错位。
-        command = [
-            "node",
-            str(promptfoo_bin),
-            "eval",
-            "-c",
-            str(Path(config_path).resolve()),
-            "-o",
-            str(raw_results_path.resolve()),
-            "--no-cache",
-        ]
 
         # 5~9. 执行循环：工具错误中断重跑；跑通后判定，未达标中断重跑（不自动放行）
+        # [C 2026-09-13 by codebuddy-ds41flash] 入口解析/env/subprocess/results 读取抽到
+        # run_promptfoo_eval（与 bake_off 共用）；退出码与 results.json 的提示文案逐字不变。
         while True:
-            try:
-                proc = subprocess.run(
-                    command,
-                    cwd=str(eval_dir),
-                    env=env,
-                    capture_output=True,
-                    text=True,
-                    timeout=PROMPTFOO_TIMEOUT,
-                )
-                returncode = proc.returncode
-                stderr_tail = _stderr_tail(proc)
-            except subprocess.TimeoutExpired as exc:
-                returncode = EXIT_TOOL_ERROR
-                stderr_tail = f"评测执行超时（>{PROMPTFOO_TIMEOUT}s）：{exc}"
-            except OSError as exc:
-                returncode = EXIT_TOOL_ERROR
-                stderr_tail = f"无法启动 Promptfoo：{exc}"
+            returncode, stderr_tail, results_json = run_promptfoo_eval(
+                eval_tool["promptfoo_dir"],
+                config_path,
+                eval_dir,
+                timeout=PROMPTFOO_TIMEOUT,
+            )
 
             # 6. 退出码处置：1（及其他非预期码）判工具错误 -> 中断，恢复后回到本步重跑
             if returncode not in (EXIT_OK, EXIT_CONTENT_FAIL):
@@ -470,30 +568,22 @@ def make_eval_run(deps):
                 )
                 continue
 
-            # 0/100：工具跑通，读取 results.json；缺失/非法也判工具错误
-            if not raw_results_path.exists():
+            # 0/100：工具跑通；results.json 缺失/非法也判工具错误（提示与重构前一致）
+            if results_json is None:
+                if not raw_results_path.exists():
+                    reason = "Promptfoo 退出码正常但未生成 results.json"
+                else:
+                    reason = "results.json 无法解析为合法 JSON"
                 interrupt(
                     {
                         "node": "eval_run",
                         "status": "tool_error",
-                        "reason": "Promptfoo 退出码正常但未生成 results.json",
+                        "reason": reason,
                         "requirement_name": name,
                     }
                 )
                 continue
             raw_text = raw_results_path.read_text(encoding="utf-8")
-            try:
-                results_json = json.loads(raw_text)
-            except (ValueError, TypeError):
-                interrupt(
-                    {
-                        "node": "eval_run",
-                        "status": "tool_error",
-                        "reason": "results.json 无法解析为合法 JSON",
-                        "requirement_name": name,
-                    }
-                )
-                continue
 
             # 7. 计数 +1（本次实际执行跑到出 results.json）、解析 + 硬判 + 落盘报告
             run_count += 1

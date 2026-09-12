@@ -24,7 +24,7 @@
 5. 路由：route_after_eval_run 两态（passed -> launch_plan；否则 -> eval_run）；
    route_after_issue_confirm：确认且 ai_core=True -> eval_run；确认且普通轨 -> artifact_persist；
    重拆/回炉分支逐字不变；
-6. 图编译：16 节点齐（新增 eval_run）；普通轨 issue_confirm 确认分支不经 eval_run；
+6. 图编译：17 节点齐（新增 eval_run；第 6 段再增 bake_off）；普通轨 issue_confirm 确认分支不经 eval_run；
 7. QUESTION 文案：run_prd_workflow._build_question 对 eval_run 三态输出对应提示。
 """
 from __future__ import annotations
@@ -552,14 +552,17 @@ class TestRouting(unittest.TestCase):
 
 
 class TestGraphWiring(unittest.TestCase):
-    def test_graph_compiles_with_sixteen_nodes(self):
+    def test_graph_compiles_with_seventeen_nodes(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             deps = make_deps(Path(tmp))
             graph = build_graph(deps, db_path=str(Path(tmp) / "g.db"))
             names = set(graph.get_graph().nodes.keys())
             self.assertIn("eval_run", names)
+            # [C 2026-09-13 by codebuddy-ds41flash] 第 6 段新增 bake_off 后为 17 个真实节点
+            # （本测试仅随图节点数增长同步计数断言，eval_run 节点自身行为断言未改动）
+            self.assertIn("bake_off", names)
             real = names - {"__start__", "__end__"}
-            self.assertEqual(len(real), 16)
+            self.assertEqual(len(real), 17)
 
 
 # ────────────────────────── 7. QUESTION 文案 ──────────────────────────

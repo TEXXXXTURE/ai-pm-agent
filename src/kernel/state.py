@@ -105,8 +105,12 @@ class PMState(TypedDict, total=False):
     ai_eval_design: dict              # AI 评估设计
 
     # ─── AI 专项 ───
-    model_selection: dict             # G1: 模型选型循环化
+    model_selection: dict             # G1: 模型选型；第 6 段对比选型写 {status, recommended, candidates...}
     failure_modes: dict               # 失败模式分析 + 缓解方案
+
+    # ─── 对比选型模型（bake_off 节点）───
+    # [C 2026-09-13 by codebuddy-ds41flash] 第 6 段：仅 AI 核心需求经过；普通轨字段恒空
+    bakeoff_artifacts: dict           # 对比选型产物路径（report_path / config_paths / results_paths）
 
     # ─── 产物管理 ───
     artifacts: dict                   # 产物文件路径映射
@@ -197,8 +201,12 @@ def default_state() -> dict[str, Any]:
         "experiment_design": {},
         "ai_eval_design": {},
         # AI 专项
+        # [C 2026-09-13 by codebuddy-ds41flash] 第 6 段对比选型：model_selection 默认 {}（已预留），
+        # 新增 bakeoff_artifacts 产物路径
         "model_selection": {},
         "failure_modes": {},
+        # 对比选型模型 [C 2026-09-13 by codebuddy-ds41flash]
+        "bakeoff_artifacts": {},
         # 产物管理
         "artifacts": {},
         "human_feedback": [],

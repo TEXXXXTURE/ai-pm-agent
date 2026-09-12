@@ -1,0 +1,55 @@
+{# [C 2026-09-13 by codebuddy-ds41flash] 对比选型报告模板（bake_off 节点渲染）
+   渲染上下文：requirement_name / generated_at / selection（含 status/recommended/candidates）。
+   推荐结论由代码硬判给出（judge_bakeoff），模板只负责呈现，不做任何判定。 #}
+{% set rec = selection.get('recommended', {}) %}
+{% set candidates = selection.get('candidates', []) %}
+# 模型对比选型报告 — {{ requirement_name }}
+
+> 本报告由流水线第 6 段「对比选型模型」自动生成；用第 5 段同一批考题横跑候选模型，
+> 推荐结论由代码按「整体通过率 > 关键题通过率 > 成本」硬判，模型不参与推荐。
+
+## 推荐结论
+
+{% if rec %}
+推荐模型：**{{ rec.get('provider_id', '') }}**（{{ rec.get('label', '') }}）
+
+| 指标 | 数值 |
+|---|---|
+| 整体通过率 | {{ "%.1f"|format(rec.get('overall_rate', 0) * 100) }}% |
+| 关键题通过率 | {{ "%.1f"|format(rec.get('critical_rate', 0) * 100) }}% |
+| 成本 | {{ rec.get('cost', 0) }} |
+| 延迟 P50(ms) | {{ rec.get('latency_p50_ms', 0) }} |
+| 延迟 P95(ms) | {{ rec.get('latency_p95_ms', 0) }} |
+{% else %}
+无候选模型，未产出推荐结论。
+{% endif %}
+
+## 三维对比
+
+| 候选 | 整体通过率 | 关键题通过率 | 成本 | P50(ms) | P95(ms) | token |
+|---|---|---|---|---|---|---|
+{% for item in candidates %}
+| {{ item.get('label', item.get('provider_id', '')) }}（{{ item.get('provider_id', '') }}） | {{ "%.1f"|format(item.get('overall_rate', 0) * 100) }}% | {{ "%.1f"|format(item.get('critical_rate', 0) * 100) }}% | {{ item.get('cost', 0) }} | {{ item.get('latency_p50_ms', 0) }} | {{ item.get('latency_p95_ms', 0) }} | {{ item.get('token_total', 0) }} |
+{% endfor %}
+
+## 逐模型备注
+
+{% if candidates %}
+{% for item in candidates %}
+- **{{ item.get('label', item.get('provider_id', '')) }}**（{{ item.get('provider_id', '') }}）：通过 {{ item.get('successes', 0) }} / 未通过 {{ item.get('failures', 0) }}（含工具级错误 {{ item.get('errors', 0) }}），成本 {{ item.get('cost', 0) }}，token {{ item.get('token_total', 0) }}，P50 {{ item.get('latency_p50_ms', 0) }}ms / P95 {{ item.get('latency_p95_ms', 0) }}ms。
+{% endfor %}
+{% else %}
+无候选模型记录。
+{% endif %}
+
+## 资源消耗合计
+
+| 项目 | 数值 |
+|---|---|
+| 候选数 | {{ candidates|length }} |
+| 成本合计 | {{ candidates|sum(attribute='cost') }} |
+| token 合计 | {{ candidates|sum(attribute='token_total') }} |
+
+---
+
+报告生成时间：{{ generated_at }}

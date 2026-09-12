@@ -175,6 +175,9 @@ def _build_graph_and_config(cfg: dict[str, Any]) -> tuple[Any, dict]:
     eval_tool: dict = {}
     if eval_tools_cfg.get("promptfoo_dir"):
         eval_tool["promptfoo_dir"] = str(_resolve_path(eval_tools_cfg["promptfoo_dir"]))
+    # [C 2026-09-13 by codebuddy-ds41flash] 第 6 段：装配对比选型候选清单（bake_off 段），
+    # 直接传 dict（仿 cli.main）；缺失则 bake_off 节点抛 NodeExecutionError 明确提示配置缺失。
+    bake_off_cfg = cfg.get("bake_off", {}) or {}
     runner = NodeRunner(llm=llm)
     deps = NodeDeps(
         runner=runner,
@@ -183,6 +186,7 @@ def _build_graph_and_config(cfg: dict[str, Any]) -> tuple[Any, dict]:
         kb=kb,
         rag=rag_store,
         eval_tool=eval_tool or None,
+        bake_off_config=bake_off_cfg or None,
     )
 
     graph = build_graph(deps, db_path=str(db_path))
@@ -236,6 +240,9 @@ def _emit_hitl(
         # [C 2026-09-12 by codebuddy-ds41flash] 第 8 段评测执行门：透传 status/reason
         #（await_prompt/tool_error/eval_failed 三态都带 status + reason；与 issue_confirm 等同处理）
         "eval_run",
+        # [C 2026-09-13 by codebuddy-ds41flash] 第 6 段对比选型门：透传 status/reason
+        #（await_decision/await_prompt/tool_error 三态都带 status + reason）
+        "bake_off",
     ) and isinstance(interrupt_value, dict):
         payload_lines.extend(_format_materials(escalation_fields, payload))
     if payload_lines:
@@ -351,6 +358,30 @@ def _build_question(node_name: str, payload: dict, state: dict) -> str:
             "下方中断材料的 eval_report / report 给出整体通过率、关键题通过率、与阈值的差距"
             "及未通过的关键题。请工程师线下修复被测 prompt、考题或模型方案后"
             "回复任意内容重跑评测；达标前不会进入发布计划。"
+        )
+    if node_name == "bake_off":
+        # [C 2026-09-13 by codebuddy-ds41flash] 第 6 段对比选型门：按 status 三态给中文提示
+        status = payload.get("status")
+        if status == "await_prompt":
+            return (
+                "节点「bake_off」对比选型模型：缺少被测 prompt 文件，流水线暂停等待。"
+                "请把被测 system_prompt.txt 放到下方中断材料的 prompt_path 指定路径，"
+                "放好后回复任意内容恢复，流水线将重新检查并继续横跑候选模型。"
+            )
+        if status == "tool_error":
+            return (
+                "节点「bake_off」对比选型模型：Promptfoo 工具执行失败或配置生成失败"
+                "（配置/环境/网络错误，不代表模型质量结论），失败原因与出错的候选见下方"
+                "中断材料的 provider_id / reason。请修复环境或评测配置后回复任意内容重跑本节点。"
+            )
+        # await_decision：首次确认是否横跑（横跑会真实产生多次模型调用）
+        return (
+            "节点「bake_off」对比选型模型（第 6 段，条件触发）：本版暂无历史选型记录。"
+            "候选模型清单见下方中断材料的 candidates（id + label）。"
+            "注意：横跑会真实产生多次模型调用（按候选数逐个跑同一批考题，产生真实成本与延迟）。"
+            "请三选一：① 回复「跑」/「确认」/「横跑」开始对比选型；"
+            "② 回复「跳过」/「先用默认」跳过横跑（按默认 DeepSeek 记推荐，不调任何模型）；"
+            "③ 提出其他具体意见，流水线不猜、继续暂停等你明确答复。"
         )
     if node_name == "issue_confirm":
         if payload.get("status") == "escalated":

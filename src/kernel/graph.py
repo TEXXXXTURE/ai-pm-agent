@@ -24,7 +24,10 @@
 #     prd_review 条件边三态：reject→prd_generation；非 reject 且 ai_core=True→eval_design；
 #     其余→issue_splitting（普通轨逐字不变）。eval_design→eval_confirm(HITL)→两态条件边
 #     （pass→issue_splitting；redraft→eval_design）。
-"""LangGraph 图装配：纵切 16 节点真实接线 + requirement_confirm / feasibility_confirm / eval_confirm / issue_confirm / launch_confirm 五扇 HITL 门。
+# [C 2026-09-13 by codebuddy-ds41flash] 第 6 段：插入对比选型节点（17 节点）。
+#     eval_confirm pass 改映射为 bake_off；bake_off 条件边 {issue_splitting, bake_off}（自环重跑）；
+#     普通轨不经此节点，行为不变。
+"""LangGraph 图装配：纵切 17 节点真实接线 + requirement_confirm / feasibility_confirm / eval_confirm / issue_confirm / launch_confirm 五扇 HITL 门。
 
 节点函数由 nodes.build_nodes(deps) 构建（依赖通过 NodeDeps 注入）。
 图结构：kb_lookup → intake → requirement_confirm(HITL)
@@ -34,9 +37,12 @@
 → prd_generation → prd_review
     →（verdict == "reject" 回 prd_generation 重写，最多 3 轮）
     →（非 reject 且 ai_core=True）eval_design → eval_confirm(HITL 确认评测体系门)
-        → 条件边两态：pass → issue_splitting（确认落盘 YAML 草案与评测档案进 state）
+        → 条件边两态：pass → bake_off（确认落盘 YAML 草案与评测档案进 state）
                        redraft → eval_design（修改意见重起草；前 2 轮自动，第 3 版起升级暂停）
     →（非 reject 且普通轨）issue_splitting
+    → bake_off（第 6 段对比选型：经 Promptfoo 横跑候选，代码硬判推荐，写 model_selection）
+        → 条件边两态：issue_splitting（横跑完成/人工跳过）
+                       bake_off（工具错误在节点内 interrupt，恢复后自环重跑）
     → issue_confirm(HITL 工单确认门) → 条件边三分支：
         eval_run（确认 且 ai_core=True：第 8 段构建期跑评测）
         launch_plan（确认 且普通轨：route 返回 "artifact_persist" 语义值映射到 launch_plan 节点）
@@ -86,6 +92,9 @@ def build_graph(deps: Any, db_path: str | None = None) -> Any:
     )
     from nodes.eval_run import (  # [C 2026-09-12 by codebuddy-ds41flash] 构建期跑评测条件边
         route_after_eval_run,
+    )
+    from nodes.bake_off import (  # [C 2026-09-13 by codebuddy-ds41flash] 第 6 段对比选型条件边
+        route_after_bake_off,
     )
 
     nodes = build_nodes(deps)
@@ -147,13 +156,25 @@ def build_graph(deps: Any, db_path: str | None = None) -> Any:
     graph.add_conditional_edges(
         "eval_confirm",
         route_after_eval_confirm,
-        # 确认 -> issue_splitting（落盘 YAML 草案与评测档案进 state）；
-        # 修改意见 -> eval_design 重起草（前 2 轮自动，第 3 版起升级暂停）。
+        # [C 2026-09-13 by codebuddy-ds41flash] 第 6 段：确认（route 返回语义值 "issue_splitting"）
+        # 改映射为 bake_off（对比选型）；修改意见 -> eval_design 重起草（前 2 轮自动，第 3 版起升级暂停）。
+        # 不改 route_after_eval_confirm 纯函数（保持其"确认语义值=issue_splitting"），只在 graph 换目标节点。
         # 升级暂停靠节点内部第二次 interrupt 实现，二次答复最终只剩 pass/feedback 两类，
         # 不会返回 graph 未映射的值，故无需 escalated 映射项。
         {
             "eval_design": "eval_design",
+            "issue_splitting": "bake_off",
+        },
+    )
+    # [C 2026-09-13 by codebuddy-ds41flash] 第 6 段对比选型（AI 核心需求经此，普通轨不经）：
+    # 横跑完成或人工跳过 -> issue_splitting；工具错误/待 prompt 在节点内 interrupt，
+    # route 保守兜底自环 bake_off->bake_off（恢复后重跑本节点）。
+    graph.add_conditional_edges(
+        "bake_off",
+        route_after_bake_off,
+        {
             "issue_splitting": "issue_splitting",
+            "bake_off": "bake_off",
         },
     )
     # [C 2026-09-11] 块2：拆单后不再直连落盘，先进工单确认门（HITL）

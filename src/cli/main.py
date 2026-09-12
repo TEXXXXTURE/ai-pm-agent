@@ -191,6 +191,9 @@ def main(argv: list[str] | None = None) -> int:
     eval_tool: dict = {}
     if eval_tools_cfg.get("promptfoo_dir"):
         eval_tool["promptfoo_dir"] = str(_resolve_path(eval_tools_cfg["promptfoo_dir"]))
+    # [C 2026-09-13 by codebuddy-ds41flash] 第 6 段：装配对比选型候选清单（bake_off 段）
+    # 直接传 dict（不含路径，无需 _resolve_path）；缺失则 bake_off 节点抛 NodeExecutionError。
+    bake_off_cfg = cfg.get("bake_off", {}) or {}
     runner = NodeRunner(llm=llm)
     deps = NodeDeps(
         runner=runner,
@@ -199,6 +202,7 @@ def main(argv: list[str] | None = None) -> int:
         kb=kb,
         rag=rag_store,
         eval_tool=eval_tool or None,
+        bake_off_config=bake_off_cfg or None,
     )
 
     console.print(

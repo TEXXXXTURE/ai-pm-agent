@@ -19,8 +19,8 @@
    assertion 题与 llm-rubric 题各自映射正确、replay 占位层不产生 test 条目、provider 可覆盖；
 6. 路由：route_after_review 三态（reject / pass+ai_core=True / pass+普通轨 / forced 同 pass）；
    route_after_eval_confirm 两态；
-7. 图编译：15 节点齐（新增 eval_design/eval_confirm）；mermaid 连线含
-   eval_design→eval_confirm→issue_splitting；
+7. 图编译：17 节点齐（新增 eval_design/eval_confirm/bake_off）；mermaid 连线含
+   eval_design→eval_confirm→bake_off→issue_splitting；
 8. QUESTION 文案：确认门 draft 载荷含「确认」「修改意见」与四层考题概要；escalated 文案；
 9. 普通轨零变化：ai_core=False 时 prd_review 的 pass 分支直达 issue_splitting（route 级断言）；
 10. 组件注册：registry 含 eval_design prompt 与 schema；hitl_cli/workflow 字段与文案。
@@ -613,6 +613,8 @@ class TestGraphWiring(unittest.TestCase):
         "prd_review",
         "eval_design",
         "eval_confirm",
+        # [C 2026-09-13 by codebuddy-ds41flash] 第 6 段新增对比选型节点
+        "bake_off",
         "issue_splitting",
         "issue_confirm",
         # [C 2026-09-12 by codebuddy-ds41flash] 第 8 段新增构建期跑评测节点
@@ -622,7 +624,7 @@ class TestGraphWiring(unittest.TestCase):
         "artifact_persist",
     )
 
-    def test_graph_compiles_with_fifteen_nodes(self):
+    def test_graph_compiles_with_seventeen_nodes(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             tmp_path = Path(tmp)
             deps = make_deps(tmp_path, FakeLLM())
@@ -630,10 +632,10 @@ class TestGraphWiring(unittest.TestCase):
             names = set(graph.get_graph().nodes.keys())
             for name in self.EXPECTED_NODES:
                 self.assertIn(name, names, msg=name)
-            # [C 2026-09-12 by codebuddy-ds41flash] 第 8 段新增 eval_run 后为 16 个真实节点
+            # [C 2026-09-13 by codebuddy-ds41flash] 第 6 段新增 bake_off 后为 17 个真实节点
             # （另加 langgraph 内置 __start__/__end__）
             real_nodes = names - {"__start__", "__end__"}
-            self.assertEqual(len(real_nodes), 16)
+            self.assertEqual(len(real_nodes), 17)
 
     def test_mermaid_wiring(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
@@ -642,10 +644,20 @@ class TestGraphWiring(unittest.TestCase):
             graph = build_graph(deps, db_path=str(tmp_path / "g.db"))
             drawn = graph.get_graph().draw_mermaid()
             self.assertIn("eval_design --> eval_confirm", drawn)
-            self.assertIn("eval_confirm -.-> issue_splitting", drawn)
             self.assertIn("eval_confirm -.-> eval_design", drawn)
             self.assertIn("prd_review -.-> eval_design", drawn)
             self.assertIn("prd_review -.-> issue_splitting", drawn)
+            # [C 2026-09-13 by codebuddy-ds41flash] 第 6 段：eval_confirm 确认分支改去 bake_off，
+            # bake_off 两态（issue_splitting / 自环重跑）
+            self.assertTrue(
+                any(
+                    "eval_confirm" in line and "bake_off" in line
+                    for line in drawn.splitlines()
+                ),
+                msg=drawn,
+            )
+            self.assertIn("bake_off -.-> issue_splitting", drawn)
+            self.assertIn("bake_off -.-> bake_off", drawn)
 
 
 # ────────────────────────── 8/10. 流水线文案与字段 ──────────────────────────

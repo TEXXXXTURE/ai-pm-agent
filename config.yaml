@@ -63,6 +63,21 @@ graph:
 eval_tools:
   promptfoo_dir: ./工具与参考/Agent外置工具包/AI评测工具包/tools/promptfoo
 
+# [C 2026-09-13 by codebuddy-ds41flash] 第 6 段：对比选型候选模型清单（横跑范围）
+# 第一版只放 DeepSeek 自家两个模型，零新密钥零第三方端点（产品渠道干净红线）；
+# 以后加厂商只在本清单加行（id/label/kind/api_key_env），代码零改。
+# key 只放 .env（api_key_env 为环境变量名，不硬编码）；Promptfoo deepseek provider 原生读该变量。
+bake_off:
+  candidates:
+    - id: deepseek:deepseek-chat
+      label: DeepSeek-Chat
+      kind: chat
+      api_key_env: DEEPSEEK_API_KEY
+    - id: deepseek:deepseek-reasoner
+      label: DeepSeek-Reasoner
+      kind: reasoner
+      api_key_env: DEEPSEEK_API_KEY
+
 # [C 2026-09-12] RAG 领域知识库（AI 领域知识库，与业务档案库 kb 段独立）
 domain_kb:
   chroma_path: ./domain_kb/chroma

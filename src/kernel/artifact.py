@@ -29,7 +29,15 @@ _DOC_DIR_MAP = {
     "eval_config": "评测",
     "eval_results": "评测",
     "eval_report": "评测",
+    # [C 2026-09-13 by codebuddy-ds41flash] 第 6 段对比选型产物统一落「评测」子目录
+    "bakeoff_config": "评测",
+    "bakeoff_results": "评测",
+    "bakeoff_report": "评测",
 }
+
+# [C 2026-09-13 by codebuddy-ds41flash] 第 6 段逐模型产物 doc_type 带 provider 后缀
+# （bakeoff-<safe_id>-eval_config / bakeoff-<safe_id>-results），前缀命中即归「评测」子目录
+_BAKEOFF_DOC_PREFIXES = ("bakeoff-", "bakeoff_")
 
 # 文件系统非法字符（Windows 全量，跨平台保守处理）
 _ILLEGAL_CHARS = re.compile(r'[\\/:*?"<>|]')
@@ -102,7 +110,14 @@ class ArtifactManager:
             写入文件的 Path
         """
         safe_name = sanitize_name(requirement_name)
-        sub_dir = _DOC_DIR_MAP.get(doc_type, doc_type)
+        sub_dir = _DOC_DIR_MAP.get(doc_type)
+        if sub_dir is None:
+            # [C 2026-09-13 by codebuddy-ds41flash] 逐模型 bakeoff 产物（doc_type 带 provider 后缀）
+            # 前缀命中统一归「评测」；其余未知 doc_type 保持原行为（直接用其本身作目录名）
+            if str(doc_type).startswith(_BAKEOFF_DOC_PREFIXES):
+                sub_dir = "评测"
+            else:
+                sub_dir = doc_type
         out_dir = self.output_root / safe_name / sub_dir
         out_dir.mkdir(parents=True, exist_ok=True)
         out_path = out_dir / f"{safe_name}-{doc_type}{ext}"
