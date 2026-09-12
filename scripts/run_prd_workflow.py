@@ -168,8 +168,22 @@ def _build_graph_and_config(cfg: dict[str, Any]) -> tuple[Any, dict]:
     )
     kb = KBStore(str(kb_store))
     rag_store = build_rag_store_if_available(cfg)  # [C 2026-09-12 by codebuddy-ds41flash] R02：库不存在/为空返回 None
+    # [C 2026-09-12 by codebuddy-ds41flash] 第 8 段：装配外置评测工具配置（eval_tools 段）
+    # promptfoo_dir 用 _resolve_path 解析相对路径；缺失则 eval_tool 无 promptfoo_dir，
+    # eval_run 节点会抛 NodeExecutionError 明确提示配置缺失（不静默失败）。
+    eval_tools_cfg = cfg.get("eval_tools", {}) or {}
+    eval_tool: dict = {}
+    if eval_tools_cfg.get("promptfoo_dir"):
+        eval_tool["promptfoo_dir"] = str(_resolve_path(eval_tools_cfg["promptfoo_dir"]))
     runner = NodeRunner(llm=llm)
-    deps = NodeDeps(runner=runner, registry=registry, artifacts=artifacts_mgr, kb=kb, rag=rag_store)
+    deps = NodeDeps(
+        runner=runner,
+        registry=registry,
+        artifacts=artifacts_mgr,
+        kb=kb,
+        rag=rag_store,
+        eval_tool=eval_tool or None,
+    )
 
     graph = build_graph(deps, db_path=str(db_path))
     config: dict = {"configurable": {}}
@@ -219,6 +233,9 @@ def _emit_hitl(
         "launch_confirm",
         "feasibility_confirm",
         "eval_confirm",
+        # [C 2026-09-12 by codebuddy-ds41flash] 第 8 段评测执行门：透传 status/reason
+        #（await_prompt/tool_error/eval_failed 三态都带 status + reason；与 issue_confirm 等同处理）
+        "eval_run",
     ) and isinstance(interrupt_value, dict):
         payload_lines.extend(_format_materials(escalation_fields, payload))
     if payload_lines:
@@ -312,6 +329,28 @@ def _build_question(node_name: str, payload: dict, state: dict) -> str:
             "回复「确认」落盘（写 Promptfoo YAML 草案与评测档案进 state）；"
             "其他文本一律作为修改意见打回重新起草（最多2轮，之后进入升级暂停，"
             "可让 Pi 协助调查后带新决策再起草）。"
+        )
+    if node_name == "eval_run":
+        # [C 2026-09-12 by codebuddy-ds41flash] 第 8 段评测执行门：按 status 三态给中文提示
+        status = payload.get("status")
+        if status == "await_prompt":
+            return (
+                "节点「eval_run」构建期跑评测：缺少被测 prompt 文件，流水线暂停等待。"
+                "请把被测 system_prompt.txt 放到下方中断材料的 prompt_path 指定路径，"
+                "放好后回复任意内容恢复，流水线将重新检查并继续执行评测。"
+            )
+        if status == "tool_error":
+            return (
+                "节点「eval_run」构建期跑评测：Promptfoo 工具执行失败（配置/环境/网络错误，"
+                "不代表模型质量结论），失败原因见下方中断材料的 reason 字段尾部。"
+                "请修复环境或评测配置后回复任意内容重跑评测。"
+            )
+        # eval_failed：工具跑通但未达及格线
+        return (
+            "节点「eval_run」构建期跑评测：评测结果未达及格线，流水线暂停（不设自动放行）。"
+            "下方中断材料的 eval_report / report 给出整体通过率、关键题通过率、与阈值的差距"
+            "及未通过的关键题。请工程师线下修复被测 prompt、考题或模型方案后"
+            "回复任意内容重跑评测；达标前不会进入发布计划。"
         )
     if node_name == "issue_confirm":
         if payload.get("status") == "escalated":

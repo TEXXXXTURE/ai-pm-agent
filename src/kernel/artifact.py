@@ -25,6 +25,10 @@ _DOC_DIR_MAP = {
     "issues": "研发工单",
     # [C 2026-09-11] 发布计划落「发布计划」子目录
     "launch_plan": "发布计划",
+    # [C 2026-09-12 by codebuddy-ds41flash] 第 8 段评测产物统一落「评测」子目录
+    "eval_config": "评测",
+    "eval_results": "评测",
+    "eval_report": "评测",
 }
 
 # 文件系统非法字符（Windows 全量，跨平台保守处理）

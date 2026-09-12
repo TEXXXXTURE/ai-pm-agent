@@ -157,12 +157,16 @@ def _assertion_to_assert(assertion: str) -> dict:
 def _build_promptfoo_test(exam: dict, layer: str) -> dict:
     """把一道考题映射成一条 Promptfoo test 条目（description + vars + assert）。"""
     scorer = str(exam.get("scorer") or "")
+    # [C 2026-09-12 by codebuddy-ds41flash] 第 8 段：vars.critical 供评测达标硬判筛关键题；
+    # 对抗层题本就视为关键（无论 exam.critical 值如何一律 true），其他层取 exam.critical。
+    critical = True if layer == "adversarial" else bool(exam.get("critical", False))
     test: dict = {
         "description": f"[{layer}] {exam.get('id', '')} {exam.get('description', '')}".strip(),
         "vars": {
             "input": str(exam.get("prompt_hint") or ""),
             "exam_id": str(exam.get("id") or ""),
             "layer": layer,
+            "critical": critical,
         },
     }
     if scorer == "llm_judge":

@@ -1,0 +1,72 @@
+{# [C 2026-09-12 by codebuddy-ds41flash] 评测报告模板（eval_run 节点渲染）
+   渲染上下文：requirement_name / generated_at / parsed（parse_promptfoo_results 输出）/ judge（judge_eval_report 输出）。
+   结论由代码硬判给出（judge.passed），模板只负责呈现，不做任何判定。 #}
+{% set overall_rate = judge.get('overall_rate', 0) %}
+{% set critical_rate = judge.get('critical_rate', 0) %}
+{% set overall_threshold = judge.get('overall_threshold', 0) %}
+{% set critical_threshold = judge.get('critical_threshold', 0) %}
+{% set token = parsed.get('token_usage', {}) %}
+# 评测报告 — {{ requirement_name }}
+
+> 本报告由流水线第 8 段「构建期跑评测」自动生成；达标结论由代码按双及格线硬判，模型不参与。
+
+## 判定结论
+
+{% if judge.get('passed') %}
+# ✅ 达标
+
+整体通过率与关键题通过率均达到及格线，准予进入发布计划。
+{% else %}
+# ❌ 未达标
+
+整体通过率或关键题通过率未达及格线，**不设自动放行**；请工程师线下修复 prompt / 考题 / 模型方案后重跑评测。
+{% endif %}
+
+## 及格线对照
+
+| 指标 | 实际值 | 及格线 | 结论 |
+|---|---|---|---|
+| 整体通过率 | {{ "%.1f"|format(overall_rate * 100) }}% | {{ "%.1f"|format(overall_threshold * 100) }}% | {{ "达标" if overall_rate >= overall_threshold else "未达标" }} |
+| 关键题通过率 | {{ "%.1f"|format(critical_rate * 100) }}% | {{ "%.1f"|format(critical_threshold * 100) }}% | {{ "达标" if critical_rate >= critical_threshold else "未达标" }} |
+
+## 未过关键题
+
+{% set failed = judge.get('failed_critical_descriptions', []) %}
+{% if failed %}
+以下关键题（对抗题 / 标 critical 的典型题）未通过，或未在评测结果中匹配到：
+{% for item in failed %}
+- {{ item }}
+{% endfor %}
+{% else %}
+无（全部关键题通过）。
+{% endif %}
+
+## 逐题结果
+
+| # | 题目 | 结果 | 分数 | 耗时(ms) |
+|---|---|---|---|---|
+{% for item in parsed.get('per_exam', []) %}
+| {{ item.get('test_idx', '') }} | {{ item.get('description', '') }} | {{ "通过" if item.get('success') else "未通过" }} | {{ item.get('score', '') }} | {{ item.get('latency_ms', '') }} |
+{% endfor %}
+
+## 资源消耗
+
+| 项目 | 数值 |
+|---|---|
+| Prompt tokens | {{ token.get('prompt', 0) }} |
+| Completion tokens | {{ token.get('completion', 0) }} |
+| Total tokens | {{ token.get('total', 0) }} |
+| 成本 | {{ parsed.get('cost', 0) }} |
+| 总耗时(ms) | {{ parsed.get('duration_ms', 0) }} |
+| 执行次数 | {{ judge.get('run_count', parsed.get('total', 0)) }} |
+
+## 统计摘要
+
+- 通过：{{ parsed.get('successes', 0) }}
+- 未通过（含工具级错误）：{{ parsed.get('failures', 0) }}
+- 工具级错误：{{ parsed.get('errors', 0) }}
+- 总题数：{{ parsed.get('total', 0) }}
+
+---
+
+报告生成时间：{{ generated_at }}

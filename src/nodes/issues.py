@@ -436,7 +436,8 @@ def route_after_issue_confirm(state: dict) -> str:
     - issue_plan 为空且 prd_rewrite_feedback 非空 -> ``prd_generation``
       （确认门发起回炉：plan 已清空、回炉意见待 PRD 重写消费）；
     - issue_revision_feedback 非空 -> ``issue_splitting``（带人工意见重拆）；
-    - 其余 -> ``artifact_persist``（确认落盘；确认分支不写意见字段，plan 原样保留）。
+    - 其余 -> 确认分支：``ai_core`` 为真返回 ``"eval_run"``（AI 核心需求先跑构建期评测）；
+      否则返回 ``"artifact_persist"``（普通轨确认落盘，行为与现状逐字一致）。
     """
     plan = state.get("issue_plan") or {}
     prd_rewrite_feedback = str(state.get("prd_rewrite_feedback") or "")
@@ -445,8 +446,13 @@ def route_after_issue_confirm(state: dict) -> str:
         return "prd_generation"
     if revision_feedback:
         return "issue_splitting"
+    # [C 2026-09-12 by codebuddy-ds41flash] 第 8 段：确认分支 AI 核心需求先去 eval_run；
+    # 普通需求（ai_core=False/None）保持原 "artifact_persist"（graph 映射到 launch_plan）
+    if state.get("ai_core"):
+        return "eval_run"
     return "artifact_persist"
     # [C 2026-09-11] 工单确认门三分支条件边路由纯函数
+    # [C 2026-09-12 by codebuddy-ds41flash] 第 8 段：确认分支按 ai_core 分流 eval_run / artifact_persist
 
 
 def _normalize_answer(answer: object) -> tuple[str, str]:

@@ -59,6 +59,12 @@ class PMState(TypedDict, total=False):
     eval_yaml_draft: str              # 确认落盘时渲染的 Promptfoo YAML 草案文本（写 state 不落文件）
     eval_archive: dict                # 评测档案（预留第 11 段接口，本任务只构造 dict 写 state）
 
+    # ─── 构建期跑评测（eval_run 节点）───
+    # [C 2026-09-12 by codebuddy-ds41flash] 第 8 段：仅 AI 核心需求经过；普通轨字段恒空/恒 0
+    eval_report: dict                 # 评测报告（整体/关键题通过率、逐题结果、token/成本/耗时、达标结论与差距）
+    eval_run_count: int               # 评测已执行次数（含失败重跑；await_prompt 阶段不计）
+    eval_artifacts: dict              # 评测产物路径（config_path / results_path / report_path）
+
     # ─── PRD 阶段 ───
     section_plan: dict                # 章节裁剪计划
     section_confirmed: bool           # 章节裁剪是否经用户确认
@@ -155,6 +161,10 @@ def default_state() -> dict[str, Any]:
         "eval_revision_feedback": "",
         "eval_yaml_draft": "",
         "eval_archive": {},
+        # 构建期跑评测 [C 2026-09-12 by codebuddy-ds41flash]
+        "eval_report": {},
+        "eval_run_count": 0,
+        "eval_artifacts": {},
         # PRD 阶段
         "section_plan": {},
         "section_confirmed": False,

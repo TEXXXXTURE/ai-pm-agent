@@ -58,6 +58,11 @@ graph:
   max_prd_revisions: 3
   node_timeout: 120
 
+# [C 2026-09-12 by codebuddy-ds41flash] 第 8 段：外置评测工具（Promptfoo）路径
+# 相对路径以项目根为基准解析；缺失时 eval_run 节点抛 NodeExecutionError 提示配置缺失
+eval_tools:
+  promptfoo_dir: ./工具与参考/Agent外置工具包/AI评测工具包/tools/promptfoo
+
 # [C 2026-09-12] RAG 领域知识库（AI 领域知识库，与业务档案库 kb 段独立）
 domain_kb:
   chroma_path: ./domain_kb/chroma

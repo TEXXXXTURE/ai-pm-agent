@@ -184,8 +184,22 @@ def main(argv: list[str] | None = None) -> int:
     )
     kb = KBStore(str(kb_store))
     rag_store = build_rag_store_if_available(cfg)  # [C 2026-09-12 by codebuddy-ds41flash] R02
+    # [C 2026-09-12 by codebuddy-ds41flash] 第 8 段：装配外置评测工具配置（eval_tools 段）
+    # promptfoo_dir 用 _resolve_path 解析相对路径；缺失则 eval_tool 无 promptfoo_dir，
+    # eval_run 节点会抛 NodeExecutionError 明确提示配置缺失。
+    eval_tools_cfg = cfg.get("eval_tools", {}) or {}
+    eval_tool: dict = {}
+    if eval_tools_cfg.get("promptfoo_dir"):
+        eval_tool["promptfoo_dir"] = str(_resolve_path(eval_tools_cfg["promptfoo_dir"]))
     runner = NodeRunner(llm=llm)
-    deps = NodeDeps(runner=runner, registry=registry, artifacts=artifacts_mgr, kb=kb, rag=rag_store)
+    deps = NodeDeps(
+        runner=runner,
+        registry=registry,
+        artifacts=artifacts_mgr,
+        kb=kb,
+        rag=rag_store,
+        eval_tool=eval_tool or None,
+    )
 
     console.print(
         f"[dim]配置已加载 | Provider: "

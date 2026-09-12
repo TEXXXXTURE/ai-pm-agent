@@ -41,6 +41,7 @@
 - `scorer`：`"assertion"`（L1 确定性断言，规则/程序可判）或 `"llm_judge"`（L2 模型裁判）；
 - assertion 题必须填 `assertion`，用前缀标注判定方式：`equals: 期望值` / `contains: 期望片段` / `regex: 正则模式`；
 - llm_judge 题必须填 `judge_rubric`（评分标准）且 `manual_review_ratio`（人工抽检比例）> 0（如 0.2）。
+- 典型层中指向 PRD 核心功能的题标 `critical: true`，其余题不写（默认 false）；对抗层题默认关键，无需标。 {# [C 2026-09-12 by codebuddy-ds41flash] 第 8 段：critical 关键题引导 #}
 
 评分器选型原则：能用程序判的（格式、字段齐全、关键词、拒答）走 assertion；开放性质量（有用性、忠实度、语气、是否幻觉）走 llm_judge。
 

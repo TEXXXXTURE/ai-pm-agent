@@ -24,7 +24,7 @@
 #     prd_review 条件边三态：reject→prd_generation；非 reject 且 ai_core=True→eval_design；
 #     其余→issue_splitting（普通轨逐字不变）。eval_design→eval_confirm(HITL)→两态条件边
 #     （pass→issue_splitting；redraft→eval_design）。
-"""LangGraph 图装配：纵切 15 节点真实接线 + requirement_confirm / feasibility_confirm / eval_confirm / issue_confirm / launch_confirm 五扇 HITL 门。
+"""LangGraph 图装配：纵切 16 节点真实接线 + requirement_confirm / feasibility_confirm / eval_confirm / issue_confirm / launch_confirm 五扇 HITL 门。
 
 节点函数由 nodes.build_nodes(deps) 构建（依赖通过 NodeDeps 注入）。
 图结构：kb_lookup → intake → requirement_confirm(HITL)
@@ -38,9 +38,12 @@
                        redraft → eval_design（修改意见重起草；前 2 轮自动，第 3 版起升级暂停）
     →（非 reject 且普通轨）issue_splitting
     → issue_confirm(HITL 工单确认门) → 条件边三分支：
-        launch_plan（确认：route 返回 "artifact_persist" 语义值映射到 launch_plan 节点）
+        eval_run（确认 且 ai_core=True：第 8 段构建期跑评测）
+        launch_plan（确认 且普通轨：route 返回 "artifact_persist" 语义值映射到 launch_plan 节点）
         issue_splitting（修改意见打回重拆；前 2 轮自动，第 3 版起升级暂停）
         prd_generation（"回PRD"回炉重写，全程限 1 次；重写后自动复审→重拆→重回确认门）
+    → eval_run（第 8 段构建期跑评测，AI 核心需求经此）→ 条件边两态：
+        launch_plan（达标放行）／eval_run（未达标/工具错误在节点内 interrupt，恢复后重跑自环）
     → launch_plan → launch_confirm(HITL 发布计划确认门) → 条件边三分支：
         artifact_persist（确认：落盘 launch_plan.md 及前序四产物）
         launch_plan（修改意见打回重调；前 2 轮自动，第 3 版起升级暂停）
@@ -80,6 +83,9 @@ def build_graph(deps: Any, db_path: str | None = None) -> Any:
     )
     from nodes.eval_design import (  # [C 2026-09-12 by codebuddy-ds41flash] 确认评测体系门条件边
         route_after_eval_confirm,
+    )
+    from nodes.eval_run import (  # [C 2026-09-12 by codebuddy-ds41flash] 构建期跑评测条件边
+        route_after_eval_run,
     )
 
     nodes = build_nodes(deps)
@@ -158,10 +164,24 @@ def build_graph(deps: Any, db_path: str | None = None) -> Any:
         # 确认 -> launch_plan（route_after_issue_confirm 返回 "artifact_persist" 语义值
         # = 确认进落盘流程，graph 把它映射到 launch_plan 节点；不动 issues.py 纯函数）；
         # 修改意见 -> issue_splitting 重拆；回PRD -> prd_generation 回炉。
+        # [C 2026-09-12 by codebuddy-ds41flash] 第 8 段：确认且 ai_core=True 时 route 返回
+        # "eval_run"，先跑构建期评测；普通轨仍返回 "artifact_persist" 直达 launch_plan。
         {
             "issue_splitting": "issue_splitting",
             "prd_generation": "prd_generation",
             "artifact_persist": "launch_plan",
+            "eval_run": "eval_run",
+        },
+    )
+    # [C 2026-09-12 by codebuddy-ds41flash] 第 8 段：构建期跑评测（AI 核心需求经此，普通轨不经）。
+    # 达标 -> launch_plan；未达标/工具错误/待 prompt 均在节点内部 interrupt，graph 拿到的
+    # 只有 passed=True 的返回值；route 保守兜底自环 eval_run->eval_run（未达标恢复后重跑本节点）。
+    graph.add_conditional_edges(
+        "eval_run",
+        route_after_eval_run,
+        {
+            "launch_plan": "launch_plan",
+            "eval_run": "eval_run",
         },
     )
     # [C 2026-09-11] 块2：launch_plan 产出后不再直连落盘，先进发布计划确认门（HITL）

@@ -90,6 +90,19 @@ def make_artifact_persist(deps):
             launch_path = deps.artifacts.save(launch_md, name, "launch_plan", ext=".md")
             artifacts_dict["launch_plan"] = str(launch_path)
 
+        # 6. 评测产物（第 8 段 eval_run 已自行落盘）：把三个路径并入 artifacts 清单；
+        #    本节点不重复落盘，仅为最终产物清单汇总三路径。 [C 2026-09-12 by codebuddy-ds41flash]
+        eval_artifacts = state.get("eval_artifacts") or {}
+        if isinstance(eval_artifacts, dict):
+            for key, state_key in (
+                ("eval_config", "config_path"),
+                ("eval_results", "results_path"),
+                ("eval_report", "report_path"),
+            ):
+                path = eval_artifacts.get(state_key)
+                if path:
+                    artifacts_dict[key] = str(path)
+
         return {
             "prd_markdown": md,
             "artifacts": artifacts_dict,

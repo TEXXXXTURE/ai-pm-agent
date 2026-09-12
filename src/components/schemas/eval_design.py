@@ -64,6 +64,11 @@ class ExamItem(BaseModel):
         le=1.0,
         description="人工抽检比例（scorer=llm_judge 时必须 >0，如 0.2 表示抽检 20%）",
     )
+    # [C 2026-09-12 by codebuddy-ds41flash] 第 8 段新增：关键题标记（供评测达标硬判筛关键题）
+    critical: bool = Field(
+        default=False,
+        description="是否为关键题：典型层中指向核心功能的题标 true；对抗层题本就视为关键无需标",
+    )
 
     @model_validator(mode="after")
     def _check_scorer_fields(self) -> "ExamItem":

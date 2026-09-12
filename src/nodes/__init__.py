@@ -22,9 +22,9 @@
 #     prd_review 非 reject 且 ai_core=True → eval_design → eval_confirm(HITL)
 #     → 两态条件边（pass→issue_splitting；redraft→eval_design）；
 #     普通轨（ai_core=False/None）由 route_after_review 直接去 issue_splitting，不经评测节点。
-"""nodes 包：纵切 15 节点真实接线。
+"""nodes 包：纵切 16 节点真实接线。
 
-- NodeDeps：节点依赖容器（runner / registry / artifacts / kb）；
+- NodeDeps：节点依赖容器（runner / registry / artifacts / kb / rag / eval_tool）；
 - build_nodes(deps)：返回有序 dict，key 顺序即图执行顺序：
   kb_lookup → intake → requirement_confirm(HITL，含 AI 适用性分流)
   →（条件边 ai_core=True）feasibility_check → feasibility_confirm(HITL，四态)
@@ -32,7 +32,8 @@
   → prd_review →（条件边：打回回 prd_generation / 非 reject 且 ai_core=True）eval_design
   → eval_confirm（HITL；条件边：pass→issue_splitting / redraft→eval_design）
   →（条件边：非 reject 且普通轨）issue_splitting
-  → issue_confirm（HITL；条件边：launch_plan / issue_splitting / prd_generation）
+  → issue_confirm（HITL；条件边：eval_run / launch_plan / issue_splitting / prd_generation）
+  → eval_run（第 8 段构建期跑评测，仅 AI 核心需求；条件边：launch_plan / eval_run 自环）
   → launch_plan → launch_confirm（HITL；条件边：artifact_persist / launch_plan / issue_splitting）。
 """
 from __future__ import annotations
@@ -66,6 +67,9 @@ from nodes.eval_design import (  # [C 2026-09-12 by codebuddy-ds41flash] 设计�
     make_eval_confirm,
     make_eval_design,
 )
+from nodes.eval_run import (  # [C 2026-09-12 by codebuddy-ds41flash] 第 8 段：构建期跑评测
+    make_eval_run,
+)
 
 
 @dataclass
@@ -77,10 +81,13 @@ class NodeDeps:
     artifacts: ArtifactManager
     kb: KBStore
     rag: Any = None  # [C 2026-09-12 by codebuddy-ds41flash] R02：AI 领域知识库 RAGStore；None=不接领域库
+    # [C 2026-09-12 by codebuddy-ds41flash] 第 8 段：外置评测工具配置（含 promptfoo_dir）；
+    # None=未配置，eval_run 节点据此抛 NodeExecutionError 明确提示配置缺失
+    eval_tool: dict | None = None
 
 
 def build_nodes(deps: NodeDeps) -> dict:
-    """构建 15 个节点函数的有序 dict（key 顺序与图执行顺序一致）。"""
+    """构建 16 个节点函数的有序 dict（key 顺序与图执行顺序一致）。"""
     return {
         "kb_lookup": make_kb_lookup(deps),
         "intake": make_intake(deps),
@@ -102,6 +109,9 @@ def build_nodes(deps: NodeDeps) -> dict:
         "issue_splitting": make_issue_splitting(deps),
         # [C 2026-09-11] 块2 工单确认门（HITL，不调模型），三分支条件边由 graph.py 装配
         "issue_confirm": make_issue_confirm(deps),
+        # [C 2026-09-12 by codebuddy-ds41flash] 第 8 段构建期跑评测（仅 AI 核心需求经过）：
+        # 确认工单后、写发布计划前，subprocess 调 Promptfoo + 代码硬判达标；普通轨由条件边跳过
+        "eval_run": make_eval_run(deps),
         # [C 2026-09-11] 块1 发布计划节点（工单确认门通过后产计划）
         "launch_plan": make_launch_plan(deps),
         # [C 2026-09-11] 块2 发布计划确认门（HITL，不调模型），三分支条件边由 graph.py 装配：
