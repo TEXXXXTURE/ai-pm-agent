@@ -544,6 +544,37 @@ class TestGenerationPromptConditional(unittest.TestCase):
             self.assertIn("逐条修复 AAA", rendered)
             self.assertIn("第 1 轮", rendered)
 
+    # [C 2026-09-12 by codebuddy-ds41flash] prd_review AI 专项检查条件块渲染测试
+    AI_CHECK_KEYWORDS = ("协作边界", "负向验收", "风险登记册", "kill 阈值")
+
+    def _render_prd_review(self, **extra):
+        with tempfile.TemporaryDirectory() as tmp:
+            registry = make_deps(Path(tmp)).registry
+            raw = registry.read_prompt("prd_review")
+            return Template(raw).render(
+                requirement_name="x", prd_markdown="y", **extra
+            )
+
+    def test_prompt_ai_core_true_contains_ai_checks(self):
+        # ai_core=True：注入 AI 专项检查四项（协作边界/负向验收/风险登记册/kill 阈值）
+        rendered = self._render_prd_review(ai_core=True)
+        for keyword in self.AI_CHECK_KEYWORDS:
+            self.assertIn(keyword, rendered)
+
+    def test_prompt_ai_core_false_no_ai_checks(self):
+        # ai_core=False：条件块不渲染，AI 检查项关键词均不出现，五维评分维度名仍在
+        rendered = self._render_prd_review(ai_core=False)
+        for keyword in self.AI_CHECK_KEYWORDS:
+            self.assertNotIn(keyword, rendered)
+        self.assertIn("结构完整", rendered)
+
+    def test_prompt_ai_core_none_no_ai_checks(self):
+        # ai_core=None（未判定/旧检查点）：视为普通需求，同 False
+        rendered = self._render_prd_review(ai_core=None)
+        for keyword in self.AI_CHECK_KEYWORDS:
+            self.assertNotIn(keyword, rendered)
+        self.assertIn("结构完整", rendered)
+
     def test_schema_registration_and_validation(self):
         # registry 能按约定加载 PrdReviewSchema，且非法分数被拒
         with tempfile.TemporaryDirectory() as tmp:
