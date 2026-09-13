@@ -37,6 +37,7 @@ from nodes.eval_run import (
     EXIT_OK,
     PROMPTFOO_TIMEOUT,
     critical_pass_stats,
+    ensure_judge_provider,
     parse_promptfoo_results,
     run_promptfoo_eval,
 )
@@ -49,12 +50,13 @@ _SYSTEM_PROMPT_REF = "./system_prompt.txt"
 
 # provider config 按 kind 区分：chat 类用 eval_run 现形；reasoner 类只带 max_tokens
 # （reasoner 可能不认 showThinking/temperature 参数，见任务书第四节）
+# max_tokens=2048（S039 真机修复）：思考型模型 500 额度会被 reasoning 占满、正文为空。
 _CHAT_PROVIDER_CONFIG: dict = {
     "temperature": 0,
-    "max_tokens": 500,
+    "max_tokens": 2048,
     "showThinking": False,
 }
-_REASONER_PROVIDER_CONFIG: dict = {"max_tokens": 500}
+_REASONER_PROVIDER_CONFIG: dict = {"max_tokens": 2048}
 
 # 摘要中要落 state 的候选字段（顺序即落盘顺序）
 _SUMMARY_FIELDS: tuple[str, ...] = (
@@ -175,10 +177,10 @@ def build_provider_config(
     """纯函数：基于 eval_yaml_draft 生成"只留当前一个 provider"的可执行 Promptfoo YAML。
 
     - ``prompts`` 替换为 ``["./system_prompt.txt"]``（口径同 eval_run）；
-    - ``tests`` 原样保留；
+    - ``tests`` 保留；缺 provider 的 llm-rubric 断言统一补阅卷模型（S039 真机修复）；
     - ``providers`` 只留当前一条：``{"id": <provider_id>, "config": ...}``；
-      kind=="reasoner" 用 ``{"max_tokens": 500}``，其余（chat 等）用
-      ``{"temperature": 0, "max_tokens": 500, "showThinking": false}``。
+      kind=="reasoner" 用 ``{"max_tokens": 2048}``，其余（chat 等）用
+      ``{"temperature": 0, "max_tokens": 2048, "showThinking": false}``。
 
     Returns:
         归一后的 YAML 文本（``yaml.safe_dump``，allow_unicode=True，sort_keys=False）；
@@ -197,6 +199,8 @@ def build_provider_config(
     else:
         config = dict(_CHAT_PROVIDER_CONFIG)
     document["providers"] = [{"id": str(provider_id), "config": config}]
+    # llm-rubric 断言统一由固定阅卷模型评分（S039 真机修复，与 eval_run 同口径）
+    ensure_judge_provider(document)
     return yaml.safe_dump(document, allow_unicode=True, sort_keys=False)
     # [C 2026-09-13 by codebuddy-ds41flash] 单模型 Promptfoo YAML 生成纯函数（chat/reasoner 分档）
 

@@ -35,6 +35,7 @@ import yaml
 from langgraph.types import interrupt
 
 from kernel.exceptions import NodeExecutionError
+from nodes.eval_design import PROMPTFOO_JUDGE_PROVIDER
 
 # Promptfoo 退出码（见 AI 评测工具包 skills/ai-eval/SKILL.md） [C 2026-09-12 by codebuddy-ds41flash]
 EXIT_OK = 0            # 全部断言通过
@@ -51,9 +52,11 @@ _PROXY_ENV_KEYS = ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy")
 _REASON_TAIL_LENGTH = 500
 
 # provider 归一后的固定 config（S031 样例验证过的形态；showThinking:false 避免思考段污染断言）
+# max_tokens=2048（S039 真机修复）：deepseek-v4-flash 为带隐藏思考的模型，500 额度会被
+# reasoning 全部占满导致可见正文为空（finishReason=length），2048 保证思考后仍有余量作答。
 _NORMALIZED_PROVIDER_CONFIG: dict = {
     "temperature": 0,
-    "max_tokens": 500,
+    "max_tokens": 2048,
     "showThinking": False,
 }
 
@@ -62,6 +65,34 @@ _NORMALIZED_PROVIDER_CONFIG: dict = {
 # 相对路径由 Promptfoo 按配置文件所在目录解析，跨平台稳定。
 _SYSTEM_PROMPT_REF = "./system_prompt.txt"
 
+# 需要模型阅卷的断言类型（缺 provider 时 Promptfoo 回退默认 OpenAI/Codex 通道）
+_JUDGE_ASSERTION_TYPES = ("llm-rubric", "llm-output-rubric", "model-graded-closedqa")
+
+
+def ensure_judge_provider(document: dict, judge_provider: str = PROMPTFOO_JUDGE_PROVIDER) -> dict:
+    """纯函数：给每条缺 provider 的模型阅卷断言补上阅卷模型（S039 真机修复）。
+
+    新草案在 eval_design 渲染时已带 provider；本函数兜底两类场景：
+    ①修复前渲染、已冻结在 state 里的旧草案（正在 eval_failed 中断点的会话）；
+    ②bake_off 从同一草案派生的单模型配置。
+    已有 provider 的断言原样保留，tests/assert 结构异常时安全跳过。
+    """
+    tests = document.get("tests")
+    if not isinstance(tests, list):
+        return document
+    for test in tests:
+        if not isinstance(test, dict):
+            continue
+        assertions = test.get("assert")
+        if not isinstance(assertions, list):
+            continue
+        for assertion in assertions:
+            if not isinstance(assertion, dict):
+                continue
+            if assertion.get("type") in _JUDGE_ASSERTION_TYPES and not assertion.get("provider"):
+                assertion["provider"] = judge_provider
+    return document
+
 
 def finalize_eval_config(eval_yaml_draft: str) -> str:
     """纯函数：把 S035 渲染的 Promptfoo YAML 草案归一为可执行配置文本。
@@ -69,9 +100,10 @@ def finalize_eval_config(eval_yaml_draft: str) -> str:
     处理：
     - `prompts` 从占位 ``{{prd_core_task_prompt}}`` 替换为 ``["file://system_prompt.txt"]``；
     - `providers` 统一归一为 S031 样例验证过的字典形态
-      ``{"id": <合法 provider id>, "config": {temperature:0, max_tokens:500, showThinking:false}}``；
+      ``{"id": <合法 provider id>, "config": {temperature:0, max_tokens:2048, showThinking:false}}``；
       原 provider 是合法 id 字符串时包成上述字典；providers 为空时补默认 DeepSeek id；
-    - `tests` 原样保留。
+    - `tests` 保留；其中缺 provider 的 llm-rubric 类断言统一补阅卷模型
+      （``PROMPTFOO_JUDGE_PROVIDER``，S039 真机修复）。
 
     Returns:
         归一后的 YAML 文本（``yaml.safe_dump``，allow_unicode=True，sort_keys=False）；
@@ -108,6 +140,9 @@ def finalize_eval_config(eval_yaml_draft: str) -> str:
             }
         ]
     document["providers"] = normalized
+
+    # 旧草案里的 llm-rubric 断言可能缺阅卷模型，统一补齐（S039 真机修复）
+    ensure_judge_provider(document)
 
     return yaml.safe_dump(document, allow_unicode=True, sort_keys=False)
     # [C 2026-09-12 by codebuddy-ds41flash] 评测配置归一纯函数

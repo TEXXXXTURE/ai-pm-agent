@@ -289,20 +289,48 @@ class TestBuildProviderConfig(unittest.TestCase):
             build_provider_config(self.draft, "deepseek:deepseek-chat", "chat")
         )
         config = doc["providers"][0]["config"]
-        self.assertEqual(config, {"temperature": 0, "max_tokens": 500, "showThinking": False})
+        self.assertEqual(config, {"temperature": 0, "max_tokens": 2048, "showThinking": False})
 
     def test_reasoner_config_only_max_tokens(self):
         doc = yaml.safe_load(
             build_provider_config(self.draft, "deepseek:deepseek-reasoner", "reasoner")
         )
         config = doc["providers"][0]["config"]
-        self.assertEqual(config, {"max_tokens": 500})
+        self.assertEqual(config, {"max_tokens": 2048})
         self.assertNotIn("temperature", config)
         self.assertNotIn("showThinking", config)
 
     def test_tests_preserved(self):
         doc = yaml.safe_load(build_provider_config(self.draft, "x:y", "chat"))
         self.assertEqual(len(doc["tests"]), 8)
+
+    def test_llm_rubric_judge_provider_backfilled(self):
+        # S039：旧草案里缺 provider 的 llm-rubric 断言必须补上固定阅卷模型
+        old_draft = yaml.safe_dump(
+            {
+                "prompts": ["{{prd_core_task_prompt}}"],
+                "providers": ["deepseek:deepseek-v4-flash"],
+                "tests": [
+                    {
+                        "description": "[typical] J1 旧题",
+                        "vars": {"input": "x"},
+                        "assert": [{"type": "llm-rubric", "value": "标准"}],
+                    },
+                    {
+                        "description": "[typical] J2 已指定阅卷模型",
+                        "vars": {"input": "y"},
+                        "assert": [
+                            {"type": "llm-rubric", "value": "标准", "provider": "custom:judge"}
+                        ],
+                    },
+                ],
+            },
+            allow_unicode=True,
+        )
+        doc = yaml.safe_load(build_provider_config(old_draft, "x:y", "chat"))
+        self.assertEqual(doc["tests"][0]["assert"][0]["provider"], "deepseek:deepseek-v4-flash")
+        # 已有 provider 的断言原样保留
+        self.assertEqual(doc["tests"][1]["assert"][0]["provider"], "custom:judge")
 
     def test_invalid_yaml_returns_empty(self):
         self.assertEqual(build_provider_config("{{not valid yaml", "x:y", "chat"), "")
@@ -530,9 +558,9 @@ class TestBakeOffNode(unittest.TestCase):
                 by_id[doc["providers"][0]["id"]] = doc["providers"][0]["config"]
             self.assertEqual(
                 by_id["deepseek:deepseek-chat"],
-                {"temperature": 0, "max_tokens": 500, "showThinking": False},
+                {"temperature": 0, "max_tokens": 2048, "showThinking": False},
             )
-            self.assertEqual(by_id["deepseek:deepseek-reasoner"], {"max_tokens": 500})
+            self.assertEqual(by_id["deepseek:deepseek-reasoner"], {"max_tokens": 2048})
 
     def test_await_prompt_when_file_missing(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:

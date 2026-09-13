@@ -506,9 +506,10 @@ class TestRenderPromptfooYaml(unittest.TestCase):
         # assertion 题：contains 类型，value 去掉前缀
         self.assertEqual(by_id["T1"]["assert"][0]["type"], "contains")
         self.assertEqual(by_id["T1"]["assert"][0]["value"], "期望片段-T1")
-        # llm_judge 题：llm-rubric 类型，带 rubric 文本
+        # llm_judge 题：llm-rubric 类型，带 rubric 文本，并显式指定阅卷模型（S039）
         self.assertEqual(by_id["T2"]["assert"][0]["type"], "llm-rubric")
         self.assertEqual(by_id["T2"]["assert"][0]["value"], "裁判标准-T2")
+        self.assertEqual(by_id["T2"]["assert"][0]["provider"], "deepseek:deepseek-v4-flash")
         self.assertEqual(by_id["T2"]["vars"]["manual_review_ratio"], 0.2)
 
     def test_equals_and_regex_prefixes(self):

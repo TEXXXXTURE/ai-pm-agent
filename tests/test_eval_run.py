@@ -286,7 +286,7 @@ class TestFinalizeEvalConfig(unittest.TestCase):
         prov = doc["providers"][0]
         self.assertEqual(prov["id"], "deepseek:deepseek-v4-flash")
         self.assertEqual(prov["config"]["temperature"], 0)
-        self.assertEqual(prov["config"]["max_tokens"], 500)
+        self.assertEqual(prov["config"]["max_tokens"], 2048)
         self.assertFalse(prov["config"]["showThinking"])
 
     def test_tests_preserved(self):
@@ -294,6 +294,37 @@ class TestFinalizeEvalConfig(unittest.TestCase):
         doc = yaml.safe_load(text)
         # 典型3+边界3+对抗2 = 8 题（replay 空）
         self.assertEqual(len(doc["tests"]), 8)
+
+    def test_llm_rubric_judge_provider_backfilled_for_old_draft(self):
+        # S039：修复前渲染、冻结在 state 里的旧草案，llm-rubric 缺阅卷模型，
+        # finalize 必须统一补上 deepseek 阅卷模型；已有 provider 不覆盖。
+        old_draft = yaml.safe_dump(
+            {
+                "prompts": ["{{prd_core_task_prompt}}"],
+                "providers": ["deepseek:deepseek-v4-flash"],
+                "tests": [
+                    {
+                        "description": "[typical] J1",
+                        "vars": {"input": "x"},
+                        "assert": [{"type": "llm-rubric", "value": "标准"}],
+                    },
+                    {
+                        "description": "[typical] J2",
+                        "vars": {"input": "y"},
+                        "assert": [
+                            {"type": "contains", "value": "转人工"},
+                            {"type": "llm-rubric", "value": "标准", "provider": "custom:judge"},
+                        ],
+                    },
+                ],
+            },
+            allow_unicode=True,
+        )
+        doc = yaml.safe_load(finalize_eval_config(old_draft))
+        self.assertEqual(doc["tests"][0]["assert"][0]["provider"], "deepseek:deepseek-v4-flash")
+        # 非阅卷断言不加 provider；已有 provider 的阅卷断言不被覆盖
+        self.assertNotIn("provider", doc["tests"][1]["assert"][0])
+        self.assertEqual(doc["tests"][1]["assert"][1]["provider"], "custom:judge")
 
     def test_invalid_yaml_returns_empty(self):
         self.assertEqual(finalize_eval_config("{{not valid yaml"), "")
