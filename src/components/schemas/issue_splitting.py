@@ -8,7 +8,7 @@
 """
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Optional
 
 from pydantic import BaseModel, Field, StringConstraints, model_validator
 
@@ -23,6 +23,11 @@ Readiness = Literal["pass", "needs_clarification", "blocked"]
 
 # 覆盖矩阵三态：covered=已被工单覆盖 / excluded=明确不做（须给原因）/ clarify=信息不足待澄清
 CoverageStatus = Literal["covered", "excluded", "clarify"]
+
+# [C 2026-09-13 by codebuddy-ds41flash] AI 特殊项类别：仅 AI 核心需求（ai_core=true）填写。
+# trace=调用链埋点（trace 可回看）/ fallback=兜底与转人工 /
+# eval_integration=评测接入（Promptfoo 配置与 CI）/ risk_mitigation=风险册缓解措施承接。
+AISpecialCategory = Literal["trace", "fallback", "eval_integration", "risk_mitigation"]
 
 
 class IssueItem(BaseModel):
@@ -90,6 +95,34 @@ class VersionItem(BaseModel):
     acceptance: str = Field(description="整版验收口径：怎么判断这个版本交付达标")
 
 
+class AISpecialItem(BaseModel):
+    """AI 核心需求的一条特殊项承接声明：哪几张工单承接哪一类 AI 特殊项。
+
+    仅 AI 核心需求（ai_core=true）填写，普通需求不产出。校验采用「模型声明 +
+    结构硬判」——真实性（covered_by 是否引用本清单真实工单）与完整性（四类是否齐全）
+    由 nodes/issues.py 的 judge_issue_plan 纯函数硬判。
+    """
+
+    category: AISpecialCategory = Field(
+        description=(
+            "四选一：trace=调用链埋点（使线上调用可回看）/ fallback=兜底与转人工 / "
+            "eval_integration=评测接入（Promptfoo 配置维护与 CI 接入）/ "
+            "risk_mitigation=AI 风险登记册每条的缓解措施承接"
+        )
+    )
+    covered_by: list[IssueId] = Field(
+        min_length=1,
+        description="承接该类特殊项的工单 id 列表（至少 1 个，必须引用本清单真实存在的工单 id）",
+    )
+    note: str = Field(
+        default="",
+        description=(
+            "说明：fallback 类必须写清对应 PRD 哪一部分的失败/接管设计；其余类别可空串"
+        ),
+    )
+    # [C 2026-09-13 by codebuddy-ds41flash] 第 7 段 AI 特殊项声明（仅 AI 轨必填）
+
+
 class IssueSplittingSchema(BaseModel):
     """拆研发工单完整输出（模型只给方案内容，不放行；结构一致性由代码硬判）。"""
 
@@ -112,6 +145,16 @@ class IssueSplittingSchema(BaseModel):
         min_length=1, description="覆盖矩阵至少 1 行：PRD 每项需求都要有去向"
     )
     summary: str = Field(description="一句话总览：几张 AFK、几张 HITL、整体能否开工")
+    # [C 2026-09-13 by codebuddy-ds41flash] 第 7 段 AI 特殊项承接声明，仅 AI 核心需求
+    # （ai_core=true）必填并由 judge 纯函数硬判；普通需求给 null（不产出、不校验）。
+    ai_special_items: Optional[list[AISpecialItem]] = Field(
+        default=None,
+        description=(
+            "AI 特殊项承接声明：trace/fallback/eval_integration/risk_mitigation 四类各至少一条，"
+            "covered_by 必须引用本清单真实工单 id；仅 AI 核心需求必填，普通需求给 null"
+        ),
+    )
 
 
 # [C 2026-09-11] schemas/issue_splitting.py 新增完成
+# [C 2026-09-13 by codebuddy-ds41flash] 新增 AISpecialItem 与 ai_special_items（仅 AI 轨）

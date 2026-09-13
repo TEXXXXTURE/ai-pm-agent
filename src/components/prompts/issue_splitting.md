@@ -32,6 +32,14 @@
 {{ issue_revision_feedback }}
 {% endif %}
 {# [C 2026-09-11] issue_revision_feedback 块1恒空不渲染；块2确认门打回时注入人工意见 #}
+{%- if ai_core %}{# [C 2026-09-13 by codebuddy-ds41flash] ai_core 条件块：AI 轨四类特殊项承接声明 #}
+## 本需求为 AI 核心需求（ai_core=true）：必须声明四类 AI 特殊项承接
+本需求走 AI 全轨。除通用工单外，你必须在 `ai_special_items` 里**显式声明**下列四类 AI 特殊项分别由哪几张工单承接（每条 `covered_by` 引用本清单真实存在的工单 id），且**每一类都至少要有一张真实工单承接**——不允许任何一类特殊项没有工单：
+- **trace（调用链埋点）**：有工单把线上调用链埋点做出来，使线上每次调用可回看（输入、输出、中间步骤可追溯），便于定位问题；
+- **fallback（兜底与转人工）**：有工单做出兜底与转人工路径，并**逐条对应 PRD 的失败/接管设计**（PRD 写了哪些失败场景与接管方式，就要有工单承接哪些）；本类 `note` 必须写清对应 PRD 哪一部分的失败接管；
+- **eval_integration（评测接入）**：有工单把评测接进研发流程——维护 Promptfoo 评测配置并在 CI 里接入，使每次改动都能自动跑评测；
+- **risk_mitigation（风险册承接）**：AI 风险登记册里每一条缓解措施都有工单承接（风险条目与承接工单可一一对应）。
+{%- endif %}
 
 ## 第一原则：纵切（vertical slice），禁横切
 每张工单必须是一个**端到端可演示的用户价值薄片**：做完它，就能向真人演示"用户做了什么、看到了什么变化"。一张工单允许薄，但不允许只是某个技术层的零件。
@@ -132,7 +140,13 @@ PRD 里写了的东西，不允许在覆盖矩阵里"消失"。
     {"prd_item": "第三方微信登录", "status": "excluded", "covered_by": [], "notes": "PRD 非目标：本期只做手机号，微信登录列入下一迭代"},
     {"prd_item": "发票开具（## 扩展场景）", "status": "clarify", "covered_by": [], "notes": "PRD 未给开票主体与税号规则，待财务补充"}
   ],
-  "summary": "一句话总览：几张 AFK、几张 HITL、整体能否开工"
+  "summary": "一句话总览：几张 AFK、几张 HITL、整体能否开工"{% if ai_core %},
+  "ai_special_items": [
+    {"category": "trace", "covered_by": ["I1"], "note": ""},
+    {"category": "fallback", "covered_by": ["I2"], "note": "对应 PRD「失败接管」：低置信度或无答案时转人工"},
+    {"category": "eval_integration", "covered_by": ["I1"], "note": ""},
+    {"category": "risk_mitigation", "covered_by": ["I2"], "note": ""}
+  ]{% endif %}
 }
 
 约束：
@@ -144,5 +158,10 @@ PRD 里写了的东西，不允许在覆盖矩阵里"消失"。
 - acceptance_criteria 每张工单 2-6 条；
 - version_map 仅大需求分期时填写，小需求给 []；
 - 只输出 JSON，不要输出 JSON 之外的任何字符。
+{%- if ai_core %}{# [C 2026-09-13 by codebuddy-ds41flash] AI 轨必填约束条目 #}
+- **本需求为 AI 核心需求，ai_special_items 必填**：trace（调用链埋点）/ fallback（兜底转人工）/ eval_integration（评测接入）/ risk_mitigation（风险册承接）四类必须齐全，每类至少一张真实工单承接；
+- ai_special_items 每条的 covered_by 必须引用本清单真实存在的工单 id，不许悬空；
+- fallback 类的 note 必须写清对应 PRD 哪一部分的失败/接管设计。
+{%- endif %}
 
 <!-- [C 2026-09-11] prompts/issue_splitting.md 新增：纵切拆单 + AFK/HITL + 覆盖矩阵三态 + readiness 三态，严格 JSON -->

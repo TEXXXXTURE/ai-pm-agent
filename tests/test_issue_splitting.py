@@ -664,5 +664,254 @@ class TestIssuePromptConditional(unittest.TestCase):
             self.assertIn("AFK", rendered)
 
 
+# ────────────────────────── 9. AI 轨特殊项承接（块2 S038）──────────────────────────
+# [C 2026-09-13 by codebuddy-ds41flash] 第 7 段：仅 AI 核心需求（ai_core=True）校验
+# ai_special_items（trace/fallback/eval_integration/risk_mitigation 四类齐全 +
+# covered_by 引用真实工单）；普通轨不产出、不校验。全部零 API（纯函数/模板渲染）。
+
+
+def ai_special_items_all():
+    """构造四类齐全、均引用真实工单 I1 的合法 AI 特殊项声明。"""
+    return [
+        {"category": "trace", "covered_by": ["I1"], "note": ""},
+        {
+            "category": "fallback",
+            "covered_by": ["I1"],
+            "note": "对应 PRD「失败接管」：低置信度或无答案时转人工",
+        },
+        {"category": "eval_integration", "covered_by": ["I1"], "note": ""},
+        {"category": "risk_mitigation", "covered_by": ["I1"], "note": ""},
+    ]
+
+
+def ai_plan(**overrides):
+    """构造带 AI 特殊项声明的 AI 轨工单方案（默认四类齐全）。"""
+    return plan_payload(ai_special_items=ai_special_items_all(), **overrides)
+
+
+class TestJudgeAISpecialItems(unittest.TestCase):
+    """judge_issue_plan(plan, ai_core=True) 的 AI 特殊项硬判。"""
+
+    def _missing_category_errors(self, category: str):
+        items = [it for it in ai_special_items_all() if it["category"] != category]
+        judged = judge_issue_plan(plan_payload(ai_special_items=items), ai_core=True)
+        return judged["errors"]
+
+    def test_ai_core_missing_items_errors(self):
+        # 键缺省（默认 None）：AI 轨必填，报缺失
+        judged = judge_issue_plan(plan_payload(), ai_core=True)
+        self.assertTrue(
+            any("ai_special_items" in e and "缺失" in e for e in judged["errors"])
+        )
+
+    def test_ai_core_none_items_errors(self):
+        judged = judge_issue_plan(plan_payload(ai_special_items=None), ai_core=True)
+        self.assertTrue(any("ai_special_items" in e for e in judged["errors"]))
+
+    def test_ai_core_empty_items_errors(self):
+        judged = judge_issue_plan(plan_payload(ai_special_items=[]), ai_core=True)
+        self.assertTrue(any("ai_special_items" in e for e in judged["errors"]))
+
+    def test_ai_core_missing_trace_category(self):
+        errs = self._missing_category_errors("trace")
+        self.assertTrue(any("调用链埋点" in e for e in errs))
+
+    def test_ai_core_missing_fallback_category(self):
+        errs = self._missing_category_errors("fallback")
+        self.assertTrue(any("兜底" in e for e in errs))
+
+    def test_ai_core_missing_eval_integration_category(self):
+        errs = self._missing_category_errors("eval_integration")
+        self.assertTrue(any("评测接入" in e for e in errs))
+
+    def test_ai_core_missing_risk_mitigation_category(self):
+        errs = self._missing_category_errors("risk_mitigation")
+        self.assertTrue(any("风险册" in e for e in errs))
+
+    def test_ai_core_dangling_covered_by_errors(self):
+        items = ai_special_items_all()
+        items[1]["covered_by"] = ["I9"]  # 第 2 条 fallback 引用不存在工单
+        judged = judge_issue_plan(plan_payload(ai_special_items=items), ai_core=True)
+        self.assertTrue(any("I9" in e and "悬空" in e for e in judged["errors"]))
+        self.assertTrue(any("第 2 条" in e for e in judged["errors"]))
+
+    def test_ai_core_all_categories_covered_no_ai_error(self):
+        judged = judge_issue_plan(ai_plan(), ai_core=True)
+        self.assertEqual(judged["errors"], [])
+        self.assertFalse(any("AI" in w or "特殊项" in w for w in judged["warnings"]))
+
+    def test_ai_core_element_not_dict_treated_as_missing_category(self):
+        # 元素非 dict 按"无法识别类别"处理：不抛异常，也不额外报错（四类已齐）
+        items = ai_special_items_all() + ["not-a-dict"]
+        judged = judge_issue_plan(plan_payload(ai_special_items=items), ai_core=True)
+        self.assertEqual(judged["errors"], [])
+
+    def test_ai_core_non_dict_plan_no_raise(self):
+        # plan 非 dict 异常形态安全兜底：不抛异常，且报 ai_special_items 缺失
+        judged = judge_issue_plan(None, ai_core=True)
+        self.assertTrue(any("ai_special_items" in e for e in judged["errors"]))
+
+    def test_normal_track_no_ai_errors_even_without_items(self):
+        # 普通轨（默认 ai_core=False）：无 ai_special_items 也不产生任何 AI 相关 error/warning
+        judged = judge_issue_plan(plan_payload())
+        self.assertEqual(judged["errors"], [])
+        self.assertEqual(judged["warnings"], [])
+        self.assertFalse(
+            any(
+                "ai_special_items" in m
+                for m in judged["errors"] + judged["warnings"]
+            )
+        )
+
+    def test_normal_track_ignores_ai_items_even_with_dangling_ref(self):
+        # 普通轨即使误带 ai_special_items（含悬空引用）也不校验、不报错
+        bad = plan_payload(
+            ai_special_items=[{"category": "trace", "covered_by": ["I9"], "note": ""}]
+        )
+        judged = judge_issue_plan(bad, ai_core=False)
+        self.assertEqual(judged["errors"], [])
+
+
+class TestIssueSplittingNodeAICore(unittest.TestCase):
+    """节点级：ai_core 传递到 judge（AI 轨自检重调；普通轨行为不变）。"""
+
+    def test_ai_core_self_fixes_missing_special_items(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bad = plan_payload()  # AI 轨首轮缺 ai_special_items -> 触发自检
+            good = ai_plan()
+            fake = FakeLLM(json_queue=[bad, good])
+            deps = make_deps(Path(tmp), fake)
+            out = make_issue_splitting(deps)(dict(node_state(), ai_core=True))
+
+            self.assertEqual(len(fake.calls), 2)
+            self.assertIn("工单方案结构自检未通过", fake.calls[1]["prompt"])
+            self.assertIn("ai_special_items", fake.calls[1]["prompt"])
+            plan = out["issue_plan"]
+            self.assertEqual(plan["shape_errors"], [])
+            self.assertTrue(plan["self_fixed"])
+
+    def test_normal_track_ignores_missing_special_items(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = FakeLLM(json_queue=[plan_payload()])  # 普通轨缺 ai_special_items 无妨
+            deps = make_deps(Path(tmp), fake)
+            out = make_issue_splitting(deps)(dict(node_state(), ai_core=False))
+
+            self.assertEqual(len(fake.calls), 1)
+            self.assertEqual(out["issue_plan"]["shape_errors"], [])
+            self.assertFalse(out["issue_plan"]["self_fixed"])
+
+
+class TestIssueSchemaAISpecialItems(unittest.TestCase):
+    """schema 层：ai_special_items 的 Pydantic 结构约束。"""
+
+    def _schema(self, tmp: str):
+        return make_deps(Path(tmp)).registry.load_schema("issue_splitting")
+
+    def test_valid_ai_special_items_validates(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            obj = self._schema(tmp).model_validate(ai_plan())
+            self.assertEqual(obj.ai_special_items[0].category, "trace")
+            self.assertEqual(obj.ai_special_items[0].covered_by, ["I1"])
+
+    def test_default_none_when_absent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            obj = self._schema(tmp).model_validate(plan_payload())
+            self.assertIsNone(obj.ai_special_items)
+
+    def test_illegal_category_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bad = plan_payload(
+                ai_special_items=[
+                    {"category": "unknown", "covered_by": ["I1"], "note": ""}
+                ]
+            )
+            with self.assertRaises(Exception):
+                self._schema(tmp).model_validate(bad)
+
+    def test_empty_covered_by_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bad = plan_payload(
+                ai_special_items=[
+                    {"category": "trace", "covered_by": [], "note": ""}
+                ]
+            )
+            with self.assertRaises(Exception):
+                self._schema(tmp).model_validate(bad)
+
+    def test_dangling_id_pattern_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bad = plan_payload(
+                ai_special_items=[
+                    {"category": "trace", "covered_by": ["TICKET-1"], "note": ""}
+                ]
+            )
+            with self.assertRaises(Exception):
+                self._schema(tmp).model_validate(bad)
+
+
+class TestIssuesTemplateAISpecialItems(unittest.TestCase):
+    """issues.md.j2：AI 特殊项承接表容错渲染（普通轨整节不渲染）。"""
+
+    def test_render_ai_special_items_table(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            deps = make_deps(Path(tmp))
+            plan = ai_plan()
+            plan.update({"shape_errors": [], "shape_warnings": [], "self_fixed": False})
+            md = render_issues(deps, plan)
+            self.assertIn("AI 特殊项承接表", md)
+            for kw in ("调用链埋点", "兜底与转人工", "评测接入", "风险册承接"):
+                self.assertIn(kw, md)
+            self.assertIn("对应 PRD「失败接管」", md)
+
+    def test_render_unknown_category_verbatim(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            deps = make_deps(Path(tmp))
+            plan = plan_payload(
+                ai_special_items=[
+                    {"category": "weird_x", "covered_by": ["I1"], "note": ""}
+                ]
+            )
+            plan.update({"shape_errors": [], "shape_warnings": [], "self_fixed": False})
+            md = render_issues(deps, plan)
+            self.assertIn("AI 特殊项承接表", md)
+            self.assertIn("weird_x", md)
+
+    def test_normal_plan_no_ai_section(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            deps = make_deps(Path(tmp))
+            plan = plan_payload()  # 无 ai_special_items
+            plan.update({"shape_errors": [], "shape_warnings": [], "self_fixed": False})
+            md = render_issues(deps, plan)
+            self.assertNotIn("AI 特殊项承接表", md)
+
+
+class TestIssuePromptAICore(unittest.TestCase):
+    """issue_splitting.md：ai_core 条件块（AI 轨渲染 / 普通轨逐字不变）。"""
+
+    def _render(self, **extra):
+        with tempfile.TemporaryDirectory() as tmp:
+            raw = make_deps(Path(tmp)).registry.read_prompt("issue_splitting")
+        ctx = dict(
+            requirement_name="demo-req",
+            prd_markdown="# demo PRD",
+            red_team_review={"verdict": "pass", "blockers": [], "warnings": []},
+            issue_revision_feedback="",
+        )
+        return Template(raw).render(**ctx, **extra)
+
+    def test_ai_core_block_rendered(self):
+        rendered = self._render(ai_core=True)
+        self.assertIn("ai_special_items", rendered)
+        for kw in ("调用链埋点", "兜底与转人工", "评测接入", "风险册承接"):
+            self.assertIn(kw, rendered)
+
+    def test_normal_track_block_absent_and_identical(self):
+        base = self._render(ai_core=False)
+        self.assertNotIn("ai_special_items", base)
+        self.assertNotIn("本需求为 AI 核心需求", base)
+        # 不传 ai_core 与显式 False 逐字一致（普通轨渲染零变化）
+        self.assertEqual(self._render(), base)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

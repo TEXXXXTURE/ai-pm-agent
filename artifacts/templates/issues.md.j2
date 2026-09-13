@@ -110,6 +110,19 @@
 | {{ c.get("prd_item", "") }} | {% if c.get("status") == "covered" %}covered（已覆盖）{% elif c.get("status") == "excluded" %}excluded（不做）{% elif c.get("status") == "clarify" %}clarify（待澄清）{% else %}{{ c.get("status", "") }}{% endif %} | {% set refs = c.get("covered_by", []) %}{% if refs %}{% for r in refs %}{{ r }}{% if not loop.last %}、{% endif %}{% endfor %}{% else %}—{% endif %} | {{ c.get("notes", "") }} |
 {% endfor %}
 {%- endif %}
+{#- [C 2026-09-13 by codebuddy-ds41flash] AI 特殊项承接表（仅 AI 核心需求产出）：
+   字段缺失/为空整节不渲染；普通轨无此键，渲染结果逐字不变；未知 category 原样输出 #}
+{%- set ai_items = plan.get("ai_special_items", []) %}
+{%- if ai_items %}
+
+## AI 特殊项承接表
+
+| 类别 | 承接工单 | 说明 |
+|---|---|---|
+{% for a in ai_items -%}
+| {% if a.get("category") == "trace" %}调用链埋点{% elif a.get("category") == "fallback" %}兜底与转人工{% elif a.get("category") == "eval_integration" %}评测接入{% elif a.get("category") == "risk_mitigation" %}风险册承接{% else %}{{ a.get("category", "") }}{% endif %} | {% set refs = a.get("covered_by", []) %}{% if refs %}{% for r in refs %}{{ r }}{% if not loop.last %}、{% endif %}{% endfor %}{% else %}—{% endif %} | {{ a.get("note", "") or "—" }} |
+{% endfor %}
+{%- endif %}
 {%- if plan.get("summary") %}
 
 ## 总览

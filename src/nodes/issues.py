@@ -19,6 +19,9 @@
 - warnings（不阻断，仅随产物展示）：
   标题疑似横切票 / 工单超过 12 张 / HITL 单 decision_needed 与 open_questions 皆空 /
   单个需求点 covered_by 引用超过 3 张工单。
+- AI 轨专属（仅 ai_core=True 追加，普通轨逐字不变）：
+  ai_special_items 缺失或为空 / 四类特殊项（trace/fallback/eval_integration/
+  risk_mitigation）缺任一类 / 任一条 covered_by 悬空引用 -> errors（无 AI 相关 warning）。
 
 自检重调：首轮 errors 非空时，把 errors+warnings 拼成中文反馈注入
 issue_revision_feedback（仅本轮调用的局部 state，不写回全局 state），重跑一次
@@ -112,6 +115,16 @@ COVERAGE_FANOUT_WARN = 3
 # 横切票标题黑名单正则：命中即告警（按技术层/活动切分而非端到端用户价值）
 _HORIZONTAL_TITLE_RE = re.compile(r"前端|后端|接口|联调|测试|单测|重构|美化|样式|边缘|异常情况")
 
+# [C 2026-09-13 by codebuddy-ds41flash] 第 7 段 AI 轨四类特殊项（键 + 中文名）。
+# 仅 ai_core=True 校验：声明的 category 去重后必须覆盖全部四类，缺任一类即报错；
+# 普通轨不产出、不校验（行为逐字不变）。
+_AI_SPECIAL_ITEMS_ALL: tuple[tuple[str, str], ...] = (
+    ("trace", "调用链埋点（trace）"),
+    ("fallback", "兜底与转人工（fallback）"),
+    ("eval_integration", "评测接入（eval_integration）"),
+    ("risk_mitigation", "风险册承接（risk_mitigation）"),
+)
+
 
 # [C 2026-09-12 by pi-deepseek-flash] 第④项修复：summary 自报计数校验用正则。
 # 真机出现过模型自报"10 张/8 AFK"而实际 9 张/7 AFK；从 issues 列表实算，不符则告警。
@@ -141,16 +154,24 @@ def parse_summary_counts(summary: str) -> dict[str, int]:
     return reported
 
 
-def judge_issue_plan(plan: dict) -> dict:
+def judge_issue_plan(plan: dict, ai_core: bool = False) -> dict:
     """纯函数：硬判工单方案的跨工单结构正确性。
 
     Args:
         plan: 符合 IssueSplittingSchema 的 dict（测试中也可直接构造最小 dict）。
+        ai_core: 是否 AI 核心需求。默认 False——普通轨（含所有不传第二参数的既有
+            调用与测试）行为逐字不变；仅当为 True 时额外校验 AI 特殊项承接声明
+            （``ai_special_items`` 四类齐全且 covered_by 引用真实工单）。
 
     Returns:
         {"errors": [str], "warnings": [str]}：errors 触发自检重调并在产物中醒目展示，
         warnings 仅展示不阻断。
     """
+    # [C 2026-09-13 by codebuddy-ds41flash] 第 7 段：plan 非 dict 时安全兜底不抛异常；
+    # 普通轨传入合法 dict 时本行逐字无影响（仅异常形态受益）。
+    if not isinstance(plan, dict):
+        plan = {}
+
     errors: list[str] = []
     warnings: list[str] = []
 
@@ -168,6 +189,51 @@ def judge_issue_plan(plan: dict) -> dict:
         if iid in seen:
             errors.append(f"工单 id 重复：{iid}（全清单 id 必须唯一）")
         seen.add(iid)
+
+    # ── 1b. AI 轨专属：AI 特殊项承接声明校验（复用 id_set；普通轨默认跳过）──
+    # [C 2026-09-13 by codebuddy-ds41flash] 第 7 段：仅 ai_core is True 生效，
+    # 声明四类必须齐全、covered_by 必须引用本清单真实工单 id（悬空即错）。
+    if ai_core is True:
+        declared = plan.get("ai_special_items")
+        if not isinstance(declared, list) or not declared:
+            errors.append(
+                "AI 核心需求的工单特殊项声明（ai_special_items）缺失或为空："
+                "trace 埋点 / 兜底转人工 / 评测接入 / 风险册承接四类必须各有工单承接"
+            )
+        else:
+            present: set[str] = set()
+            for item in declared:
+                # 元素非 dict 按"无法识别类别"处理（不计入任何类别，也不解读其 covered_by）
+                cat = str(item.get("category") or "") if isinstance(item, dict) else ""
+                if cat:
+                    present.add(cat)
+            missing = [
+                label for key, label in _AI_SPECIAL_ITEMS_ALL if key not in present
+            ]
+            if missing:
+                errors.append(
+                    "AI 核心需求的工单特殊项声明缺少类别："
+                    + "、".join(missing)
+                    + "（四类必须齐全，每类至少一张真实工单承接）"
+                )
+            for idx, item in enumerate(declared, start=1):
+                if not isinstance(item, dict):
+                    continue
+                cat = str(item.get("category") or "")
+                label = next(
+                    (cn for key, cn in _AI_SPECIAL_ITEMS_ALL if key == cat),
+                    cat or "未标注类别",
+                )
+                refs = item.get("covered_by") or []
+                if not isinstance(refs, list):
+                    refs = []
+                for ref in refs:
+                    ref = str(ref)
+                    if ref not in id_set:
+                        errors.append(
+                            f"AI 特殊项第 {idx} 条（{label}）的 covered_by "
+                            f"引用了不存在的工单 {ref}（悬空引用）"
+                        )
 
     # ── 2. blocked_by 悬空 / 自引用，并建依赖图 ──
     graph: dict[str, list[str]] = {}
@@ -333,8 +399,10 @@ def make_issue_splitting(deps):
         )
 
         # 1. 首轮模型产出（runner 内部已含 schema 校验重试，跨工单结构在此判）
+        # [C 2026-09-13 by codebuddy-ds41flash] 第 7 段：AI 核心需求额外硬判 ai_special_items
+        is_ai_core = state.get("ai_core") is True
         result = deps.runner.run_raw(spec, state)
-        judged = judge_issue_plan(result)
+        judged = judge_issue_plan(result, ai_core=is_ai_core)
         first_had_errors = bool(judged["errors"])
 
         # 2. 结构错误 -> 带中文反馈自检重调（最多 SELF_FIX_MAX 次）。
@@ -344,7 +412,7 @@ def make_issue_splitting(deps):
                 feedback = build_issue_self_fix_feedback(judged)
                 local_state = {**state, "issue_revision_feedback": feedback}
                 result = deps.runner.run_raw(spec, local_state)
-                judged = judge_issue_plan(result)
+                judged = judge_issue_plan(result, ai_core=is_ai_core)
 
         # 3. 终判结果随产物落盘；两轮仍错也不抛异常，shape_errors 醒目交人工
         plan = {
