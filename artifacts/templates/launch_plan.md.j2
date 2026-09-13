@@ -88,6 +88,30 @@
 {%- endif %}
 **回滚责任人**：{{ rollback.get("rollback_owner", "未填") }}
 {%- endif %}
+{#- [C 2026-09-13 by codebuddy-ds41flash] 两组 AI 专属字段（仅 AI 核心需求产出）：
+   字段缺失/为空整节不渲染；普通轨无此二键，渲染结果逐字不变 #}
+{%- set guardrails = plan.get("ai_guardrails", []) %}
+{%- if guardrails %}
+
+## AI 在线 kill 阈值
+
+| 指标 | 方向 | 阈值 | 窗口 | 动作 |
+|---|---|---|---|---|
+{% for g in guardrails -%}
+| {{ g.get("metric", "") }} | {% if g.get("trigger_direction") == "above" %}高于{% elif g.get("trigger_direction") == "below" %}低于{% else %}{{ g.get("trigger_direction", "") }}{% endif %} | {{ g.get("threshold", "") }} | {{ g.get("window", "") }} | {% if g.get("action") == "degrade" %}降级{% elif g.get("action") == "rollback" %}回滚{% elif g.get("action") == "disable" %}停用{% elif g.get("action") == "alert" %}告警{% else %}{{ g.get("action", "") }}{% endif %} |
+{% endfor %}
+{%- endif %}
+{%- set cohorts = plan.get("cohort_rollout", []) %}
+{%- if cohorts %}
+
+## cohort 晋级规则
+
+| 批次 | 放量比例 | 观察时长 | 晋级条件 |
+|---|---|---|---|
+{% for c in cohorts -%}
+| {{ c.get("cohort", "") }} | {{ c.get("percent", "") }} | {{ c.get("dwell_time", "") }} | {{ c.get("promotion_criteria", "") }} |
+{% endfor %}
+{%- endif %}
 {%- set checklist = plan.get("go_no_go_checklist", []) %}
 {%- if checklist %}
 

@@ -171,6 +171,41 @@ class Tier1Extension(BaseModel):
     )
 
 
+class KillThreshold(BaseModel):
+    """AI 在线 kill 阈值一条：在线监控指标触发某方向数值后执行的动作。
+
+    仅 AI 核心需求（ai_core=true）填写，普通需求不产出。语义示例：
+    在线答复准确率 below 90%（连续 15 分钟）→ rollback。
+    """
+
+    metric: str = Field(
+        description="监控指标名（如 在线答复准确率 / 人工接管率 / P95 延迟 / 单均成本）"
+    )
+    trigger_direction: Literal["above", "below"] = Field(
+        description="触发方向：above=高于阈值触发，below=低于阈值触发（如准确率 below、接管率 above）"
+    )
+    threshold: str = Field(
+        description="触发数值（必须含数字，如 90%、5%、800ms、2 元）"
+    )
+    window: str = Field(
+        description="统计窗口（必须含数字，如 连续 15 分钟、近 1 小时）"
+    )
+    action: Literal["degrade", "rollback", "disable", "alert"] = Field(
+        description="触发动作：degrade=降级 / rollback=回滚 / disable=停用 / alert=告警"
+    )
+
+
+class CohortStage(BaseModel):
+    """AI 轨 cohort 分批晋级一批：放量多少、观察多久、达到什么数值才晋级。"""
+
+    cohort: str = Field(description="批次名（如 internal / beta / 5% / GA）")
+    percent: str = Field(description="本批放量比例（必须含数字，如 0% / 5% / 100%）")
+    dwell_time: str = Field(description="观察时长（必须含数字，如 48 小时、3 天）")
+    promotion_criteria: str = Field(
+        description="晋级下一批的观测指标与通过值（必须含数字，如 准确率≥92% 且接管率≤3%）"
+    )
+
+
 class LaunchPlanSchema(BaseModel):
     """发布计划完整输出（模型只给计划内容，不放行；关键字段非空由代码硬判）。"""
 
@@ -203,6 +238,23 @@ class LaunchPlanSchema(BaseModel):
         default=None,
         description="Tier1 扩展检查；仅 Tier1 必填，Tier2/3 给 null",
     )
+    # [C 2026-09-13 by codebuddy-ds41flash] 两组 AI 专属字段，仅 AI 核心需求（ai_core=true）
+    # 必填并由 judge 纯函数硬判；普通需求给 null（不产出、不校验）。
+    ai_guardrails: Optional[list[KillThreshold]] = Field(
+        default=None,
+        description=(
+            "AI 在线 kill 阈值列表（至少 2 条，须含质量类与人工接管率类指标）；"
+            "仅 AI 核心需求必填，普通需求给 null"
+        ),
+    )
+    cohort_rollout: Optional[list[CohortStage]] = Field(
+        default=None,
+        description=(
+            "AI 轨 cohort 分批晋级规则（至少 2 批，末批全量）；"
+            "仅 AI 核心需求必填，普通需求给 null"
+        ),
+    )
 
 
 # [C 2026-09-11] schemas/launch_plan.py 新增完成
+# [C 2026-09-13 by codebuddy-ds41flash] 新增 KillThreshold/CohortStage 与两组 AI 专属 Optional 字段

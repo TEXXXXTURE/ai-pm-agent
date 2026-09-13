@@ -99,6 +99,50 @@ def valid_tier1_extension():
     }
 
 
+def valid_ai_guardrails():
+    """合法的 AI 在线 kill 阈值列表（含质量类 + 接管率类，各指标均带数字）。
+
+    [C 2026-09-13 by codebuddy-ds41flash] 第 9 段 AI 轨夹具。
+    """
+    return [
+        {
+            "metric": "在线答复准确率",
+            "trigger_direction": "below",
+            "threshold": "90%",
+            "window": "连续 15 分钟",
+            "action": "rollback",
+        },
+        {
+            "metric": "人工接管率",
+            "trigger_direction": "above",
+            "threshold": "5%",
+            "window": "连续 15 分钟",
+            "action": "alert",
+        },
+    ]
+
+
+def valid_cohort_rollout():
+    """合法的 AI cohort 分批晋级规则（至少 2 批，末批全量 GA/100%）。
+
+    [C 2026-09-13 by codebuddy-ds41flash] 第 9 段 AI 轨夹具。
+    """
+    return [
+        {
+            "cohort": "internal",
+            "percent": "0%",
+            "dwell_time": "48 小时",
+            "promotion_criteria": "准确率≥92% 且接管率≤3%",
+        },
+        {
+            "cohort": "GA",
+            "percent": "100%",
+            "dwell_time": "72 小时",
+            "promotion_criteria": "准确率≥95% 且接管率≤2%",
+        },
+    ]
+
+
 def valid_plan(tier="2", **overrides):
     """构造默认符合 LaunchPlanSchema 的完整发布计划。"""
     base = {
@@ -324,6 +368,173 @@ class TestJudgeLaunchPlan(unittest.TestCase):
         self.assertFalse(any("未含数字" in w for w in warnings))
 
 
+# ─────────────── 1b. judge AI 轨专属硬判（ai_core=True）───────────────
+# [C 2026-09-13 by codebuddy-ds41flash] 第 9 段：kill 阈值 + cohort 晋级两组字段
+
+
+class TestJudgeLaunchPlanAiTrack(unittest.TestCase):
+    def test_valid_ai_fields_no_ai_errors(self):
+        # 两组字段齐全且合规 -> 不含任何 AI 相关 error/warning
+        plan = valid_plan(
+            ai_guardrails=valid_ai_guardrails(),
+            cohort_rollout=valid_cohort_rollout(),
+        )
+        errors, warnings = judge_launch_plan(plan, ai_core=True)
+        self.assertEqual(errors, [])
+        self.assertEqual(warnings, [])
+
+    def test_missing_ai_guardrails_error(self):
+        errors, _ = judge_launch_plan(
+            valid_plan(cohort_rollout=valid_cohort_rollout()), ai_core=True
+        )
+        self.assertTrue(any("ai_guardrails" in e for e in errors))
+
+    def test_ai_guardrails_less_than_two_error(self):
+        plan = valid_plan(
+            ai_guardrails=valid_ai_guardrails()[:1],
+            cohort_rollout=valid_cohort_rollout(),
+        )
+        errors, _ = judge_launch_plan(plan, ai_core=True)
+        self.assertTrue(any("ai_guardrails" in e for e in errors))
+
+    def test_missing_cohort_rollout_error(self):
+        errors, _ = judge_launch_plan(
+            valid_plan(ai_guardrails=valid_ai_guardrails()), ai_core=True
+        )
+        self.assertTrue(any("cohort_rollout" in e for e in errors))
+
+    def test_cohort_rollout_less_than_two_error(self):
+        plan = valid_plan(
+            ai_guardrails=valid_ai_guardrails(),
+            cohort_rollout=valid_cohort_rollout()[:1],
+        )
+        errors, _ = judge_launch_plan(plan, ai_core=True)
+        self.assertTrue(any("cohort_rollout" in e for e in errors))
+
+    def test_guardrail_threshold_no_digit_error(self):
+        guards = valid_ai_guardrails()
+        guards[0]["threshold"] = "很高"
+        errors, _ = judge_launch_plan(
+            valid_plan(ai_guardrails=guards, cohort_rollout=valid_cohort_rollout()),
+            ai_core=True,
+        )
+        self.assertTrue(any("threshold 未含数字" in e for e in errors))
+        self.assertTrue(any("在线答复准确率" in e for e in errors))
+
+    def test_guardrail_window_no_digit_error(self):
+        guards = valid_ai_guardrails()
+        guards[1]["window"] = "一段时间"
+        errors, _ = judge_launch_plan(
+            valid_plan(ai_guardrails=guards, cohort_rollout=valid_cohort_rollout()),
+            ai_core=True,
+        )
+        self.assertTrue(any("window 未含数字" in e for e in errors))
+
+    def test_cohort_percent_no_digit_error(self):
+        cohorts = valid_cohort_rollout()
+        cohorts[0]["percent"] = "少量"
+        errors, _ = judge_launch_plan(
+            valid_plan(ai_guardrails=valid_ai_guardrails(), cohort_rollout=cohorts),
+            ai_core=True,
+        )
+        self.assertTrue(any("percent 未含数字" in e for e in errors))
+
+    def test_cohort_dwell_time_no_digit_error(self):
+        cohorts = valid_cohort_rollout()
+        cohorts[1]["dwell_time"] = "看着办"
+        errors, _ = judge_launch_plan(
+            valid_plan(ai_guardrails=valid_ai_guardrails(), cohort_rollout=cohorts),
+            ai_core=True,
+        )
+        self.assertTrue(any("dwell_time 未含数字" in e for e in errors))
+
+    def test_cohort_promotion_criteria_no_digit_error(self):
+        cohorts = valid_cohort_rollout()
+        cohorts[1]["promotion_criteria"] = "表现好就晋级"
+        errors, _ = judge_launch_plan(
+            valid_plan(ai_guardrails=valid_ai_guardrails(), cohort_rollout=cohorts),
+            ai_core=True,
+        )
+        self.assertTrue(any("promotion_criteria 未含数字" in e for e in errors))
+
+    def test_no_quality_metric_warning(self):
+        guards = [
+            {
+                "metric": "人工接管率",
+                "trigger_direction": "above",
+                "threshold": "5%",
+                "window": "连续 15 分钟",
+                "action": "alert",
+            },
+            {
+                "metric": "P95 延迟",
+                "trigger_direction": "above",
+                "threshold": "800ms",
+                "window": "连续 15 分钟",
+                "action": "degrade",
+            },
+        ]
+        _, warnings = judge_launch_plan(
+            valid_plan(ai_guardrails=guards, cohort_rollout=valid_cohort_rollout()),
+            ai_core=True,
+        )
+        self.assertTrue(any("无质量类指标" in w for w in warnings))
+
+    def test_no_handoff_metric_warning(self):
+        guards = [
+            {
+                "metric": "在线答复准确率",
+                "trigger_direction": "below",
+                "threshold": "90%",
+                "window": "连续 15 分钟",
+                "action": "rollback",
+            },
+            {
+                "metric": "P95 延迟",
+                "trigger_direction": "above",
+                "threshold": "800ms",
+                "window": "连续 15 分钟",
+                "action": "degrade",
+            },
+        ]
+        _, warnings = judge_launch_plan(
+            valid_plan(ai_guardrails=guards, cohort_rollout=valid_cohort_rollout()),
+            ai_core=True,
+        )
+        self.assertTrue(any("无接管率类指标" in w for w in warnings))
+
+    def test_last_cohort_not_full_warning(self):
+        cohorts = [
+            {
+                "cohort": "internal",
+                "percent": "5%",
+                "dwell_time": "48 小时",
+                "promotion_criteria": "准确率≥92% 且接管率≤3%",
+            },
+            {
+                "cohort": "beta",
+                "percent": "20%",
+                "dwell_time": "48 小时",
+                "promotion_criteria": "准确率≥92% 且接管率≤3%",
+            },
+        ]
+        _, warnings = judge_launch_plan(
+            valid_plan(ai_guardrails=valid_ai_guardrails(), cohort_rollout=cohorts),
+            ai_core=True,
+        )
+        self.assertTrue(any("末批应为全量" in w for w in warnings))
+
+    def test_normal_track_default_ai_core_no_ai_judgement(self):
+        # 普通轨：ai_core 默认 False + 两组字段为 None -> 不产生任何 AI 相关 error/warning
+        plan = valid_plan(ai_guardrails=None, cohort_rollout=None)
+        errors, warnings = judge_launch_plan(plan)
+        self.assertEqual(errors, [])
+        self.assertEqual(warnings, [])
+        self.assertFalse(
+            any("ai_guardrails" in x or "cohort" in x for x in errors + warnings)
+        )
+
+
 # ────────────────────────── 2. 节点级行为 ──────────────────────────
 
 
@@ -432,6 +643,37 @@ class TestLaunchSchema(unittest.TestCase):
             self.assertEqual(obj.tier, "1")
             self.assertIsNotNone(obj.tier1_extension)
             self.assertEqual(obj.tier1_extension.beachhead.segment, "10-50 人小团队 PM")
+
+
+class TestLaunchSchemaAiFields(unittest.TestCase):
+    """schema 两组 AI 专属字段：普通轨缺省 None，AI 轨可校验。 [C 2026-09-13 by codebuddy-ds41flash]"""
+
+    def test_optional_default_none_for_normal_track(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            schema_cls = make_deps(Path(tmp)).registry.load_schema("launch_plan")
+            obj = schema_cls.model_validate(valid_plan())
+            self.assertIsNone(obj.ai_guardrails)
+            self.assertIsNone(obj.cohort_rollout)
+
+    def test_ai_fields_validate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            schema_cls = make_deps(Path(tmp)).registry.load_schema("launch_plan")
+            obj = schema_cls.model_validate(
+                valid_plan(
+                    ai_guardrails=valid_ai_guardrails(),
+                    cohort_rollout=valid_cohort_rollout(),
+                )
+            )
+            self.assertEqual(obj.ai_guardrails[0].trigger_direction, "below")
+            self.assertEqual(obj.cohort_rollout[-1].percent, "100%")
+
+    def test_invalid_trigger_direction_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            schema_cls = make_deps(Path(tmp)).registry.load_schema("launch_plan")
+            guards = valid_ai_guardrails()
+            guards[0]["trigger_direction"] = "higher"
+            with self.assertRaises(Exception):
+                schema_cls.model_validate(valid_plan(ai_guardrails=guards))
 
 
 # ────────────────────────── 4. 图接线 ──────────────────────────
@@ -549,6 +791,37 @@ class TestLaunchPlanTemplate(unittest.TestCase):
             self.assertIn("字段警告", md)
             self.assertIn("无关键路径标注", md)
             self.assertIn("已带反馈重生成", md)
+
+
+class TestLaunchPlanTemplateAiFields(unittest.TestCase):
+    """模板 AI 轨两节（kill 阈值 / cohort 晋级）容错渲染。 [C 2026-09-13 by codebuddy-ds41flash]"""
+
+    def test_ai_sections_rendered_when_present(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            deps = make_deps(Path(tmp))
+            plan = dict(
+                valid_plan(
+                    ai_guardrails=valid_ai_guardrails(),
+                    cohort_rollout=valid_cohort_rollout(),
+                )
+            )
+            plan.update({"shape_errors": [], "shape_warnings": [], "self_fixed": False})
+            md = render_launch(deps, plan)
+            self.assertIn("AI 在线 kill 阈值", md)
+            self.assertIn("cohort 晋级规则", md)
+            self.assertIn("在线答复准确率", md)
+            self.assertIn("低于", md)  # trigger_direction=below 渲染为「低于」
+            self.assertIn("回滚", md)  # action=rollback 渲染为「回滚」
+            self.assertIn("100%", md)
+
+    def test_ai_sections_absent_for_normal_track(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            deps = make_deps(Path(tmp))
+            plan = dict(valid_plan())  # 无 ai_guardrails / cohort_rollout 键
+            plan.update({"shape_errors": [], "shape_warnings": [], "self_fixed": False})
+            md = render_launch(deps, plan)
+            self.assertNotIn("AI 在线 kill 阈值", md)
+            self.assertNotIn("cohort 晋级规则", md)
 
 
 # ────────────────────────── 6. 落盘 ──────────────────────────
@@ -670,9 +943,40 @@ class TestLaunchPromptConditional(unittest.TestCase):
             self.assertIn("go/no-go", rendered)
 
 
+class TestLaunchPromptAiConditional(unittest.TestCase):
+    """prompt ai_core 条件块：AI 轨渲染两组字段，普通轨不渲染。 [C 2026-09-13 by codebuddy-ds41flash]"""
+
+    def _render(self, ai_core):
+        with tempfile.TemporaryDirectory() as tmp:
+            registry = make_deps(Path(tmp)).registry
+            raw = registry.read_prompt("launch_plan")
+            return Template(raw).render(
+                requirement_name="demo-req",
+                prd_markdown="# demo PRD",
+                red_team_review={"verdict": "pass", "blockers": [], "warnings": []},
+                issue_plan={"readiness": "pass", "issues": []},
+                launch_revision_feedback="",
+                ai_core=ai_core,
+            )
+
+    def test_ai_block_rendered_when_ai_core(self):
+        rendered = self._render(True)
+        self.assertIn("本需求为 AI 核心需求", rendered)
+        self.assertIn("ai_guardrails", rendered)
+        self.assertIn("cohort_rollout", rendered)
+
+    def test_ai_block_absent_when_normal(self):
+        rendered = self._render(False)
+        self.assertNotIn("本需求为 AI 核心需求", rendered)
+        self.assertNotIn("ai_guardrails", rendered)
+        self.assertNotIn("cohort_rollout", rendered)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
 
 # [C 2026-09-11] tests/test_launch_plan.py 块1 新增完成
 # [C 2026-09-12 by codebuddy-hy3] 修正过期条数注释：原写 28 条，实际 33 条；
 # 第⑤项新增 plan=None/空dict/嵌套None 三个用例后，现共 36 条假 LLM 自测
+# [C 2026-09-13 by codebuddy-ds41flash] 第 9 段 AI 轨：新增 21 条用例（judge AI 轨 14 +
+# schema 两组字段 3 + 模板两节 2 + prompt 条件块 2），全量 434 passed / 0 failed

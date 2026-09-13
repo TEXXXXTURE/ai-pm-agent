@@ -34,6 +34,12 @@
 - {{ it.get("id", "?") }} [{{ it.get("priority", "?") }}] {{ it.get("title", "") }}{% if it.get("blocked_by") %}（依赖 {{ it.get("blocked_by") | join("、") }}）{% endif %}
 {% endfor %}
 {% endif %}
+{%- if ai_core %}{# [C 2026-09-13 by codebuddy-ds41flash] ai_core 条件块：AI 轨 kill 阈值 + cohort 晋级 #}
+## 本需求为 AI 核心需求（ai_core=true）：补两组 AI 专属发布字段
+本需求走 AI 全轨，除通用发布计划外，你还必须从 PRD 第 8 节「评测计划与可接受通过率」里只列了指标项与方向的 **kill 阈值占位**，细化出两组可执行的字段：
+- **ai_guardrails（在线 kill 阈值，至少 2 条）**：把 PRD 第 8 节的 kill 阈值占位细化到可执行——指标项与 PRD 占位对齐（如 在线答复准确率 / 人工接管率 / P95 延迟 / 单均成本），每条给出触发方向（above/below）、触发数值（threshold）、统计窗口（window）与触发动作（action）。至少 2 条，且**质量类（如在线准确率）与人工接管率类必须各有量化阈值**。语义示例：在线答复准确率 below 90%（连续 15 分钟）→ rollback。
+- **cohort_rollout（cohort 分批晋级，至少 2 批）**：在通用 rollback.stages 之外，额外写清每批「放量多少、观察多久、达到什么数值才晋级」；cohort 批次名与第 4 步 rollback.stages 的批次（internal/beta/X%/GA）**互相引用、数值不矛盾**；末批为全量（percent 含 100% 或 cohort 名为 GA/全量）。
+{%- endif %}
 {% if launch_revision_feedback %}
 ## 上一轮自检反馈（必须逐条解决）
 你上一轮输出的发布计划没有通过字段自检，请先通读下列反馈，**逐条解决**，然后重新输出**完整的发布计划 JSON**（不是只输出改动片段）。未被要求改的部分保持稳定，不要借机扩大范围或重写无关章节：
@@ -131,7 +137,16 @@ Tier 1 在上述骨架之上，再补四件事；Tier2/3 给 null，避免臃肿
     {"risk": "客服话术未同步", "mitigation": "T-3 完成话术培训", "early_warning": "T-5 话术宏未上线"},
     {"risk": "合规审查返工", "mitigation": "T-14 排入关键路径", "early_warning": "T-10 法务仍未反馈"}
   ],
-  "tier1_extension": null
+  "tier1_extension": null{% if ai_core %},
+  "ai_guardrails": [
+    {"metric": "在线答复准确率", "trigger_direction": "below", "threshold": "90%", "window": "连续 15 分钟", "action": "rollback"},
+    {"metric": "人工接管率", "trigger_direction": "above", "threshold": "5%", "window": "连续 15 分钟", "action": "alert"}
+  ],
+  "cohort_rollout": [
+    {"cohort": "internal", "percent": "0%", "dwell_time": "48 小时", "promotion_criteria": "准确率≥92% 且接管率≤3%"},
+    {"cohort": "5%", "percent": "5%", "dwell_time": "48 小时", "promotion_criteria": "准确率≥92% 且接管率≤3%"},
+    {"cohort": "GA", "percent": "100%", "dwell_time": "72 小时", "promotion_criteria": "准确率≥95% 且接管率≤2%"}
+  ]{% endif %}
 }
 
 约束：
@@ -142,5 +157,11 @@ Tier 1 在上述骨架之上，再补四件事；Tier2/3 给 null，避免臃肿
 - timeline 至少 1 行标 is_critical_path=true；Tier1-2 须排入发布演练/Bug Bash；
 - risks 最多 3 条；oncall_roster 至少 1 行；workstreams 每条 owner 必须具名；
 - 只输出 JSON，不要输出 JSON 之外的任何字符。
+{%- if ai_core %}{# [C 2026-09-13 by codebuddy-ds41flash] AI 轨必填约束条目 #}
+- **本需求为 AI 核心需求，ai_guardrails 与 cohort_rollout 两组字段必填**，缺失或不足条数即自检失败；
+- ai_guardrails 至少 2 条，且 threshold 与 window 必须含数字；须同时含质量类指标（如在线准确率）与接管率类指标（如人工接管率）；
+- cohort_rollout 至少 2 批，percent / dwell_time / promotion_criteria 必须含数字；批次名与 rollback.stages 对应、数值不矛盾，末批必须是全量（percent 含 100% 或 cohort 名为 GA/全量）；
+- trigger_direction 仅取 above/below；action 仅取 degrade/rollback/disable/alert。
+{%- endif %}
 
 <!-- [C 2026-09-11] prompts/launch_plan.md 新增：7 步骨架 + Tier1 扩展 + 数字回滚 + 二元 go/no-go，严格 JSON -->

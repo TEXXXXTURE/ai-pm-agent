@@ -12,6 +12,10 @@
 - warnings（不阻断，仅随产物展示）：
   workstreams 超过 15 条 / timeline 无关键路径标注 /
   rollback_trigger 无数字 / go_no_go 项含模糊词（基本/差不多/大概 等）。
+- AI 轨专属（仅 ai_core=True 追加，普通轨逐字不变）：
+  ai_guardrails 少于 2 条 / threshold|window 无数字 / cohort_rollout 少于 2 批 /
+  percent|dwell_time|promotion_criteria 无数字 -> errors；
+  无质量类指标 / 无接管率类指标 / cohort 末批非全量 -> warnings。
 
 自检重调：首轮 errors 非空时，把 errors+warnings 拼成中文反馈注入
 launch_revision_feedback（仅本轮调用的局部 state，不写回全局 state），重跑一次
@@ -35,17 +39,25 @@ TOO_MANY_WORKSTREAMS = 15
 # go/no-go 模糊词黑名单：命中即告警（非二元判断） [C 2026-09-11]
 _VAGUE_WORDS_RE = re.compile(r"基本|差不多|大概|大致|凑合|可能好|也许|或许")
 
+# [C 2026-09-13 by codebuddy-ds41flash] AI 轨（ai_core=true）专属校验关键词。
+# 质量类 / 接管率类各须至少一条命中，否则告警（不阻断）。
+_AI_QUALITY_KEYWORDS: tuple[str, ...] = ("准确率", "满意度", "通过率", "正确率")
+_AI_HANDOFF_KEYWORDS: tuple[str, ...] = ("接管率", "转人工率", "人工介入率")
+
 
 def _contains_digit(text: str) -> bool:
     """字符串是否含数字字符（用于校验 rollback_trigger 必须是数字而非心情）。"""
     return bool(re.search(r"\d", str(text or "")))
 
 
-def judge_launch_plan(plan: dict) -> tuple[list[str], list[str]]:
+def judge_launch_plan(plan: dict, ai_core: bool = False) -> tuple[list[str], list[str]]:
     """纯函数：硬判发布计划关键字段非空与 Tier1 扩展必填。
 
     Args:
         plan: 符合 LaunchPlanSchema 的 dict（测试中也可直接构造最小 dict）。
+        ai_core: 是否 AI 核心需求。默认 False——普通轨（含所有不传第二参数的既有
+            调用与测试）行为逐字不变；仅当为 True 时额外追加 AI 轨专属校验
+            （ai_guardrails 在线 kill 阈值 / cohort_rollout cohort 晋级规则）。
 
     Returns:
         (errors, warnings)：errors 触发自检重调并在产物中醒目展示，
@@ -123,8 +135,86 @@ def judge_launch_plan(plan: dict) -> tuple[list[str], list[str]]:
                     "检查项必须二元判断（是/否），不允许'基本/差不多/大概'"
                 )
 
+    # ── AI 轨专属校验：仅 ai_core is True 生效（普通轨默认 False，逐字零变化）──
+    # [C 2026-09-13 by codebuddy-ds41flash] 第 9 段 AI 轨增补：kill 阈值 + cohort 晋级
+    if ai_core is True:
+        guardrails = plan.get("ai_guardrails")
+        if not isinstance(guardrails, list) or len(guardrails) < 2:
+            errors.append(
+                "AI 核心需求的在线 kill 阈值（ai_guardrails）至少 2 条："
+                "质量类（如在线准确率）与人工接管率类必须各有量化阈值"
+            )
+            guardrail_rows = []
+        else:
+            guardrail_rows = [it if isinstance(it, dict) else {} for it in guardrails]
+            for idx, row in enumerate(guardrail_rows, start=1):
+                metric = str(row.get("metric") or f"第 {idx} 条")
+                if not _contains_digit(row.get("threshold")):
+                    errors.append(
+                        f"ai_guardrails 第 {idx} 条「{metric}」的 threshold 未含数字："
+                        "触发数值必须可执行（如准确率 90%、接管率 5%）"
+                    )
+                if not _contains_digit(row.get("window")):
+                    errors.append(
+                        f"ai_guardrails 第 {idx} 条「{metric}」的 window 未含数字："
+                        "统计窗口必须可执行（如 连续 15 分钟）"
+                    )
+
+        cohorts = plan.get("cohort_rollout")
+        if not isinstance(cohorts, list) or len(cohorts) < 2:
+            errors.append(
+                "AI 核心需求的 cohort 晋级规则（cohort_rollout）至少 2 批，"
+                "每批写清放量比例/观察时长/晋级数值条件"
+            )
+            cohort_rows = []
+        else:
+            cohort_rows = [it if isinstance(it, dict) else {} for it in cohorts]
+            for idx, row in enumerate(cohort_rows, start=1):
+                name = str(row.get("cohort") or f"第 {idx} 批")
+                if not _contains_digit(row.get("percent")):
+                    errors.append(
+                        f"cohort_rollout 第 {idx} 批「{name}」的 percent 未含数字："
+                        "放量比例必须可执行（如 5%、100%）"
+                    )
+                if not _contains_digit(row.get("dwell_time")):
+                    errors.append(
+                        f"cohort_rollout 第 {idx} 批「{name}」的 dwell_time 未含数字："
+                        "观察时长必须可执行（如 48 小时）"
+                    )
+                if not _contains_digit(row.get("promotion_criteria")):
+                    errors.append(
+                        f"cohort_rollout 第 {idx} 批「{name}」的 promotion_criteria 未含数字："
+                        "晋级条件必须可执行（如 准确率≥92% 且接管率≤3%）"
+                    )
+
+        # AI 轨 warnings（不阻断）：质量类/接管率类覆盖 + cohort 末批全量
+        guard_metrics = [str(row.get("metric") or "") for row in guardrail_rows]
+        if not any(
+            kw in m for m in guard_metrics for kw in _AI_QUALITY_KEYWORDS
+        ):
+            warnings.append(
+                "ai_guardrails 无质量类指标：至少一条阈值须盯质量类指标"
+                "（准确率/满意度/通过率/正确率）"
+            )
+        if not any(
+            kw in m for m in guard_metrics for kw in _AI_HANDOFF_KEYWORDS
+        ):
+            warnings.append(
+                "ai_guardrails 无接管率类指标：至少一条阈值须盯接管率类指标"
+                "（接管率/转人工率/人工介入率）"
+            )
+        if cohort_rows:
+            last = cohort_rows[-1]
+            last_cohort = str(last.get("cohort") or "")
+            last_percent = str(last.get("percent") or "")
+            has_100 = "100" in last_cohort or "100" in last_percent
+            is_ga = "GA" in last_cohort or "全量" in last_cohort
+            if not (has_100 or is_ga):
+                warnings.append("cohort 末批应为全量（100% 或 GA）")
+
     return errors, warnings
     # [C 2026-09-11] 发布计划关键字段非空硬判纯函数，便于零 API 单测
+    # [C 2026-09-13 by codebuddy-ds41flash] 追加 ai_core=True 时的 AI 轨专属硬判
 
 
 def build_launch_self_fix_feedback(
@@ -167,8 +257,10 @@ def make_launch_plan(deps):
         )
 
         # 1. 首轮模型产出（runner 内部已含 schema 校验重试，关键字段非空在此判）
+        # [C 2026-09-13 by codebuddy-ds41flash] 第 9 段：AI 核心需求追加 kill 阈值/cohort 校验
+        is_ai_core = state.get("ai_core") is True
         result = deps.runner.run_raw(spec, state)
-        errors, warnings = judge_launch_plan(result)
+        errors, warnings = judge_launch_plan(result, ai_core=is_ai_core)
         first_had_errors = bool(errors)
 
         # 2. 关键字段缺失 -> 带中文反馈自检重调（最多 SELF_FIX_MAX 次）。
@@ -178,7 +270,7 @@ def make_launch_plan(deps):
                 feedback = build_launch_self_fix_feedback(errors, warnings)
                 local_state = {**state, "launch_revision_feedback": feedback}
                 result = deps.runner.run_raw(spec, local_state)
-                errors, warnings = judge_launch_plan(result)
+                errors, warnings = judge_launch_plan(result, ai_core=is_ai_core)
 
         # 3. 终判结果随产物落盘；两轮仍错也不抛异常，errors/warnings 醒目交人工
         plan = {
