@@ -5,7 +5,8 @@
 覆盖：
 1. FeasibilitySchema 结构校验：合法报告通过；status/level 非枚举、probe_plan 超 5 条被硬拒；
 2. classify_feasibility_answer 纯函数四态：通过/改判普通/重塑/放弃/自由文本；
-3. route_after_requirement_confirm：ai_core=True -> feasibility_check，False/None -> needs_discovery；
+3. route_after_needs_discovery：ai_core=True -> feasibility_check，其余（False/None/缺失/非布尔）->
+   prd_generation；
 4. route_after_feasibility_confirm：pass/reclassify -> prd_generation，reshape -> requirement_confirm，
    abandon -> END，缺 verdict -> prd_generation；
 5. feasibility_check 节点级行为（假 LLM）：生成报告写入 state["feasibility_report"]，
@@ -13,7 +14,11 @@
 6. feasibility_confirm 节点级四态（假 interrupt）：pass/reclassify（改 ai_core=False）/reshape/abandon；
    reshape 限 1 次（第 2 次自动升级暂停，再要求重塑按通过处理）；
    自由文本默认按通过处理；中断载荷携带 feasibility_report；
-7. 图编译通过、新增两节点在位；普通轨（ai_core=False）路由不经可行性节点；
+7. 图编译通过、新增两节点在位；**边事实硬断言**（requirement_confirm→needs_discovery，
+   needs_discovery→{feasibility_check, prd_generation}，不含旧 AI 轨直连边
+   requirement_confirm→feasibility_check）；AI 轨图流零 API 回归用例（需求确认→挖需求→
+   可行性检查→可行性门中断，checkpoint 的 user_insights 非空）；普通轨节点链接力用例
+   （需求确认门→挖需求→路由 prd_generation）；
 8. registry 注册 feasibility_check prompt 与 feasibility schema；
 9. run_prd_workflow 的 feasibility_confirm QUESTION 文案含四态关键词；
    DECISION_MATERIAL_FIELDS / PAYLOAD_RECAP_FIELDS 含 feasibility_report / feasibility_confirm。
@@ -46,6 +51,7 @@ sys.path.insert(0, str(SRC_DIR))
 import unittest  # noqa: E402
 
 from langgraph.graph import END  # noqa: E402
+from langgraph.types import Command  # noqa: E402
 from pydantic import ValidationError  # noqa: E402
 
 from components.registry import ComponentRegistry  # noqa: E402
@@ -54,13 +60,17 @@ from kernel.artifact import ArtifactManager  # noqa: E402
 from kernel.graph import build_graph  # noqa: E402
 from kernel.runner import NodeRunner  # noqa: E402
 from nodes import NodeDeps  # noqa: E402
+from nodes.exploration import (  # noqa: E402
+    make_needs_discovery,
+    route_after_needs_discovery,
+)
 from nodes.feasibility import (  # noqa: E402
     classify_feasibility_answer,
     make_feasibility_check,
     make_feasibility_confirm,
     route_after_feasibility_confirm,
-    route_after_requirement_confirm,
 )
+from nodes.hitl import make_requirement_confirm  # noqa: E402
 
 COMPONENTS_DIR = SRC_DIR / "components"
 TEMPLATE_DIR = REPO_ROOT / "artifacts" / "templates"
@@ -85,13 +95,25 @@ class FakeLLM:
         return self.json_queue.pop(0)
 
 
+class StubKB:
+    """最小知识库替身：kb_lookup 节点调用 retrieve_relevant，返回空检索结果（零依赖）。
+
+    只为让图能从入口跑起来；本文件其余节点级用例不读 kb。
+    """
+
+    def retrieve_relevant(self, query):  # noqa: ARG002 - 接口对齐，不读 query
+        return {}
+
+
 def make_deps(tmp_dir: Path, fake_llm=None) -> NodeDeps:
     registry = ComponentRegistry(str(COMPONENTS_DIR))
     artifacts = ArtifactManager(
         str(tmp_dir / "output"), str(TEMPLATE_DIR), str(ASSETS_DIR)
     )
     runner = NodeRunner(llm=fake_llm if fake_llm is not None else FakeLLM())
-    return NodeDeps(runner=runner, registry=registry, artifacts=artifacts, kb=None)
+    return NodeDeps(
+        runner=runner, registry=registry, artifacts=artifacts, kb=StubKB()
+    )
 
 
 def feasibility_state(**overrides):
@@ -164,6 +186,36 @@ VALID_REPORT = {
         "assumption": "日均 200 次、单次 8k tokens",
     },
     "conclusion": "以绿/黄为主，建议先跑探针确认（仅供参考，最终由人工拍板）",
+}
+
+# ── 图流用例夹具：入口阶段各节点的合法假响应（零 API）──
+# intake：6 维度齐全的合法完整度评估
+VALID_INTAKE = {
+    "dimensions": {
+        key: {"score": 0.8, "missing": ""}
+        for key in (
+            "target_user",
+            "core_scenario",
+            "pain_point",
+            "current_solution",
+            "success_criteria",
+            "constraints",
+        )
+    },
+    "summary": "信息基本完整",
+}
+
+# ai_triage：分流建议（用户 resume 答复会覆盖其为 ai_core=True）
+VALID_TRIAGE = {"suggestion": "non_ai", "reason": "测试用", "signals": []}
+
+# needs_discovery：六类洞察均为非空字符串数组
+VALID_INSIGHTS = {
+    "target_users": ["产品经理"],
+    "scenarios": ["会议结束后整理纪要"],
+    "pain_points": ["手工整理耗时"],
+    "current_solutions": ["人工听录音记笔记"],
+    "gaps": ["希望自动抽待办"],
+    "success_criteria": ["待办字段齐全无遗漏"],
 }
 
 
@@ -253,14 +305,16 @@ class TestClassifyFeasibilityAnswer(unittest.TestCase):
 
 
 class TestRoutes(unittest.TestCase):
-    def test_route_after_requirement_confirm(self):
+    def test_route_after_needs_discovery(self):
+        # AI 核心需求：挖完需求去验证AI可行性
         self.assertEqual(
-            route_after_requirement_confirm({"ai_core": True}), "feasibility_check"
+            route_after_needs_discovery({"ai_core": True}), "feasibility_check"
         )
+        # 普通轨/未判定/非布尔：挖完需求直接写 PRD
         for state in ({"ai_core": False}, {"ai_core": None}, {}, {"ai_core": "yes"}):
             self.assertEqual(
-                route_after_requirement_confirm(state),
-                "needs_discovery",
+                route_after_needs_discovery(state),
+                "prd_generation",
                 msg=repr(state),
             )
 
@@ -429,10 +483,26 @@ class TestGraphWiring(unittest.TestCase):
             ):
                 self.assertIn(token, drawn, msg=token)
 
-    def test_normal_track_skips_feasibility(self):
-        # 普通轨（ai_core=False）路由直接去 needs_discovery，不经可行性节点
+    def test_graph_edges_after_route_shift(self):
+        # [C 2026-09-14 by codebuddy-ds41flash] S040 块1：分流点后移的边事实硬断言
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            tmp_path = Path(tmp)
+            deps = make_deps(tmp_path, FakeLLM())
+            graph = build_graph(deps, db_path=str(tmp_path / "g.db"))
+            edges = graph.get_graph().edges
+            pairs = {(edge.source, edge.target) for edge in edges}
+            # 1) 确认需求门后无条件进挖需求
+            self.assertIn(("requirement_confirm", "needs_discovery"), pairs)
+            # 2) 挖需求后按 ai_core 分流：AI 轨去可行性、普通轨去写 PRD
+            self.assertIn(("needs_discovery", "feasibility_check"), pairs)
+            self.assertIn(("needs_discovery", "prd_generation"), pairs)
+            # 4) 旧 AI 轨直连边必须消失
+            self.assertNotIn(("requirement_confirm", "feasibility_check"), pairs)
+
+    def test_normal_track_routes_to_prd_after_discovery(self):
+        # 普通轨（ai_core=False）挖完需求后路由直接去 prd_generation，不经可行性节点
         self.assertEqual(
-            route_after_requirement_confirm({"ai_core": False}), "needs_discovery"
+            route_after_needs_discovery({"ai_core": False}), "prd_generation"
         )
 
     def test_registry_has_feasibility_components(self):
@@ -441,6 +511,107 @@ class TestGraphWiring(unittest.TestCase):
             registered = registry.get_registered()
             self.assertIn("feasibility_check", registered["prompts"])
             self.assertIn("feasibility", registered["schemas"])
+
+
+# ────────────────────────── 7b. AI 轨图流零 API 回归（S040 块1 分流点后移）──────────────────────────
+
+
+class TestAiTrackGraphFlow(unittest.TestCase):
+    """S040 块1 回归：AI 轨必须"确认需求 → 挖需求 → 验证AI可行性"，user_insights 非空。
+
+    这是本次缺陷（AI 轨绕过 needs_discovery 导致需求洞察空壳）的回归测试：
+    改动前 AI 轨从需求确认门直达 feasibility_check，checkpoint 里 user_insights={}。
+    """
+
+    def test_ai_track_runs_needs_discovery_before_feasibility(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            tmp_path = Path(tmp)
+            # 调用次序（已实测）：intake → ai_triage →（resume 重跑确认门节点再调 ai_triage）
+            # → needs_discovery → feasibility_check
+            fake = FakeLLM(
+                json_queue=[
+                    VALID_INTAKE,
+                    VALID_TRIAGE,
+                    VALID_TRIAGE,
+                    VALID_INSIGHTS,
+                    VALID_REPORT,
+                ]
+            )
+            deps = make_deps(tmp_path, fake)
+            graph = build_graph(deps, db_path=str(tmp_path / "g.db"))
+            config = {"configurable": {"thread_id": "flow-ai"}}
+            state = {
+                "initiative_id": "flow-ai",
+                "raw_requirement": "用模型把会议录音转写稿整理成待办",
+                "requirement_name": "demo-ai-req",
+            }
+
+            executed: list[str] = []
+            for chunk in graph.stream(state, config, stream_mode="updates"):
+                executed.extend(chunk.keys())
+
+            # 首次中断停在需求确认门
+            self.assertEqual(
+                tuple(graph.get_state(config).next), ("requirement_confirm",)
+            )
+
+            # resume 答复「AI核心」强制 ai_core=True
+            for chunk in graph.stream(
+                Command(resume="AI核心"), config, stream_mode="updates"
+            ):
+                executed.extend(chunk.keys())
+
+            # 预期停在可行性门
+            snap = graph.get_state(config)
+            self.assertEqual(tuple(snap.next), ("feasibility_confirm",))
+
+            # ① 实际执行节点序列中 needs_discovery 出现在 feasibility_check 之前
+            self.assertIn("needs_discovery", executed)
+            self.assertIn("feasibility_check", executed)
+            self.assertLess(
+                executed.index("needs_discovery"),
+                executed.index("feasibility_check"),
+            )
+
+            # ② 中断时 checkpoint 的 user_insights 非空（六个数组至少一个非空）
+            insights = (snap.values or {}).get("user_insights") or {}
+            self.assertTrue(
+                any(bool(value) for value in insights.values()),
+                msg=f"user_insights 不应为空壳: {insights!r}",
+            )
+
+
+class TestNormalTrackChaining(unittest.TestCase):
+    """S040 块1：普通轨确认门后同样经过挖需求，挖完直达写 PRD（零 API，不跑完整图）。"""
+
+    def test_confirm_then_discovery_then_prd_route(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = FakeLLM(json_queue=[VALID_TRIAGE, VALID_INSIGHTS])
+            deps = make_deps(Path(tmp), fake)
+            base = {
+                "requirement_name": "demo-normal-req",
+                "raw_requirement": "给后台加一套基于规则的配额校验与提示文案",
+                "human_feedback": [],
+            }
+
+            # 1) 需求确认门答复「非AI」→ ai_core=False
+            confirm_node = make_requirement_confirm(deps)
+            with patch("nodes.hitl.interrupt", return_value="非AI"):
+                confirm_out = confirm_node(base)
+            self.assertIs(confirm_out["ai_core"], False)
+
+            # 2) 合并 state 后挖需求（普通轨同样经过 needs_discovery）
+            merged = {**base, **confirm_out}
+            discovery_out = make_needs_discovery(deps)(merged)
+            merged.update(discovery_out)
+
+            # 3) 挖完路由去写 PRD，且 user_insights 非空
+            self.assertEqual(route_after_needs_discovery(merged), "prd_generation")
+            insights = merged.get("user_insights") or {}
+            self.assertTrue(
+                any(bool(value) for value in insights.values()),
+                msg=f"user_insights 不应为空壳: {insights!r}",
+            )
 
 
 # ────────────────────────── 9. run_prd_workflow 文案与字段 ──────────────────────────
@@ -504,3 +675,5 @@ if __name__ == "__main__":
 
 
 # [C 2026-09-12 by codebuddy-ds41flash] tests/test_feasibility.py 新增完成
+# [C 2026-09-14 by codebuddy-ds41flash] S040 块1：路由用例改挂 route_after_needs_discovery，
+#     新增边事实硬断言、AI 轨图流零 API 回归用例、普通轨节点链接力用例

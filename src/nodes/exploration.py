@@ -53,4 +53,14 @@ def make_needs_discovery(deps):
     return needs_discovery
 
 
+def route_after_needs_discovery(state: dict) -> str:
+    """挖需求后的条件边路由：AI 核心需求去验证AI可行性，其余直接写 PRD。
+
+    - ``ai_core is True`` -> ``feasibility_check``
+    - 其余（False / None / 缺失）-> ``prd_generation``（普通轨）
+    """
+    return "feasibility_check" if state.get("ai_core") is True else "prd_generation"
+    # [C 2026-09-14 by codebuddy-ds41flash] 挖需求出口条件边路由纯函数（S040 块1 分流点后移）
+
+
 # [C 2026-09-09] nodes/exploration.py 实现完成

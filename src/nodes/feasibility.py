@@ -2,13 +2,13 @@
 """验证AI可行性：流水线生成可行性报告（含探针方案）-> 人工执行探针后在确认门录入结论。
 
 图位置（第 2 段，仅 AI 核心需求经过）：
-    requirement_confirm ->（ai_core=True）feasibility_check -> feasibility_confirm(HITL)
+    requirement_confirm -> needs_discovery ->（ai_core=True）feasibility_check -> feasibility_confirm(HITL)
     -> 条件边四态：
         pass        -> prd_generation（进 ai-native PRD）
         reclassify  -> prd_generation（ai_core 已改为 False，prd_generation 自动选普通模板）
         reshape     -> requirement_confirm（回第 1 段调整范围后重过判定；全程限 1 次）
         abandon     -> END（放弃，产出可行性结论留档）
-普通需求（ai_core=False）不经过本模块，requirement_confirm 直接走 needs_discovery。
+普通需求（ai_core=False）不经过本模块，挖完需求后 needs_discovery 直接进 prd_generation。
 
 feasibility_check（make_feasibility_check）：
 - 调模型生成可行性报告并写入 state["feasibility_report"]；**不自动跑探针**，只产方案。
@@ -21,7 +21,7 @@ feasibility_confirm（make_feasibility_confirm，HITL，不调模型）：
   其他文本 -> 作为补充意见，默认按 pass 处理；
 - 写入 state["feasibility_confirm"] = {verdict, user_feedback}。
 
-路由（route_after_requirement_confirm / route_after_feasibility_confirm）：纯函数，便于零 API 单测。
+路由（route_after_feasibility_confirm）：纯函数，便于零 API 单测。
 """
 from __future__ import annotations
 
@@ -119,16 +119,6 @@ def classify_feasibility_answer(text: str) -> str:
         return "pass"
     return "feedback"
     # [C 2026-09-12 by codebuddy-ds41flash] 确认AI可行性门答复分类纯函数
-
-
-def route_after_requirement_confirm(state: dict) -> str:
-    """需求确认门后的条件边路由：ai_core=True 走 AI 轨（可行性），否则走普通轨。
-
-    - ``ai_core is True`` -> ``feasibility_check``（先验证AI可行性）
-    - 其余（False / None / 缺失）-> ``needs_discovery``（原路径，普通轨行为不变）
-    """
-    return "feasibility_check" if state.get("ai_core") is True else "needs_discovery"
-    # [C 2026-09-12 by codebuddy-ds41flash] 需求确认门条件边路由纯函数
 
 
 def route_after_feasibility_confirm(state: dict) -> str:

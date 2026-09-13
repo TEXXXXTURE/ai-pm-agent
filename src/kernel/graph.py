@@ -27,13 +27,18 @@
 # [C 2026-09-13 by codebuddy-ds41flash] 第 6 段：插入对比选型节点（17 节点）。
 #     eval_confirm pass 改映射为 bake_off；bake_off 条件边 {issue_splitting, bake_off}（自环重跑）；
 #     普通轨不经此节点，行为不变。
+# [C 2026-09-14 by codebuddy-ds41flash] S040 块1：分流点从"需求确认门出口"后移到"挖需求出口"——
+#     requirement_confirm 改为无条件普通边进 needs_discovery；needs_discovery 加条件边按 ai_core
+#     分流（True→feasibility_check；False/None→prd_generation）；feasibility_confirm 四态路由不变。
+#     节点数仍 17 不变，普通轨实际执行路径逐字不变（确认 → 挖需求 → 写 PRD）。
 """LangGraph 图装配：纵切 17 节点真实接线 + requirement_confirm / feasibility_confirm / eval_confirm / issue_confirm / launch_confirm 五扇 HITL 门。
 
 节点函数由 nodes.build_nodes(deps) 构建（依赖通过 NodeDeps 注入）。
 图结构：kb_lookup → intake → requirement_confirm(HITL)
+→ needs_discovery（两轨都先挖需求）
 →（条件边：ai_core=True → feasibility_check → feasibility_confirm(HITL)
     四态：pass/reclassify → prd_generation；reshape → requirement_confirm；abandon → END
-   ／ ai_core=False/None → needs_discovery → prd_generation）
+   ／ ai_core=False/None → prd_generation）
 → prd_generation → prd_review
     →（verdict == "reject" 回 prd_generation 重写，最多 3 轮）
     →（非 reject 且 ai_core=True）eval_design → eval_confirm(HITL 确认评测体系门)
@@ -83,9 +88,11 @@ def build_graph(deps: Any, db_path: str | None = None) -> Any:
     from nodes.review import route_after_review  # [C 2026-09-10] 评审门条件边
     from nodes.issues import route_after_issue_confirm  # [C 2026-09-11] 块2 工单确认门条件边
     from nodes.launch_plan import route_after_launch_confirm  # [C 2026-09-11] 块2 发布计划确认门条件边
+    from nodes.exploration import (  # [C 2026-09-14 by codebuddy-ds41flash] 挖需求后分流条件边
+        route_after_needs_discovery,
+    )
     from nodes.feasibility import (  # [C 2026-09-12 by codebuddy-ds41flash] 验证AI可行性路由
         route_after_feasibility_confirm,
-        route_after_requirement_confirm,
     )
     from nodes.eval_design import (  # [C 2026-09-12 by codebuddy-ds41flash] 确认评测体系门条件边
         route_after_eval_confirm,
@@ -111,15 +118,18 @@ def build_graph(deps: Any, db_path: str | None = None) -> Any:
     # 线性边（prd_generation → artifact_persist 直连已删除，改走评审门）
     graph.add_edge("kb_lookup", "intake")
     graph.add_edge("intake", "requirement_confirm")
-    # [C 2026-09-12 by codebuddy-ds41flash] S033 块3：需求确认门后按分流走——
-    # ai_core=True 先过验证AI可行性（feasibility_check→feasibility_confirm），
-    # ai_core=False/None 走原路径 needs_discovery（普通轨行为不变）
+    # [C 2026-09-14 by codebuddy-ds41flash] S040 块1：确认需求门后两轨都先挖需求，
+    # 分流点后移到 needs_discovery 出口（原 requirement_confirm 条件边分流已删除）
+    graph.add_edge("requirement_confirm", "needs_discovery")
+    # [C 2026-09-14 by codebuddy-ds41flash] S040 块1：挖需求后按 ai_core 分流——
+    # ai_core=True 走 AI 轨先验证AI可行性（feasibility_check→feasibility_confirm）；
+    # 其余走普通轨直接写 PRD（普通轨实际路径逐字不变：确认 → 挖需求 → 写 PRD）
     graph.add_conditional_edges(
-        "requirement_confirm",
-        route_after_requirement_confirm,
+        "needs_discovery",
+        route_after_needs_discovery,
         {
             "feasibility_check": "feasibility_check",
-            "needs_discovery": "needs_discovery",
+            "prd_generation": "prd_generation",
         },
     )
     graph.add_edge("feasibility_check", "feasibility_confirm")
@@ -135,7 +145,6 @@ def build_graph(deps: Any, db_path: str | None = None) -> Any:
             END: END,
         },
     )
-    graph.add_edge("needs_discovery", "prd_generation")
     # [C 2026-09-10] PRD 生成后先进评审门；打回回 prd_generation 重写（最多 3 轮），
     # 通过/带警告通过/第 3 轮强制放行则落盘
     graph.add_edge("prd_generation", "prd_review")
