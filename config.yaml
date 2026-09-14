@@ -78,6 +78,10 @@ bake_off:
       kind: reasoner
       api_key_env: DEEPSEEK_API_KEY
 
+# [C 2026-09-14 by S043-b1] 工具能力清单路径（判断需求与AI的边界段注入 prompt）
+tool_catalog:
+  routing_md_path: ./references/外置工具路由.md
+
 # [C 2026-09-12] RAG 领域知识库（AI 领域知识库，与业务档案库 kb 段独立）
 domain_kb:
   chroma_path: ./domain_kb/chroma

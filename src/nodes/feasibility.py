@@ -175,6 +175,8 @@ def make_feasibility_check(deps):
     """
 
     def feasibility_check(state: dict) -> dict:
+        # [C 2026-09-14 by S043-b1] 注入工具能力清单供 prompt 渲染
+        state = {**state, "tool_catalog": deps.tool_catalog or []}
         prompt = deps.registry.read_prompt("feasibility_check")
         schema = deps.registry.load_schema("feasibility")
         spec = NodeSpec(

@@ -100,6 +100,9 @@ class NodeDeps:
     # [C 2026-09-13 by codebuddy-ds41flash] 第 6 段：对比选型候选清单（config.yaml bake_off 段）；
     # None=未配置，bake_off 节点据此抛 NodeExecutionError 明确提示配置缺失
     bake_off_config: dict | None = None
+    # [C 2026-09-14 by S043-b1] 工具能力清单（config.yaml tool_catalog 段）；
+    # None=未配置，feasibility_check 节点降级为空列表（不阻断流程）
+    tool_catalog: list[dict] | None = None
 
 
 def build_nodes(deps: NodeDeps) -> dict:

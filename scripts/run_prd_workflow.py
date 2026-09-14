@@ -178,6 +178,14 @@ def _build_graph_and_config(cfg: dict[str, Any]) -> tuple[Any, dict]:
     # [C 2026-09-13 by codebuddy-ds41flash] 第 6 段：装配对比选型候选清单（bake_off 段），
     # 直接传 dict（仿 cli.main）；缺失则 bake_off 节点抛 NodeExecutionError 明确提示配置缺失。
     bake_off_cfg = cfg.get("bake_off", {}) or {}
+    # [C 2026-09-14 by S043-b1] 工具能力清单（tool_catalog 段）
+    tool_catalog_cfg = cfg.get("tool_catalog", {}) or {}
+    tool_catalog: list[dict] = []
+    if tool_catalog_cfg.get("routing_md_path"):
+        from components.tools.tool_catalog import load_tool_catalog
+        tool_catalog = load_tool_catalog(
+            str(_resolve_path(tool_catalog_cfg["routing_md_path"]))
+        )
     runner = NodeRunner(llm=llm)
     deps = NodeDeps(
         runner=runner,
@@ -187,6 +195,7 @@ def _build_graph_and_config(cfg: dict[str, Any]) -> tuple[Any, dict]:
         rag=rag_store,
         eval_tool=eval_tool or None,
         bake_off_config=bake_off_cfg or None,
+        tool_catalog=tool_catalog or None,
     )
 
     graph = build_graph(deps, db_path=str(db_path))
