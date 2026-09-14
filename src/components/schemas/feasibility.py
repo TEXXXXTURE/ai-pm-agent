@@ -1,10 +1,14 @@
-# [C 2026-09-12 by codebuddy-ds41flash] 验证AI可行性 schema（feasibility_check 节点）
-"""FeasibilitySchema：可行性报告（能力三色表 + PoL 探针方案 + 风险扫描 + 成本粗估 + 初步结论）。
+# [C 2026-09-14 by S043-b2] 验证AI可行性 schema（feasibility_check 节点）
+"""FeasibilitySchema：可行性报告（能力三方对照表 + PoL 探针方案 + 风险扫描 + 成本粗估 + 初步结论）。
 
 按 registry 命名约定：文件名 feasibility -> 类名 FeasibilitySchema。
 模型只产出"可行性事实与探针方案"，**不产出通过/放弃结论**——四态走向由人工在
 feasibility_confirm 确认门录入并拍板（见 nodes/feasibility.py）。
 探针只产方案、由人工执行实测，流水线不自动调模型跑探针。
+
+S043-b2：CapabilityItem 从单看模型三色扩为三方对照结构
+（模型判定→工具补充→综合判定），为后续探针真跑打数据结构基础；
+ProbeStep 加 target_capability 与第 1 步能力点建关联。
 """
 from __future__ import annotations
 
@@ -14,19 +18,32 @@ from pydantic import BaseModel, Field
 
 
 class CapabilityItem(BaseModel):
-    """关键能力点三色判断一行。"""
+    """关键能力点三方对照判断一行。"""
 
     capability: str = Field(description="关键能力点（一条一句话，基于本需求的具体能力）")
-    status: Literal["绿", "黄", "红"] = Field(
-        description="三色：绿=模型可稳定做到；黄=需配合兜底或人工；红=做不到"
+    model_status: Literal["绿", "黄", "红"] = Field(
+        description="模型原生能力判定：绿=模型可稳定做到；黄=需配合兜底或人工；红=做不到"
     )
-    note: str = Field(description="判断依据（为什么是这个颜色，一两句话）")
+    model_note: str = Field(description="模型判定依据（为什么是这个颜色，一两句话）")
+    tool_supplement: str = Field(
+        default="",
+        description="工具补充方案：模型做不到的能力点，查工具清单有没有能补的工具（写工具名+怎么补）；模型能做的不用写",
+    )
+    final_status: Literal["绿", "黄", "红"] = Field(
+        description="综合判定：模型能做=绿；模型做不到但有工具可补=黄（需配合工具）；模型做不到且无工具可补=红"
+    )
+    final_note: str = Field(
+        description="综合判定依据：为什么最终是这个颜色（如'模型可稳定做到'或'模型做不到但有XX工具可补，降级为黄'）"
+    )
 
 
 class ProbeStep(BaseModel):
     """PoL 探针一条：核心任务/边界/失败诱导样例之一。"""
 
     name: str = Field(description="探针名（如核心任务样例 / 边界样例 / 失败诱导样例）")
+    target_capability: str = Field(
+        description="本探针对准的 capability_matrix 中的能力点名称（建关联，须与上方某条 capability 字段匹配）"
+    )
     prompts: list[str] = Field(
         min_length=1, description="探针 prompt 链（≤5 条中的一条，含具体 prompt 文本）"
     )
@@ -57,12 +74,12 @@ class FeasibilitySchema(BaseModel):
     """可行性报告完整输出（模型只给事实与探针方案，不放行；四态由人工确认门拍板）。"""
 
     capability_matrix: list[CapabilityItem] = Field(
-        min_length=1, description="关键能力点三色表（逐点标绿/黄/红并给依据）"
+        min_length=1, description="关键能力点三方对照表（逐点标模型判定+工具补充+综合判定）"
     )
     probe_plan: list[ProbeStep] = Field(
         min_length=1,
         max_length=5,
-        description="PoL 探针方案（≤5 条 prompt 链：核心任务样例、边界样例、失败诱导样例）",
+        description="PoL 探针方案（≤5 条 prompt 链：核心任务样例、边界样例、失败诱导样例），target_capability 对准上方能力点",
     )
     risks: list[RiskItem] = Field(
         min_length=1,
@@ -75,3 +92,5 @@ class FeasibilitySchema(BaseModel):
 
 
 # [C 2026-09-12 by codebuddy-ds41flash] schemas/feasibility.py 新增完成
+# [C 2026-09-14 by S043-b2] CapabilityItem 扩三方对照（model_status/model_note/tool_supplement/final_status/final_note）
+#     + ProbeStep 加 target_capability 关联第 1 步能力点

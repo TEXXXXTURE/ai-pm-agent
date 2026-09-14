@@ -209,7 +209,8 @@ def test_feasibility_prompt_renders_and_hides():
 
     rendered_empty = Template(raw).render(domain_kb_context=[], **common)
     assert "AI 领域知识库参考" not in rendered_empty
-    assert "## 第 1 步：关键能力点三色判断" in rendered_empty
+    # [C 2026-09-14 by S043-b2] 第 1 步标题由"三色判断"改为"三方对照"，同步断言
+    assert "## 第 1 步：关键能力点三方对照" in rendered_empty
 
 
 # ────────────────────────── 8. build_rag_store_if_available 装配分支 ──────────────────────────
