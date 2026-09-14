@@ -52,6 +52,8 @@ class PMState(TypedDict, total=False):
     feasibility_report: dict          # 可行性报告（三色表/探针方案/风险表/成本区间/初步结论）
     feasibility_confirm: dict         # 确认门结论 {verdict, user_feedback}（pass/reclassify/reshape/abandon）
     feasibility_reshape_count: int    # 重塑次数（全程限 1 次，第 2 次自动升级暂停）
+    # [C 2026-09-14 by S043-b3] 探针真跑证据列表（ReAct 循环采集，回填 capability_matrix）
+    feasibility_evidence: list        # [{probe_name, prompt, actual_output, expected, passed, reason}]
 
     # ─── 评测集（G2）───
     eval_cases: list                  # G2: 需求确认门后建立的评测用例
@@ -168,6 +170,7 @@ def default_state() -> dict[str, Any]:
         "feasibility_report": {},
         "feasibility_confirm": {},
         "feasibility_reshape_count": 0,
+        "feasibility_evidence": [],  # [C 2026-09-14 by S043-b3] 探针真跑证据
         # 评测集
         "eval_cases": [],
         # 设计评测体系 [C 2026-09-12 by codebuddy-ds41flash]

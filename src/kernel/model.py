@@ -160,6 +160,40 @@ def build_llm(
     return llm
 
 
+def build_chat(
+    config: dict[str, Any] | None = None, provider: str | None = None
+) -> ChatLiteLLM:
+    """构建裸 ChatLiteLLM 实例（不包闭包），供需要 function calling 的节点自行 bind_tools + invoke。
+
+    与 build_llm() 的区别：build_llm 返回 llm(prompt, as_text=False) 闭包（已完成 JSON 解析），
+    适用于"只发 prompt 拿结构化输出"的节点；build_chat 返回底层 ChatLiteLLM 实例，
+    适用于需要 bind_tools + 多轮 messages 调用的节点（如 feasibility_check 的探针 ReAct 循环）。
+
+    Args:
+        config: load_config() 返回的全局配置；None 时自动加载 config.yaml。
+        provider: 指定 provider 名称；None 时用 config.yaml 的 default_provider。
+
+    Returns:
+        ChatLiteLLM 实例（未绑定工具），调用方据此 self.bind_tools([...]) + self.invoke(messages)。
+    """
+    if config is None:
+        config = load_config()
+    cfg = get_llm_config(config, provider)
+
+    chat_kwargs: dict[str, Any] = {
+        "model": cfg["litellm_model"],
+        "temperature": cfg["temperature"],
+        "max_retries": cfg["max_retries"],
+    }
+    if cfg.get("api_key"):
+        chat_kwargs["api_key"] = cfg["api_key"]
+    if cfg.get("api_base"):
+        chat_kwargs["api_base"] = cfg["api_base"]
+
+    return ChatLiteLLM(**chat_kwargs)
+    # [C 2026-09-14 by S043-b3] 新增 build_chat：返回裸 ChatLiteLLM 供节点自行 bind_tools + invoke
+
+
 def smoke_test(llm: Callable[[str], dict]) -> dict[str, Any]:
     """连通性冒烟测试：要求模型只返回 ``{"status": "ok"}``。
 
