@@ -32,6 +32,10 @@ DECISION_MATERIAL_FIELDS: tuple[str, ...] = (
     "launch_plan",  # [C 2026-09-11] 块2 发布计划确认门：展示发布计划草案供用户审阅
     "eval_report",  # [C 2026-09-12 by codebuddy-ds41flash] 第 8 段评测执行门：展示评测报告
     "model_selection",  # [C 2026-09-13 by codebuddy-ds41flash] 第 6 段对比选型：展示选型结论
+    # [C 2026-09-14 by codebuddy-ds41flash] S041 需求修订整合节点：展示草案/计数/结论
+    "requirement_draft",
+    "requirement_refine_count",
+    "requirement_refine_result",
 )
 
 
@@ -65,6 +69,10 @@ PAYLOAD_RECAP_FIELDS: tuple[str, ...] = (
     # [C 2026-09-13 by codebuddy-ds41flash] 第 6 段对比选型门中断载荷携带候选清单与选型结论
     "candidates",
     "model_selection",
+    # [C 2026-09-14 by codebuddy-ds41flash] S041 整合节点中断载荷携带草案/结论/计数
+    "requirement_draft",
+    "requirement_refine_result",
+    "requirement_refine_count",
     # [C 2026-09-11] 升级暂停信息透传：status=draft/escalated、暂停原因、历轮意见；
     # 仅 issue_confirm / launch_confirm 载荷携带这些键，其他节点载荷无键自动跳过，不污染其 recap
     "status",

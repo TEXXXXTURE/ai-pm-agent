@@ -590,10 +590,11 @@ class TestGraphWiring(unittest.TestCase):
             names = set(graph.get_graph().nodes.keys())
             self.assertIn("eval_run", names)
             # [C 2026-09-13 by codebuddy-ds41flash] 第 6 段新增 bake_off 后为 17 个真实节点
+            # [C 2026-09-14 by codebuddy-ds41flash] S041 新增 requirement_refine 后为 18 个真实节点
             # （本测试仅随图节点数增长同步计数断言，eval_run 节点自身行为断言未改动）
             self.assertIn("bake_off", names)
             real = names - {"__start__", "__end__"}
-            self.assertEqual(len(real), 17)
+            self.assertEqual(len(real), 18)
 
 
 # ────────────────────────── 7. QUESTION 文案 ──────────────────────────

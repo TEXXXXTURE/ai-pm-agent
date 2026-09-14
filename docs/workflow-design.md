@@ -79,10 +79,10 @@
 
 ### 第 1 段：挖需求并判断是否AI核心（已建）
 
-- **活动**：确认需求 HITL（`requirement_confirm`，不足则追问，充足则结构化复述）；需求挖掘（`needs_discovery`）；AI 适用性判定建议（ai_core 三档建议：AI 核心 / 非 AI / 存疑，附理由），在确认节点向用户展示并由用户最终确认；存疑时按 AI 核心走（先过验证AI可行性，探针实测后可改判回普通轨）。
+- **活动**：确认需求 HITL（`requirement_confirm`，不足则追问，充足则结构化复述）；需求修订整合（`requirement_refine`，用户提修订意见/改判带附言时模型整合为完整新需求草案，HITL 确认/改判/放弃/带新意见重整合，前 2 版自动，第 3 版升级暂停）；需求挖掘（`needs_discovery`）；AI 适用性判定建议（ai_core 三档建议：AI 核心 / 非 AI / 存疑，附理由），在确认节点向用户展示并由用户最终确认；存疑时按 AI 核心走（先过验证AI可行性，探针实测后可改判回普通轨）。
 - **入口条件**：第 0 段完成。
-- **确认需求（已建）出口**：用户确认 → **两轨都先做需求挖掘（`needs_discovery`）** → 按 `ai_core` 分流：AI 轨走第 2 段验证AI可行性，普通轨直接第 3 段写 PRD；用户拒绝 → 流程结束。
-- **出口产物**：确认需求、AI 适用性判定及理由。
+- **确认需求（已建）出口**：用户确认/纯改判 → **两轨都先做需求挖掘（`needs_discovery`）** → 按 `ai_core` 分流：AI 轨走第 2 段验证AI可行性，普通轨直接第 3 段写 PRD；用户提修订意见/改判带附言 → 进 `requirement_refine` 整合节点，整合后确认再进 `needs_discovery`；用户拒绝 → 流程结束。
+- **出口产物**：确认需求（含整合后的完整需求）、AI 适用性判定及理由。
 
 ### 第 2 段：验证AI可行性（待建）
 
@@ -211,13 +211,15 @@ AI 轨使用 ai-native 模板，来源为参考库 `apm/skills/prd-architect/ref
 
 ---
 
-## 七、现状节点映射（2026-09-12 代码实况）
+## 七、现状节点映射（2026-09-14 代码实况）
 
-实际建成 11 节点、3 个 HITL 确认节点（`src/kernel/graph.py`）：
+实际建成 18 节点、6 个 HITL 确认节点（`src/kernel/graph.py`）：
 
 ```
 kb_lookup → intake → requirement_confirm(HITL)
-→ needs_discovery → prd_generation → prd_review
+→（条件边：pending=True）requirement_refine(HITL 整合节点)
+→（条件边：confirm/reclassify → needs_discovery / feedback → 自环 / abandon → END）
+→（条件边：pending=False）needs_discovery → prd_generation → prd_review
 →（reject 回 prd_generation，最多 3 轮）
 → issue_splitting → issue_confirm(HITL)
 →（确认 / 重拆 2 轮 / 回 PRD 限 1 次，第 3 版升级暂停）
@@ -229,7 +231,7 @@ kb_lookup → intake → requirement_confirm(HITL)
 | 段 | 现状节点 | 差距 |
 |---|---|---|
 | 0 | kb_lookup、intake | 无 |
-| 1 | requirement_confirm、needs_discovery | 已建 AI 适用性分流 |
+| 1 | requirement_confirm、requirement_refine、needs_discovery | 已建 AI 适用性分流 + 需求修订整合 |
 | 2 | 无 | 全新：探针方案生成 + HITL 结论录入 + 四态路由 |
 | 3 | prd_generation（普通 + AI 原生两套模板） | 无 |
 | 4 | prd_review（五维硬判已真机验收） | AI 轨加评审维度 |
@@ -292,3 +294,5 @@ v2.0 中规划但从未建设、v3.0 不再设立的节点：external_validation
 <!-- [MA 2026-09-12] S031：v3.0 成稿，12 段融合工作流，用户已拍板顺序、探针人工执行、旧抽测取消 -->
 <!-- [MA 2026-09-12] S034：v3.1 命名修订——去掉"门"字，段名改动宾短语，判定节点用"确认/评审/判定+对象"，实施队列改用可读名 -->
 <!-- [MA 2026-09-13] S037：第 6 段对比选型（bake_off）已建——Promptfoo 横跑候选 + 三维对比 + 代码硬判推荐，写入 model_selection -->
+<!-- [MA 2026-09-14] S041：第 1 段插入需求修订整合节点（requirement_refine）——确认门提修订意见/改判带附言时调模型整合为新草案，HITL 确认/改判/放弃/带新意见重整合（前 2 版自动，第 3 版升级暂停）；节点数 17→18，普通轨行为逐字不变 -->
+

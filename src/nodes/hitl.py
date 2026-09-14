@@ -55,6 +55,31 @@ _AI_CORE_NEGATIONS: tuple[str, ...] = (
     "不是",
 )
 
+# [C 2026-09-14 by codebuddy-ds41flash] S041 小块1：确认词集合对齐工单门（issues.py _CONFIRM_WORDS）
+_REQUIREMENT_CONFIRM_WORDS: frozenset[str] = frozenset(
+    {
+        "",
+        "confirmed",
+        "confirm",
+        "ok",
+        "okay",
+        "yes",
+        "确认",
+        "通过",
+        "同意",
+        "没问题",
+        "可以",
+        "行",
+        "就这样",
+        "就这版",
+        "落盘",
+        "放行",
+    }
+)
+
+# 改判答复首尾标点（剥离后判断是否还有实质内容）
+_PUNCT_LEADING = "，。,.!！、；;"
+
 
 def _has_negative_prefix(text: str, idx: int) -> bool:
     """关键词命中位置前 3 字内是否紧邻否定语（不/别/勿/不用/不要/不是 等）。"""
@@ -84,6 +109,15 @@ def _matches_non_ai(compact: str) -> bool:
     return False
 
 
+# [C 2026-09-14 by codebuddy-ds41flash] S041 小块1：剥离改判关键词+标点，判断纯改判 vs 带附言
+def _strip_reclassify_keywords(text: str) -> str:
+    """剥离改判关键词和首尾标点后的剩余文本；空串=纯改判无附言。"""
+    compact = re.sub(r"[\s\u3000]+", "", text.lower())
+    for kw in _NON_AI_KEYWORDS + _AI_CORE_KEYWORDS:
+        compact = compact.replace(kw, "")
+    return compact.lstrip(_PUNCT_LEADING).rstrip(_PUNCT_LEADING)
+
+
 def classify_requirement_answer(text: str) -> str:
     """纯函数：把需求确认门用户答复归一化为四分类。
 
@@ -109,7 +143,8 @@ def classify_requirement_answer(text: str) -> str:
         return "non_ai"
     if _matches_ai_core(compact):
         return "ai_core"
-    if not lowered or lowered == "confirmed":
+    # [C 2026-09-14 by codebuddy-ds41flash] S041 小块1：确认词集合对齐工单门
+    if lowered in _REQUIREMENT_CONFIRM_WORDS:
         return "confirm"
     return "feedback"
     # [C 2026-09-12 by MA] 需求确认门答复分类纯函数
@@ -165,30 +200,59 @@ def make_requirement_confirm(deps):
         text = original.strip()
         ai_core = _resolve_ai_core(kind, model_suggestion)
 
-        # 4. confirmed_requirement 解析
-        #    - confirm：用原 raw_requirement
-        #    - non_ai / ai_core：用户若附文本则用文本，否则用原 raw_requirement
-        #    - feedback：用用户文本作为需求修订
+        # 4. confirmed_requirement 解析 + refine_pending 标志
+        #    [C 2026-09-14 by codebuddy-ds41flash] S041 整合节点接入：
+        #    - confirm：confirmed=raw_requirement, pending=False
+        #    - non_ai / ai_core 纯改判（remaining 为空）：confirmed=raw_requirement, pending=False
+        #    - non_ai / ai_core 改判带附言（remaining 非空）：confirmed=raw_requirement,
+        #      pending=True, feedback=text（交整合节点整合后再写回 confirmed_requirement）
+        #    - feedback：confirmed=raw_requirement, pending=True, feedback=text
+        #    （原 feedback/改判带附言直接用用户文本替换 confirmed_requirement 的行为已废弃——
+        #      那会让原需求丢失；新版交给 requirement_refine 节点模型整合。）
         if kind == "confirm":
             confirmed = state.get("raw_requirement", "")
+            refine_pending = False
+            refine_feedback = ""
         elif kind in ("non_ai", "ai_core"):
-            confirmed = text if text else state.get("raw_requirement", "")
+            remaining = _strip_reclassify_keywords(text)
+            if remaining:
+                # 改判带附言：走整合（confirmed 保留原需求，附言交整合节点处理）
+                confirmed = state.get("raw_requirement", "")
+                refine_pending = True
+                refine_feedback = text
+            else:
+                # 纯改判：保留原需求，不污染
+                confirmed = state.get("raw_requirement", "")
+                refine_pending = False
+                refine_feedback = ""
         else:  # feedback
-            confirmed = text
+            confirmed = state.get("raw_requirement", "")
+            refine_pending = True
+            refine_feedback = text
 
         # 5. 初始化评测用例（纯确定性模板生成）
-        eval_cases = init_eval_cases({**state, "confirmed_requirement": confirmed})
+        #    [C 2026-09-14 by codebuddy-ds41flash] S041：pending=True 时跳过初始化，
+        #    整合节点确认后再初始化（避免用过时的 confirmed_requirement 生成 eval_cases）
+        if not refine_pending:
+            eval_cases = init_eval_cases({**state, "confirmed_requirement": confirmed})
+        else:
+            eval_cases = None  # 整合节点确认后初始化
 
-        return {
+        result = {
             "ai_triage": ai_triage,
             "ai_core": ai_core,
             "confirmed_requirement": confirmed,
             "proceed_decision": True,
-            "eval_cases": eval_cases,
             "human_feedback": (state.get("human_feedback") or [])
             + [{"node": "requirement_confirm", "feedback": original, "kind": kind}],
             "current_stage": "探索",
+            "requirement_refine_pending": refine_pending,
         }
+        if refine_pending:
+            result["requirement_refine_feedback"] = refine_feedback
+        if eval_cases is not None:
+            result["eval_cases"] = eval_cases
+        return result
 
     return requirement_confirm
 

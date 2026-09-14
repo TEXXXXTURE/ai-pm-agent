@@ -27,6 +27,12 @@ class PMState(TypedDict, total=False):
     raw_requirement: str              # 用户原始需求描述
     info_completeness: dict           # 6 维度信息完整度评估
     confirmed_requirement: str        # 用户确认后的需求
+    # [C 2026-09-14 by codebuddy-ds41flash] S041 需求修订整合节点字段
+    requirement_draft: str              # 整合节点产出的当前草案
+    requirement_refine_count: int       # 自动整合次数（上限 2，第 3 版起升级暂停）
+    requirement_refine_feedback: str    # 上一轮用户修订意见（注入 prompt，消费即清零）
+    requirement_refine_pending: bool    # 确认门是否需要走整合节点（feedback/改判带附言时 True）
+    requirement_refine_result: dict     # 整合确认门结论 {verdict, user_feedback}（confirm/reclassify/abandon/feedback）
     user_insights: dict               # 从用户脑中挖出的信息
     external_evidence: dict           # 外部验证证据
     opportunity_score: dict           # 机会评分（ODI/RICE）+ cost_feasibility
@@ -141,6 +147,12 @@ def default_state() -> dict[str, Any]:
         "raw_requirement": "",
         "info_completeness": {},
         "confirmed_requirement": "",
+        # [C 2026-09-14 by codebuddy-ds41flash] S041 需求修订整合节点字段默认值
+        "requirement_draft": "",
+        "requirement_refine_count": 0,
+        "requirement_refine_feedback": "",
+        "requirement_refine_pending": False,
+        "requirement_refine_result": {},
         "user_insights": {},
         "external_evidence": {},
         "opportunity_score": {},

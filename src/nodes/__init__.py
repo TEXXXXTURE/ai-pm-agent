@@ -25,13 +25,18 @@
 # [C 2026-09-13 by codebuddy-ds41flash] 第 6 段：新增对比选型节点（17 节点）：
 #     eval_confirm pass → bake_off →（ran/skipped）issue_splitting；
 #     bake_off 工具错误在节点内 interrupt，恢复后自环重跑；普通轨不经此节点。
-"""nodes 包：纵切 17 节点真实接线。
+# [C 2026-09-14 by codebuddy-ds41flash] S041：新增需求修订整合节点（18 节点）。
+#     requirement_confirm 出口改条件边——pending=True（feedback/改判带附言）走 requirement_refine
+#     （调模型整合 + HITL 确认/改判/放弃/带新意见重整合，前 2 版自动，第 3 版升级暂停）；
+#     pending=False（confirm/纯改判）走 needs_discovery（原路径，普通轨行为逐字不变）。
+"""nodes 包：纵切 18 节点真实接线。
 
 - NodeDeps：节点依赖容器（runner / registry / artifacts / kb / rag / eval_tool / bake_off_config）；
 - build_nodes(deps)：返回有序 dict，key 顺序即图执行顺序：
   kb_lookup → intake → requirement_confirm(HITL，含 AI 适用性分流)
-  →（条件边 ai_core=True）feasibility_check → feasibility_confirm(HITL，四态)
-  →（条件边 ai_core=False）needs_discovery → prd_generation（按 ai_core 选 ai-native / 普通模板）
+  →（条件边：pending=True）requirement_refine(HITL 整合节点；条件边：confirm/reclassify→needs_discovery / feedback→自环 / abandon→END)
+  →（条件边：pending=False）needs_discovery →（条件边 ai_core=True）feasibility_check → feasibility_confirm(HITL，四态)
+  →（条件边 ai_core=False）prd_generation（按 ai_core 选 ai-native / 普通模板）
   → prd_review →（条件边：打回回 prd_generation / 非 reject 且 ai_core=True）eval_design
   → eval_confirm（HITL；条件边：pass→bake_off / redraft→eval_design）
   → bake_off（第 6 段对比选型，仅 AI 核心需求；条件边：issue_splitting / bake_off 自环）
@@ -53,6 +58,7 @@ from kb.store import KBStore
 from nodes.artifact import make_artifact_persist
 from nodes.exploration import make_intake, make_kb_lookup, make_needs_discovery
 from nodes.hitl import make_requirement_confirm
+from nodes.refine import make_requirement_refine  # [C 2026-09-14 by codebuddy-ds41flash] S041 需求修订整合节点
 from nodes.prd import make_prd_generation
 from nodes.review import make_prd_review  # [C 2026-09-10] PRD 评审门节点
 from nodes.issues import (  # [C 2026-09-11] 拆研发工单 + 工单确认门
@@ -97,11 +103,16 @@ class NodeDeps:
 
 
 def build_nodes(deps: NodeDeps) -> dict:
-    """构建 17 个节点函数的有序 dict（key 顺序与图执行顺序一致）。"""
+    """构建 18 个节点函数的有序 dict（key 顺序与图执行顺序一致）。"""
     return {
         "kb_lookup": make_kb_lookup(deps),
         "intake": make_intake(deps),
         "requirement_confirm": make_requirement_confirm(deps),
+        # [C 2026-09-14 by codebuddy-ds41flash] S041 需求修订整合节点：
+        # 确认门 pending=True（feedback/改判带附言）时经此节点，模型整合"当前需求 + 修订意见"
+        # 为完整新需求草案，HITL 确认/改判/放弃/带新意见重整合（前 2 版自动，第 3 版升级暂停）；
+        # pending=False（confirm/纯改判）由 graph 条件边直接去 needs_discovery，不经本节点。
+        "requirement_refine": make_requirement_refine(deps),
         # [C 2026-09-12 by codebuddy-ds41flash] 验证AI可行性：AI 核心需求经此两节点，
         # 普通轨（ai_core=False）由 graph 条件边直接去 needs_discovery，不经此二节点
         "feasibility_check": make_feasibility_check(deps),

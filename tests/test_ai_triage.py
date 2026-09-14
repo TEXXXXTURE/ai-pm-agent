@@ -173,6 +173,28 @@ class TestClassifyRequirementAnswer(unittest.TestCase):
         self.assertEqual(classify_requirement_answer("   "), "confirm")
         self.assertEqual(classify_requirement_answer(None), "confirm")
 
+    # [C 2026-09-14 by codebuddy-ds41flash] S041 小块1：中文确认词对齐工单门
+    def test_chinese_confirm_words(self):
+        for word in (
+            "确认",
+            "通过",
+            "同意",
+            "没问题",
+            "可以",
+            "行",
+            "就这样",
+            "就这版",
+            "落盘",
+            "放行",
+            "confirm",
+            "ok",
+            "okay",
+            "yes",
+        ):
+            self.assertEqual(
+                classify_requirement_answer(word), "confirm", msg=word
+            )
+
     def test_non_ai_keywords(self):
         for word in (
             "非AI",
@@ -339,7 +361,9 @@ class TestRequirementConfirmNode(unittest.TestCase):
         self.assertEqual(out["ai_triage"]["suggestion"], "uncertain")
 
     def test_non_ai_keyword_overrides_model_suggestion(self):
-        # 模型建议 ai_core，用户改判非AI
+        # 模型建议 ai_core，用户改判非AI 且带附言
+        # [C 2026-09-14 by codebuddy-ds41flash] S041：改判带附言不再直接用用户文本替换
+        # confirmed_requirement——confirmed 保留原 raw_requirement，附言交整合节点处理
         fake = FakeLLM(
             json_queue=[
                 {"suggestion": "ai_core", "reason": "看起来像AI", "signals": ["x"]}
@@ -349,12 +373,17 @@ class TestRequirementConfirmNode(unittest.TestCase):
             confirm_state(), ["非AI，这是固定文案"], fake
         )
         self.assertFalse(out["ai_core"])
-        # 用户文本作为 confirmed_requirement（非确认路径下用户文本即需求）
-        self.assertEqual(out["confirmed_requirement"], "非AI，这是固定文案")
+        # confirmed_requirement 保留原 raw_requirement（不替换）
+        self.assertEqual(out["confirmed_requirement"], "帮产品经理做会议纪要总结")
+        # pending=True，附言写入 requirement_refine_feedback 待整合节点处理
+        self.assertTrue(out["requirement_refine_pending"])
+        self.assertEqual(out["requirement_refine_feedback"], "非AI，这是固定文案")
+        # pending=True 时跳过 eval_cases 初始化（整合节点确认后再初始化）
+        self.assertNotIn("eval_cases", out)
         self.assertEqual(out["human_feedback"][-1]["kind"], "non_ai")
 
     def test_ai_core_keyword_overrides_model_suggestion(self):
-        # 模型建议 non_ai，用户改判 AI 核心
+        # 模型建议 non_ai，用户改判 AI 核心（纯改判，无附言）
         fake = FakeLLM(
             json_queue=[
                 {"suggestion": "non_ai", "reason": "看起来普通", "signals": ["y"]}
@@ -364,11 +393,18 @@ class TestRequirementConfirmNode(unittest.TestCase):
             confirm_state(), ["AI核心"], fake
         )
         self.assertTrue(out["ai_core"])
-        self.assertEqual(out["confirmed_requirement"], "AI核心")
+        # [C 2026-09-14 by codebuddy-ds41flash] S041 小块1：纯改判不污染需求
+        self.assertEqual(out["confirmed_requirement"], "帮产品经理做会议纪要总结")
+        # 纯改判不进整合节点
+        self.assertFalse(out["requirement_refine_pending"])
+        # 纯改判时 eval_cases 已初始化（pending=False 路径）
+        self.assertIn("eval_cases", out)
         self.assertEqual(out["human_feedback"][-1]["kind"], "ai_core")
 
     def test_free_text_feedback_keeps_model_suggestion(self):
-        # 用户给需求修订意见，分流沿用模型建议（不二次中断）
+        # 用户给需求修订意见（feedback），分流沿用模型建议
+        # [C 2026-09-14 by codebuddy-ds41flash] S041：feedback 不再直接替换 confirmed_requirement
+        # ——confirmed 保留原 raw_requirement，意见交整合节点处理
         fake = FakeLLM(
             json_queue=[
                 {"suggestion": "ai_core", "reason": "AI核心", "signals": ["z"]}
@@ -378,8 +414,76 @@ class TestRequirementConfirmNode(unittest.TestCase):
             confirm_state(), ["增加用户画像维度"], fake
         )
         self.assertTrue(out["ai_core"])  # 沿用模型建议
-        self.assertEqual(out["confirmed_requirement"], "增加用户画像维度")
+        # confirmed_requirement 保留原 raw_requirement（不替换）
+        self.assertEqual(out["confirmed_requirement"], "帮产品经理做会议纪要总结")
+        # pending=True，意见写入 requirement_refine_feedback 待整合节点处理
+        self.assertTrue(out["requirement_refine_pending"])
+        self.assertEqual(out["requirement_refine_feedback"], "增加用户画像维度")
+        # pending=True 时跳过 eval_cases 初始化
+        self.assertNotIn("eval_cases", out)
         self.assertEqual(out["human_feedback"][-1]["kind"], "feedback")
+
+    # [C 2026-09-14 by codebuddy-ds41flash] S041 小块1：纯改判不污染需求文本
+    def test_pure_reclassify_keeps_raw_requirement(self):
+        # 用户只回"AI核心"/"非AI"等纯改判词，关键词不写回 confirmed_requirement
+        fake = FakeLLM(
+            json_queue=[
+                {"suggestion": "non_ai", "reason": "看起来普通", "signals": ["y"]}
+            ]
+        )
+        out, _ = run_confirm_node(confirm_state(), ["AI核心"], fake)
+        self.assertTrue(out["ai_core"])
+        self.assertEqual(
+            out["confirmed_requirement"], "帮产品经理做会议纪要总结"
+        )
+
+        # 再测非AI纯改判 + 带空格/全角空格
+        fake2 = FakeLLM(
+            json_queue=[
+                {"suggestion": "ai_core", "reason": "AI核心", "signals": ["x"]}
+            ]
+        )
+        out2, _ = run_confirm_node(confirm_state(), ["非AI "], fake2)
+        self.assertFalse(out2["ai_core"])
+        self.assertEqual(
+            out2["confirmed_requirement"], "帮产品经理做会议纪要总结"
+        )
+
+        # 带空格的 AI 核心
+        fake3 = FakeLLM(
+            json_queue=[
+                {"suggestion": "non_ai", "reason": "普通", "signals": ["z"]}
+            ]
+        )
+        out3, _ = run_confirm_node(confirm_state(), ["AI 核心"], fake3)
+        self.assertTrue(out3["ai_core"])
+        self.assertEqual(
+            out3["confirmed_requirement"], "帮产品经理做会议纪要总结"
+        )
+
+    def test_reclassify_with_punctuation_keeps_raw_requirement(self):
+        # 改判词 + 首尾标点但无实质附言 -> 仍判纯改判，不污染需求
+        fake = FakeLLM(
+            json_queue=[
+                {"suggestion": "non_ai", "reason": "普通", "signals": ["w"]}
+            ]
+        )
+        out, _ = run_confirm_node(confirm_state(), ["AI核心。"], fake)
+        self.assertTrue(out["ai_core"])
+        self.assertEqual(
+            out["confirmed_requirement"], "帮产品经理做会议纪要总结"
+        )
+
+        fake2 = FakeLLM(
+            json_queue=[
+                {"suggestion": "ai_core", "reason": "AI", "signals": ["v"]}
+            ]
+        )
+        out2, _ = run_confirm_node(confirm_state(), ["非AI，"], fake2)
+        self.assertFalse(out2["ai_core"])
+        self.assertEqual(
+            out2["confirmed_requirement"], "帮产品经理做会议纪要总结"
+        )
 
     def test_ai_triage_failure_propagates_via_node_runner_retry(self):
         # 模型首次返回非枚举值 -> Pydantic 硬拒 -> NodeRunner 带反馈重试一次

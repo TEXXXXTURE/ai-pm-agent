@@ -31,11 +31,22 @@
 #     requirement_confirm 改为无条件普通边进 needs_discovery；needs_discovery 加条件边按 ai_core
 #     分流（True→feasibility_check；False/None→prd_generation）；feasibility_confirm 四态路由不变。
 #     节点数仍 17 不变，普通轨实际执行路径逐字不变（确认 → 挖需求 → 写 PRD）。
-"""LangGraph 图装配：纵切 17 节点真实接线 + requirement_confirm / feasibility_confirm / eval_confirm / issue_confirm / launch_confirm 五扇 HITL 门。
+# [C 2026-09-14 by codebuddy-ds41flash] S041：requirement_confirm 与 needs_discovery 之间插
+#     requirement_refine 整合节点（18 节点）。确认门出口改条件边——pending=True（feedback/
+#     改判带附言）走 requirement_refine（调模型整合 + HITL 确认）；pending=False（confirm/
+#     纯改判）走 needs_discovery（原路径，普通轨行为逐字不变）。整合节点条件边三态：
+#     confirm/reclassify→needs_discovery；feedback→自环重整合（前 2 版自动，第 3 版升级暂停）；
+#     abandon→END。普通轨实际执行路径逐字不变（确认 → 挖需求 → 写 PRD）。
+"""LangGraph 图装配：纵切 18 节点真实接线 + requirement_confirm / requirement_refine /
+feasibility_confirm / eval_confirm / issue_confirm / launch_confirm 六扇 HITL 门。
 
 节点函数由 nodes.build_nodes(deps) 构建（依赖通过 NodeDeps 注入）。
 图结构：kb_lookup → intake → requirement_confirm(HITL)
-→ needs_discovery（两轨都先挖需求）
+→（条件边：requirement_refine_pending=True → requirement_refine(HITL 整合节点)
+    条件边三态：confirm/reclassify → needs_discovery；
+                feedback → requirement_refine 自环（前 2 版自动，第 3 版起升级暂停）；
+                abandon → END
+   ／ requirement_refine_pending=False → needs_discovery（两轨都先挖需求））
 →（条件边：ai_core=True → feasibility_check → feasibility_confirm(HITL)
     四态：pass/reclassify → prd_generation；reshape → requirement_confirm；abandon → END
    ／ ai_core=False/None → prd_generation）
@@ -103,6 +114,10 @@ def build_graph(deps: Any, db_path: str | None = None) -> Any:
     from nodes.bake_off import (  # [C 2026-09-13 by codebuddy-ds41flash] 第 6 段对比选型条件边
         route_after_bake_off,
     )
+    from nodes.refine import (  # [C 2026-09-14 by codebuddy-ds41flash] S041 需求修订整合节点条件边
+        route_after_requirement_confirm,
+        route_after_requirement_refine,
+    )
 
     nodes = build_nodes(deps)
 
@@ -118,9 +133,30 @@ def build_graph(deps: Any, db_path: str | None = None) -> Any:
     # 线性边（prd_generation → artifact_persist 直连已删除，改走评审门）
     graph.add_edge("kb_lookup", "intake")
     graph.add_edge("intake", "requirement_confirm")
-    # [C 2026-09-14 by codebuddy-ds41flash] S040 块1：确认需求门后两轨都先挖需求，
-    # 分流点后移到 needs_discovery 出口（原 requirement_confirm 条件边分流已删除）
-    graph.add_edge("requirement_confirm", "needs_discovery")
+    # [C 2026-09-14 by codebuddy-ds41flash] S041 需求修订整合节点接入：
+    # 确认门出口改条件边——pending=True（feedback/改判带附言）走 requirement_refine；
+    # pending=False（confirm/纯改判）走 needs_discovery（原路径，普通轨行为逐字不变）。
+    graph.add_conditional_edges(
+        "requirement_confirm",
+        route_after_requirement_confirm,
+        {
+            "needs_discovery": "needs_discovery",
+            "requirement_refine": "requirement_refine",
+        },
+    )
+    # [C 2026-09-14 by codebuddy-ds41flash] S041 整合节点条件边三态：
+    # confirm/reclassify -> needs_discovery（整合后需求写回 confirmed_requirement，eval_cases 重初始化）；
+    # feedback -> requirement_refine 自环（带新意见重整合，前 2 版自动，第 3 版升级暂停）；
+    # abandon -> END（放弃，留档当前草案与意见）。
+    graph.add_conditional_edges(
+        "requirement_refine",
+        route_after_requirement_refine,
+        {
+            "needs_discovery": "needs_discovery",
+            "requirement_refine": "requirement_refine",
+            END: END,
+        },
+    )
     # [C 2026-09-14 by codebuddy-ds41flash] S040 块1：挖需求后按 ai_core 分流——
     # ai_core=True 走 AI 轨先验证AI可行性（feasibility_check→feasibility_confirm）；
     # 其余走普通轨直接写 PRD（普通轨实际路径逐字不变：确认 → 挖需求 → 写 PRD）
