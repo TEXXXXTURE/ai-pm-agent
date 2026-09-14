@@ -1,4 +1,4 @@
-# [C 2026-09-14 by S043-b2] 验证AI可行性节点 + 确认AI可行性门 自测
+# [C 2026-09-14 by S043-b2] 判断需求与 AI 的边界节点 + 确认AI可行性门 自测
 # [C 2026-09-14 by S043-b3] 新增 TestProbeExecution：探针真跑 ReAct 循环零 API 测试
 """feasibility_check / feasibility_confirm 零 API 测试：patch 掉 nodes.feasibility.interrupt,
 假 LLM 回放预制响应，不发起任何真实模型调用。
@@ -83,8 +83,10 @@ from nodes.feasibility import (  # noqa: E402
     MAX_REACT_ROUNDS,
     RunProbeTool,
     _backfill_evidence_to_report,
+    _is_evidence_pass_answer,
     _parse_react_results,
     _run_react_probes,
+    audit_probe_evidence,
     classify_feasibility_answer,
     make_feasibility_check,
     make_feasibility_confirm,
@@ -176,7 +178,13 @@ def make_deps(tmp_dir: Path, fake_llm=None) -> NodeDeps:
 
 
 def feasibility_state(**overrides):
-    """确认AI可行性门入口 state。"""
+    """确认AI可行性门入口 state。
+
+    [C 2026-09-15 by codebuddy-glm-5.2] S045 块4：默认带完整证据（一条 passed=True
+    且 actual_output 非空），让 audit_probe_evidence 判 complete=True 且无 failed，
+    使原四态测试（test_pass_empty_answer 等）行为不变——证据齐全+空答复→直接 pass。
+    新测试可通过 feasibility_evidence=... 覆盖默认值构造不齐证据。
+    """
     state = {
         "requirement_name": "demo-ai-req",
         "confirmed_requirement": "用模型把会议录音转写稿整理成待办",
@@ -197,6 +205,9 @@ def feasibility_state(**overrides):
         "feasibility_confirm": {},
         "feasibility_reshape_count": 0,
         "human_feedback": [],
+        "feasibility_evidence": [
+            {"probe_name": "p1", "actual_output": "out1", "passed": True, "reason": ""},
+        ],
     }
     state.update(overrides)
     return state
@@ -217,6 +228,33 @@ def run_confirm_node(state, answers):
     node = make_feasibility_confirm(make_deps(Path(tempfile.mkdtemp())))
     with patch("nodes.feasibility.interrupt", side_effect=fake_interrupt):
         out = node(state)
+    return out, payloads
+
+
+def run_confirm_collect_payloads(state, answers):
+    """与 run_confirm_node 类似，但即使 node 因 queue 用尽抛 IndexError 也返回已收集的 payloads。
+
+    返回 ``(out_or_None, payloads)``：
+    - ``out_or_None`` 为 None 表示节点未返回（仍在 evidence_gap 循环等 interrupt）；
+    - 非 None 表示节点正常返回了 verdict。
+
+    [C 2026-09-15 by codebuddy-glm-5.2] S045 块4：原 run_confirm_node 在 node 抛 IndexError 时
+    不返回 payloads，无法断言二次 interrupt 载荷；本辅助补全这个能力，专测"节点不返回"
+    的 evidence_gap 行为。
+    """
+    payloads: list[dict] = []
+    queue = list(answers)
+
+    def fake_interrupt(value):
+        payloads.append(value)
+        return queue.pop(0)
+
+    node = make_feasibility_confirm(make_deps(Path(tempfile.mkdtemp())))
+    with patch("nodes.feasibility.interrupt", side_effect=fake_interrupt):
+        try:
+            out = node(state)
+        except IndexError:
+            return None, payloads
     return out, payloads
 
 
@@ -514,7 +552,7 @@ class TestClassifyFeasibilityAnswer(unittest.TestCase):
 
 class TestRoutes(unittest.TestCase):
     def test_route_after_needs_discovery(self):
-        # AI 核心需求：挖完需求去验证AI可行性
+        # AI 核心需求：挖完需求去判断需求与 AI 的边界
         self.assertEqual(
             route_after_needs_discovery({"ai_core": True}), "feasibility_check"
         )
@@ -743,7 +781,7 @@ class TestGraphWiring(unittest.TestCase):
 
 
 class TestAiTrackGraphFlow(unittest.TestCase):
-    """S040 块1 回归：AI 轨必须"确认需求 → 挖需求 → 验证AI可行性"，user_insights 非空。
+    """S040 块1 回归：AI 轨必须"确认需求 → 挖需求 → 判断需求与 AI 的边界"，user_insights 非空。
 
     这是本次缺陷（AI 轨绕过 needs_discovery 导致需求洞察空壳）的回归测试：
     改动前 AI 轨从需求确认门直达 feasibility_check，checkpoint 里 user_insights={}。
@@ -898,6 +936,53 @@ class TestWorkflowQuestionAndFields(unittest.TestCase):
         self.assertIn("NODE: feasibility_confirm", out)
         self.assertIn("feasibility_report:", out)
         self.assertIn("参考结论-FFF", out)
+
+    def test_payload_recap_fields_contain_evidence_audit(self):
+        # [C 2026-09-15 by codebuddy-glm-5.2 r3] S045 块4：证据缺口提示字段接入渲染白名单
+        # run_prd_workflow.PAYLOAD_RECAP_FIELDS 是从 cli.hitl_cli 导入的同一常量，
+        # 同步覆盖 hitl_cli 源头与 run_prd_workflow 导入侧两处字段表
+        module = self._load_workflow_module()
+        self.assertIn("evidence_audit", module.PAYLOAD_RECAP_FIELDS)
+        self.assertIn("evidence_audit_hint", module.PAYLOAD_RECAP_FIELDS)
+        from cli.hitl_cli import PAYLOAD_RECAP_FIELDS as HITL_RECAP
+        self.assertIn("evidence_audit", HITL_RECAP)
+        self.assertIn("evidence_audit_hint", HITL_RECAP)
+
+    def test_emit_hitl_recap_carries_evidence_audit(self):
+        # [C 2026-09-15 by codebuddy-glm-5.2 r3] S045 块4：feasibility_confirm 中断载荷
+        # 携带 evidence_audit dict / evidence_audit_hint 文本 -> STATUS 块按 JSON / 标量渲染出来
+        module = self._load_workflow_module()
+        payload = {
+            "node": "feasibility_confirm",
+            "status": "draft",
+            "requirement_name": "demo-ai-req",
+            "feasibility_report": {"conclusion": "参考结论-FFF"},
+            "evidence_audit": {
+                "total": 2,
+                "valid": 1,
+                "judged": 1,
+                "unjudged": [],
+                "failed": [],
+                "invalid": ["probe-A"],
+                "complete": False,
+                "guidance": "探针 probe-A 缺有效证据",
+            },
+            "evidence_audit_hint": "⚠ 证据不齐：探针 probe-A 缺有效证据",
+        }
+        graph = MagicMock()
+        graph.get_state.return_value.values = {}
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            module._emit_hitl(graph, {}, "tid-feas", payload)
+        out = buf.getvalue()
+        self.assertIn("STATUS: HITL", out)
+        self.assertIn("NODE: feasibility_confirm", out)
+        # dict 字段按 JSON 渲染（键名成行 + 内嵌 guidance 文案）
+        self.assertIn("evidence_audit:", out)
+        self.assertIn("探针 probe-A 缺有效证据", out)
+        # 标量字段按 "key: value" 渲染
+        self.assertIn("evidence_audit_hint:", out)
+        self.assertIn("⚠ 证据不齐：探针 probe-A 缺有效证据", out)
 
 
 # ────────────────────────── 10. 探针真跑 ReAct 循环（S043 块3 收尾）──────────────────────────
@@ -1190,6 +1275,298 @@ class TestProbeExecution(unittest.TestCase):
         self.assertIsNone(_parse_react_results(only_thinking))
 
 
+# ────────────────────────── 11. S045 块4：证据审计 + 二次确认协议 ──────────────────────────
+# [C 2026-09-15 by codebuddy-glm-5.2] S045 块4 新增：证据必填二次确认门
+
+
+class TestAuditProbeEvidence(unittest.TestCase):
+    """audit_probe_evidence 纯函数 6 例：全齐 / 含 None / 含 False / 含执行失败 / 空 / 老草案缺字段。"""
+
+    def test_all_complete(self):
+        # 全齐：所有探针有有效证据且有判定（passed=True）
+        evidence = [
+            {"probe_name": "p1", "actual_output": "out1", "passed": True, "reason": ""},
+            {"probe_name": "p2", "actual_output": "out2", "passed": True, "reason": ""},
+        ]
+        audit = audit_probe_evidence(evidence)
+        self.assertEqual(audit["total"], 2)
+        self.assertEqual(audit["valid"], 2)
+        self.assertEqual(audit["judged"], 2)
+        self.assertEqual(audit["unjudged"], [])
+        self.assertEqual(audit["failed"], [])
+        self.assertEqual(audit["invalid"], [])
+        self.assertTrue(audit["complete"])
+        self.assertEqual(audit["guidance"], "")
+
+    def test_contains_unjudged_passed_none(self):
+        # passed=None：未判定，进 unjudged，complete=False
+        evidence = [
+            {"probe_name": "p1", "actual_output": "out1", "passed": True, "reason": ""},
+            {"probe_name": "p2", "actual_output": "out2", "passed": None, "reason": ""},
+        ]
+        audit = audit_probe_evidence(evidence)
+        self.assertEqual(audit["total"], 2)
+        self.assertEqual(audit["valid"], 2)
+        self.assertEqual(audit["judged"], 1)
+        self.assertEqual(audit["unjudged"], ["p2"])
+        self.assertEqual(audit["failed"], [])
+        self.assertEqual(audit["invalid"], [])
+        self.assertFalse(audit["complete"])
+        self.assertIn("p2", audit["guidance"])
+        self.assertIn("未给出判定", audit["guidance"])
+
+    def test_contains_failed_passed_false(self):
+        # passed=False：判定已给出、交人判，不算"缺口"（complete 仍 True），只进 guidance
+        evidence = [
+            {"probe_name": "p1", "actual_output": "out1", "passed": True, "reason": ""},
+            {"probe_name": "p2", "actual_output": "out2", "passed": False, "reason": "失败"},
+        ]
+        audit = audit_probe_evidence(evidence)
+        self.assertEqual(audit["total"], 2)
+        self.assertEqual(audit["valid"], 2)
+        self.assertEqual(audit["judged"], 2)
+        self.assertEqual(audit["unjudged"], [])
+        self.assertEqual(audit["failed"], ["p2"])
+        self.assertEqual(audit["invalid"], [])
+        # complete 按 total>0 + unjudged 空 + invalid 空 → True（failed 不计入 complete）
+        self.assertTrue(audit["complete"])
+        self.assertIn("p2", audit["guidance"])
+        self.assertIn("实测未通过", audit["guidance"])
+        self.assertIn("重塑", audit["guidance"])
+
+    def test_contains_execution_failure(self):
+        # actual_output 以 [执行失败] 开头：无效证据 + passed=False → invalid + failed
+        evidence = [
+            {"probe_name": "p1", "actual_output": "out1", "passed": True, "reason": ""},
+            {
+                "probe_name": "p2",
+                "actual_output": "[执行失败] 网关超时",
+                "passed": False,
+                "reason": "探针执行失败: 网关超时",
+            },
+        ]
+        audit = audit_probe_evidence(evidence)
+        self.assertEqual(audit["total"], 2)
+        self.assertEqual(audit["valid"], 1)
+        self.assertEqual(audit["judged"], 2)
+        self.assertEqual(audit["unjudged"], [])
+        self.assertEqual(audit["failed"], ["p2"])
+        self.assertEqual(audit["invalid"], ["p2"])
+        self.assertFalse(audit["complete"])
+        # guidance 优先 failed 提示（含"重塑"建议）
+        self.assertIn("p2", audit["guidance"])
+        self.assertIn("重塑", audit["guidance"])
+
+    def test_empty_evidence(self):
+        audit = audit_probe_evidence([])
+        self.assertEqual(audit["total"], 0)
+        self.assertEqual(audit["valid"], 0)
+        self.assertEqual(audit["judged"], 0)
+        self.assertEqual(audit["unjudged"], [])
+        self.assertEqual(audit["failed"], [])
+        self.assertEqual(audit["invalid"], [])
+        self.assertFalse(audit["complete"])
+        self.assertIn("未产生探针证据", audit["guidance"])
+
+    def test_legacy_evidence_missing_fields(self):
+        # 老草案缺字段：actual_output 缺失（None）→ 无效证据；passed 仍可 True
+        # 覆盖 invalid 路径 + guidance "实测输出无效" 提示
+        evidence = [
+            {"probe_name": "p1", "passed": True, "reason": ""},  # 缺 actual_output
+        ]
+        audit = audit_probe_evidence(evidence)
+        self.assertEqual(audit["total"], 1)
+        self.assertEqual(audit["valid"], 0)
+        self.assertEqual(audit["judged"], 1)
+        self.assertEqual(audit["unjudged"], [])
+        self.assertEqual(audit["failed"], [])
+        self.assertEqual(audit["invalid"], ["p1"])
+        self.assertFalse(audit["complete"])
+        self.assertIn("p1", audit["guidance"])
+        self.assertIn("输出无效", audit["guidance"])
+
+
+class TestEvidencePassWords(unittest.TestCase):
+    """_is_evidence_pass_answer 纯函数：二次确认强制放行词判定。"""
+
+    def test_force_pass_words_match(self):
+        for word in ("仍进PRD", "仍然进PRD", "确认放行", "强制放行"):
+            self.assertTrue(_is_evidence_pass_answer(word), msg=word)
+
+    def test_force_pass_words_normalize_spaces_and_case(self):
+        # 带空格/大小写归一化后命中
+        self.assertTrue(_is_evidence_pass_answer("  仍 进 PRD  "))
+        self.assertTrue(_is_evidence_pass_answer("确认 放行"))
+        self.assertTrue(_is_evidence_pass_answer("仍进prd"))
+
+    def test_normal_pass_words_not_match(self):
+        # 原 _PASS_WORDS（通过/确认/可以/ok/空串）不应触发放行
+        for word in ("通过", "确认", "可以", "ok", "", "confirmed"):
+            self.assertFalse(_is_evidence_pass_answer(word), msg=word)
+
+
+class TestEvidenceGapProtocol(unittest.TestCase):
+    """S045 块4：证据不齐二次确认 6 路径 + 回归保护 + failed 探针引导。"""
+
+    @staticmethod
+    def _incomplete_evidence():
+        """含 unjudged 的证据（passed=None），触发 complete=False → 二次确认。"""
+        return [
+            {"probe_name": "p1", "actual_output": "out1", "passed": True, "reason": ""},
+            {"probe_name": "p2", "actual_output": "out2", "passed": None, "reason": ""},
+        ]
+
+    @staticmethod
+    def _complete_evidence():
+        """全齐证据（无 failed/unjudged/invalid），complete=True → 不进二次确认。"""
+        return [
+            {"probe_name": "p1", "actual_output": "out1", "passed": True, "reason": ""},
+            {"probe_name": "p2", "actual_output": "out2", "passed": True, "reason": ""},
+        ]
+
+    @staticmethod
+    def _failed_evidence():
+        """含 failed 的证据（passed=False 但有效输出），complete=True 但有 failed → 仍须二次确认。"""
+        return [
+            {"probe_name": "p1", "actual_output": "out1", "passed": True, "reason": ""},
+            {"probe_name": "p2", "actual_output": "out2", "passed": False, "reason": "失败"},
+        ]
+
+    def test_empty_answer_triggers_second_interrupt(self):
+        # 路径 1：空答复 → 不放行，进二次 interrupt（status=evidence_gap）
+        # queue=[""]：首次答 ""（feedback）→ 证据不齐 → 二次 interrupt
+        # 二次 interrupt 时 queue 空 → IndexError（节点未返回）
+        state = feasibility_state(feasibility_evidence=self._incomplete_evidence())
+        out, payloads = run_confirm_collect_payloads(state, [""])
+        # out=None 表示节点未返回，仍在 evidence_gap 循环等下一轮 interrupt
+        self.assertIsNone(out)
+        self.assertEqual(len(payloads), 2)
+        self.assertEqual(payloads[0]["status"], "draft")
+        self.assertEqual(payloads[1]["status"], "evidence_gap")
+        self.assertFalse(payloads[0]["evidence_audit"]["complete"])
+        self.assertIn("未给出判定", payloads[0]["evidence_audit"]["guidance"])
+
+    def test_force_pass_with_explicit_word(self):
+        # 路径 2：「仍进PRD」→ pass 且留痕"证据不齐，经人工放行"
+        state = feasibility_state(feasibility_evidence=self._incomplete_evidence())
+        out, payloads = run_confirm_node(state, ["", "仍进PRD"])
+        # 首次空答复触发二次 interrupt，二次答复「仍进PRD」放行
+        self.assertEqual(len(payloads), 2)
+        self.assertEqual(payloads[0]["status"], "draft")
+        self.assertEqual(payloads[1]["status"], "evidence_gap")
+        self.assertEqual(out["feasibility_confirm"]["verdict"], "pass")
+        self.assertIn("证据不齐，经人工放行", out["feasibility_confirm"]["user_feedback"])
+
+    def test_reclassify_in_evidence_gap(self):
+        # 路径 3：二次答复「改判普通」→ reclassify
+        state = feasibility_state(feasibility_evidence=self._incomplete_evidence())
+        out, payloads = run_confirm_node(state, ["", "改判普通轨"])
+        self.assertEqual(payloads[1]["status"], "evidence_gap")
+        self.assertEqual(out["feasibility_confirm"]["verdict"], "reclassify")
+        self.assertIs(out["ai_core"], False)
+
+    def test_reshape_in_evidence_gap(self):
+        # 路径 4：二次答复「重塑」→ reshape（count+1）
+        state = feasibility_state(feasibility_evidence=self._incomplete_evidence())
+        out, payloads = run_confirm_node(state, ["", "重塑：缩小范围"])
+        self.assertEqual(payloads[1]["status"], "evidence_gap")
+        self.assertEqual(out["feasibility_confirm"]["verdict"], "reshape")
+        self.assertEqual(out["feasibility_reshape_count"], 1)
+
+    def test_reshape_over_limit_in_evidence_gap(self):
+        # 路径 5：reshape 超额度 → escalation_stop（status=escalated）
+        # reshape_count=1（已用 1 次），二次答「重塑」→ 进 escalation_stop 三次 interrupt
+        state = feasibility_state(
+            feasibility_evidence=self._incomplete_evidence(),
+            feasibility_reshape_count=1,
+        )
+        # queue：首次 ""、二次「重塑」、三次「放弃」退出 escalation
+        out, payloads = run_confirm_node(state, ["", "重塑", "放弃"])
+        self.assertEqual(len(payloads), 3)
+        self.assertEqual(payloads[0]["status"], "draft")
+        self.assertEqual(payloads[1]["status"], "evidence_gap")
+        self.assertEqual(payloads[2]["status"], "escalated")
+        self.assertIn("重塑额度已用尽", payloads[2]["reason"])
+        # 三次答复「放弃」→ abandon
+        self.assertEqual(out["feasibility_confirm"]["verdict"], "abandon")
+
+    def test_abandon_in_evidence_gap(self):
+        # 路径 6：二次答复「放弃」→ abandon
+        state = feasibility_state(feasibility_evidence=self._incomplete_evidence())
+        out, payloads = run_confirm_node(state, ["", "放弃"])
+        self.assertEqual(payloads[1]["status"], "evidence_gap")
+        self.assertEqual(out["feasibility_confirm"]["verdict"], "abandon")
+
+    def test_complete_evidence_empty_answer_passes_directly(self):
+        # 回归保护：证据齐全 + 空答复 → 直接 pass（行为不变，不进二次确认）
+        state = feasibility_state(feasibility_evidence=self._complete_evidence())
+        out, payloads = run_confirm_node(state, [""])
+        self.assertEqual(len(payloads), 1)
+        self.assertEqual(payloads[0]["status"], "draft")
+        self.assertTrue(payloads[0]["evidence_audit"]["complete"])
+        self.assertEqual(out["feasibility_confirm"]["verdict"], "pass")
+        # 不进二次确认
+        self.assertNotIn("evidence_gap", [p["status"] for p in payloads])
+
+    def test_failed_probe_guidance_suggests_reshape(self):
+        # [r2] 放宽后：含 failed 但 complete=True → 答通过直接 pass（不进二次确认）
+        # guidance/hint 仍提示建议重塑，但代码不拦、不改判
+        state = feasibility_state(feasibility_evidence=self._failed_evidence())
+        out, payloads = run_confirm_node(state, ["通过"])  # 答「通过」
+        self.assertEqual(len(payloads), 1)  # 只 1 次 interrupt，不进二次确认
+        self.assertEqual(payloads[0]["status"], "draft")
+        audit = payloads[0]["evidence_audit"]
+        # 含 failed → guidance 建议重塑（提示性，不拦）
+        self.assertEqual(audit["failed"], ["p2"])
+        self.assertIn("重塑", audit["guidance"])
+        self.assertTrue(audit["complete"])  # 字面 complete=True
+        # hint 仍提示（含 failed 时 hint 非空）
+        self.assertIn("证据不齐", payloads[0]["evidence_audit_hint"])
+        # 直接 pass，不进二次确认
+        self.assertEqual(out["feasibility_confirm"]["verdict"], "pass")
+
+    def test_three_empty_answers_keep_interrupting(self):
+        # 空答复 3 轮仍不明确 → 保持中断等待，不调模型、不空转升级
+        # 给 3 个空答复，第 4 次 interrupt 时 queue 空 → out=None
+        # 验证节点不会在第 3 轮后自动放行或升级
+        state = feasibility_state(feasibility_evidence=self._incomplete_evidence())
+        out, payloads = run_confirm_collect_payloads(state, ["", "", ""])
+        self.assertIsNone(out)
+        # 1 次 draft + 3 次 evidence_gap（每次空答都再问一轮）
+        self.assertEqual(len(payloads), 4)
+        self.assertEqual(payloads[0]["status"], "draft")
+        for i in range(1, 4):
+            self.assertEqual(payloads[i]["status"], "evidence_gap")
+        # 第 4 次 interrupt 时 queue 空 → 节点仍在等用户明确答复
+
+    def test_failed_probe_empty_answer_passes_directly(self):
+        # [r2] 新增例 ①：证据齐全但有 failed 探针 + 答复空 → 直接 pass（不进二次确认）
+        # complete=True（即使有 failed）→ 直接 pass，failed 只在 guidance/hint 提示
+        state = feasibility_state(feasibility_evidence=self._failed_evidence())
+        out, payloads = run_confirm_node(state, [""])
+        self.assertEqual(len(payloads), 1)
+        self.assertEqual(payloads[0]["status"], "draft")
+        audit = payloads[0]["evidence_audit"]
+        self.assertEqual(audit["failed"], ["p2"])
+        self.assertTrue(audit["complete"])
+        self.assertIn("重塑", audit["guidance"])
+        self.assertIn("证据不齐", payloads[0]["evidence_audit_hint"])
+        self.assertEqual(out["feasibility_confirm"]["verdict"], "pass")
+        # 不进二次确认
+        self.assertNotIn("evidence_gap", [p["status"] for p in payloads])
+
+    def test_normal_pass_word_releases_in_evidence_gap(self):
+        # [r2] 新增例 ②：证据不齐 + 二次确认答「通过」→ 放行且留痕
+        # 改动 2 后：_PASS_WORDS（非空）在二次确认也放行
+        state = feasibility_state(feasibility_evidence=self._incomplete_evidence())
+        out, payloads = run_confirm_node(state, ["", "通过"])
+        self.assertEqual(len(payloads), 2)
+        self.assertEqual(payloads[0]["status"], "draft")
+        self.assertEqual(payloads[1]["status"], "evidence_gap")
+        self.assertEqual(out["feasibility_confirm"]["verdict"], "pass")
+        self.assertIn("证据不齐，经人工放行", out["feasibility_confirm"]["user_feedback"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
 
@@ -1201,3 +1578,5 @@ if __name__ == "__main__":
 #     均改用新字段；新增 TestCapabilityThreeWayLogic 五种合法组合 schema 校验；
 #     TestFeasibilitySchema 拆 test_invalid_model_status_rejected / test_invalid_final_status_rejected，
 #     新增 target_capability 必填校验与 tool_supplement 默认值校验
+# [C 2026-09-15 by codebuddy-glm-5.2 r2] S045 块4 r2：闸门放宽后测试同步
+#     （test_failed_probe_guidance_suggests_reshape 改断言、新增 2 例验证放宽行为）

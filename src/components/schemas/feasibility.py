@@ -1,4 +1,4 @@
-# [C 2026-09-14 by S043-b2] 验证AI可行性 schema（feasibility_check 节点）
+# [C 2026-09-14 by S043-b2] 判断需求与 AI 的边界 schema（feasibility_check 节点）
 """FeasibilitySchema：可行性报告（能力三方对照表 + PoL 探针方案 + 风险扫描 + 成本粗估 + 初步结论）。
 
 按 registry 命名约定：文件名 feasibility -> 类名 FeasibilitySchema。

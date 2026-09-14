@@ -47,7 +47,7 @@ class PMState(TypedDict, total=False):
     component_candidates: list        # G8+G9: 组件候选 + 开源检查
     proceed_decision: bool | None     # 是否继续做（用户决策）
 
-    # ─── 验证AI可行性（feasibility_check + feasibility_confirm 确认门）───
+    # ─── 判断需求与 AI 的边界（feasibility_check + feasibility_confirm 确认门）───
     # [C 2026-09-12 by codebuddy-ds41flash] 仅 AI 核心需求经过；普通轨字段恒空/恒 0
     feasibility_report: dict          # 可行性报告（三色表/探针方案/风险表/成本区间/初步结论）
     feasibility_confirm: dict         # 确认门结论 {verdict, user_feedback}（pass/reclassify/reshape/abandon）
@@ -166,7 +166,7 @@ def default_state() -> dict[str, Any]:
         "ai_core": None,
         "component_candidates": [],
         "proceed_decision": None,
-        # 验证AI可行性 [C 2026-09-12 by codebuddy-ds41flash]
+        # 判断需求与 AI 的边界 [C 2026-09-12 by codebuddy-ds41flash]
         "feasibility_report": {},
         "feasibility_confirm": {},
         "feasibility_reshape_count": 0,

@@ -14,7 +14,7 @@
 #     ai_triage 分流判定 + resume 四态协议（确认/非AI/AI核心/自由文本修订）；
 #     prd_generation 按 ai_core 选 ai-native / 普通 PRD 模板。
 #     图结构不动（仍 11 节点），仅在节点内部分流，块 3 可行性门才插新节点与条件边。
-# [C 2026-09-12 by codebuddy-ds41flash] S033 块3：新增验证AI可行性两节点（13 节点）：
+# [C 2026-09-12 by codebuddy-ds41flash] S033 块3：新增判断需求与 AI 的边界两节点（13 节点）：
 #     requirement_confirm 条件边（ai_core=True）→ feasibility_check → feasibility_confirm(HITL)
 #     → 四态条件边（pass/reclassify→prd_generation；reshape→requirement_confirm；abandon→END）；
 #     普通轨（ai_core=False）由条件边直接去 needs_discovery，不经可行性节点。
@@ -69,7 +69,7 @@ from nodes.launch_plan import (  # [C 2026-09-11] 发布计划 + 发布计划确
     make_launch_confirm,
     make_launch_plan,
 )
-from nodes.feasibility import (  # [C 2026-09-12 by codebuddy-ds41flash] 验证AI可行性 + 确认AI可行性门
+from nodes.feasibility import (  # [C 2026-09-12 by codebuddy-ds41flash] 判断需求与 AI 的边界 + 确认AI可行性门
     make_feasibility_check,
     make_feasibility_confirm,
 )
@@ -116,7 +116,7 @@ def build_nodes(deps: NodeDeps) -> dict:
         # 为完整新需求草案，HITL 确认/改判/放弃/带新意见重整合（前 2 版自动，第 3 版升级暂停）；
         # pending=False（confirm/纯改判）由 graph 条件边直接去 needs_discovery，不经本节点。
         "requirement_refine": make_requirement_refine(deps),
-        # [C 2026-09-12 by codebuddy-ds41flash] 验证AI可行性：AI 核心需求经此两节点，
+        # [C 2026-09-12 by codebuddy-ds41flash] 判断需求与 AI 的边界：AI 核心需求经此两节点，
         # 普通轨（ai_core=False）由 graph 条件边直接去 needs_discovery，不经此二节点
         "feasibility_check": make_feasibility_check(deps),
         "feasibility_confirm": make_feasibility_confirm(deps),

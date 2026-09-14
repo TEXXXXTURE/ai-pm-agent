@@ -16,7 +16,7 @@
 #     ai_triage 分流判定 + resume 四态协议；prd_generation 按 state["ai_core"] 选
 #     ai-native / 普通 PRD 模板。图结构不动（仍 11 节点），分流判定在确认门节点内部完成，
 #     模板选择在 prd_generation 节点内部完成；块 3 可行性门才新增节点与条件边。
-# [C 2026-09-12 by codebuddy-ds41flash] S033 块3：插入验证AI可行性两节点（13 节点）。
+# [C 2026-09-12 by codebuddy-ds41flash] S033 块3：插入判断需求与 AI 的边界两节点（13 节点）。
 #     requirement_confirm 条件边分流：ai_core=True → feasibility_check → feasibility_confirm(HITL)
 #     → 四态条件边（pass/reclassify→prd_generation；reshape→requirement_confirm；abandon→END）；
 #     ai_core=False/None → needs_discovery（原路径，普通轨行为不变）。
@@ -102,7 +102,7 @@ def build_graph(deps: Any, db_path: str | None = None) -> Any:
     from nodes.exploration import (  # [C 2026-09-14 by codebuddy-ds41flash] 挖需求后分流条件边
         route_after_needs_discovery,
     )
-    from nodes.feasibility import (  # [C 2026-09-12 by codebuddy-ds41flash] 验证AI可行性路由
+    from nodes.feasibility import (  # [C 2026-09-12 by codebuddy-ds41flash] 判断需求与 AI 的边界路由
         route_after_feasibility_confirm,
     )
     from nodes.eval_design import (  # [C 2026-09-12 by codebuddy-ds41flash] 确认评测体系门条件边
@@ -158,7 +158,7 @@ def build_graph(deps: Any, db_path: str | None = None) -> Any:
         },
     )
     # [C 2026-09-14 by codebuddy-ds41flash] S040 块1：挖需求后按 ai_core 分流——
-    # ai_core=True 走 AI 轨先验证AI可行性（feasibility_check→feasibility_confirm）；
+    # ai_core=True 走 AI 轨先判断需求与 AI 的边界（feasibility_check→feasibility_confirm）；
     # 其余走普通轨直接写 PRD（普通轨实际路径逐字不变：确认 → 挖需求 → 写 PRD）
     graph.add_conditional_edges(
         "needs_discovery",

@@ -54,7 +54,7 @@ def make_needs_discovery(deps):
 
 
 def route_after_needs_discovery(state: dict) -> str:
-    """挖需求后的条件边路由：AI 核心需求去验证AI可行性，其余直接写 PRD。
+    """挖需求后的条件边路由：AI 核心需求去判断需求与 AI 的边界，其余直接写 PRD。
 
     - ``ai_core is True`` -> ``feasibility_check``
     - 其余（False / None / 缺失）-> ``prd_generation``（普通轨）

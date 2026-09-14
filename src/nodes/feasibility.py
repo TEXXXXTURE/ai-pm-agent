@@ -1,6 +1,6 @@
-# [C 2026-09-12 by codebuddy-ds41flash] 验证AI可行性节点（feasibility_check + feasibility_confirm HITL）
+# [C 2026-09-12 by codebuddy-ds41flash] 判断需求与 AI 的边界节点（feasibility_check + feasibility_confirm HITL）
 # [C 2026-09-14 by S043-b3] feasibility_check 重写：探针真跑（进程内 function calling ReAct）
-"""验证AI可行性：流水线生成可行性报告（含探针方案）-> 自动跑探针采集证据 -> 人工在确认门录入结论。
+"""判断需求与 AI 的边界：流水线生成可行性报告（含探针方案）-> 自动跑探针采集证据 -> 人工在确认门录入结论。
 
 图位置（第 2 段，仅 AI 核心需求经过）：
     requirement_confirm -> needs_discovery ->（ai_core=True）feasibility_check -> feasibility_confirm(HITL)
@@ -133,6 +133,150 @@ _RESHAPE_LIMIT_REASON = (
     "重塑额度已用尽（全程限 1 次），流水线升级暂停、不再自动回第 1 段改范围。"
     "请重新拍板：回复「通过」进 PRD；回复「改判普通」转普通轨；回复「放弃」结束流程。"
 )
+
+# 证据不齐时二次确认的强制放行词（归一化后精确匹配）
+# 与原 _PASS_WORDS 区分：原词如「通过」「确认」不足以在证据不齐时放行，
+# 必须用更显式的「仍进PRD」类表态，避免用户无意确认即放行。 [C 2026-09-15]
+_EVIDENCE_PASS_WORDS: frozenset[str] = frozenset(
+    {
+        "仍进prd",
+        "仍然进prd",
+        "确认放行",
+        "强制放行",
+    }
+)
+
+# 证据缺口二次 interrupt 的 reason 模板 [C 2026-09-15]
+_EVIDENCE_GAP_REASON_TEMPLATE = (
+    "探针证据不齐，未自动放行。请明确答复：「仍进PRD」强制放行；"
+    "或「改判普通」「重塑」「放弃」走对应分支；"
+    "或补充意见后再答复。空答复不视为放行"
+    "（最多 3 轮，仍不明确则保持中断等待，不调模型、不空转升级）。"
+)
+
+
+def _is_evidence_pass_answer(text: str) -> bool:
+    """归一化（strip + 去空白 + lower）后精确匹配二次确认的强制放行词。
+
+    与首次 interrupt 的 _PASS_WORDS 区分：二次确认必须显式「仍进PRD」类词才放行，
+    「通过」「确认」等普通通过词不再触发放行（与原来「空答复即放行」彻底断开）。
+    """
+    stripped = str(text if text is not None else "").strip()
+    compact = re.sub(r"[\s\u3000]+", "", stripped.lower())
+    return compact in _EVIDENCE_PASS_WORDS
+    # [C 2026-09-15 by codebuddy-glm-5.2] S045 块4：二次确认强制放行词判定
+
+
+def audit_probe_evidence(evidence: list) -> dict:
+    """纯函数：审计探针证据列表的完整性，返回缺口字典（零 API 可测）。
+
+    有效证据判据（沿用 ``_backfill_evidence_to_report`` 454–459 行口径）：
+    ``actual_output`` 是非空字符串且不以 ``[执行失败]`` 开头。
+
+    Returns:
+        ``{"total", "valid", "judged", "unjudged", "failed", "invalid",
+           "complete", "guidance"}``
+        - ``total``: 证据条数；
+        - ``valid``: 有效证据数（actual_output 非空字符串且不以 ``[执行失败]`` 开头）；
+        - ``judged``: passed 非 None 的条数（含 True/False）；
+        - ``unjudged``: passed is None 的探针名列表（口径 C：None 不阻断、转人工）；
+        - ``failed``: passed is False 的探针名列表（判定已给出、交人判，不算"缺口"，
+          只进 guidance 引导）；
+        - ``invalid``: 实际输出无效（空/非字符串/以 ``[执行失败]`` 开头）的探针名列表；
+        - ``complete``: total > 0 且 unjudged 为空 且 invalid 为空
+          （failed 不计入 complete 的 True/False 判定，只进 guidance）；
+        - ``guidance``: 缺口提示文案，由代码生成。
+    """
+    if not evidence:
+        return {
+            "total": 0,
+            "valid": 0,
+            "judged": 0,
+            "unjudged": [],
+            "failed": [],
+            "invalid": [],
+            "complete": False,
+            "guidance": "本条需求未产生探针证据",
+        }
+
+    total = len(evidence)
+    valid = 0
+    judged = 0
+    unjudged: list[str] = []
+    failed: list[str] = []
+    invalid: list[str] = []
+
+    for ev in evidence:
+        if not isinstance(ev, dict):
+            continue
+        pname = str(ev.get("probe_name") or "")
+        actual_output = ev.get("actual_output")
+        is_valid = (
+            isinstance(actual_output, str)
+            and bool(actual_output)
+            and not actual_output.startswith("[执行失败]")
+        )
+        if is_valid:
+            valid += 1
+        else:
+            if pname:
+                invalid.append(pname)
+
+        passed = ev.get("passed")
+        if passed is None:
+            if pname:
+                unjudged.append(pname)
+        elif passed is False:
+            judged += 1
+            if pname:
+                failed.append(pname)
+        elif passed is True:
+            judged += 1
+        # 非 bool 值不归入 judged（容错）
+
+    complete = total > 0 and not unjudged and not invalid
+
+    if failed:
+        guidance = (
+            f"探针 {', '.join(failed)} 实测未通过，"
+            "建议重塑需求范围（回复「重塑」）"
+        )
+    elif unjudged:
+        guidance = f"探针 {', '.join(unjudged)} 未给出判定，请人工确认"
+    elif invalid:
+        guidance = f"探针 {', '.join(invalid)} 实测输出无效，请人工确认"
+    else:
+        guidance = ""
+
+    return {
+        "total": total,
+        "valid": valid,
+        "judged": judged,
+        "unjudged": unjudged,
+        "failed": failed,
+        "invalid": invalid,
+        "complete": complete,
+        "guidance": guidance,
+    }
+    # [C 2026-09-15 by codebuddy-glm-5.2] S045 块4：探针证据审计纯函数
+
+
+def _evidence_audit_hint(audit: dict) -> str:
+    """生成首次 interrupt 载荷里的一行显著提示文案。
+
+    证据齐全且无 failed 时返回空串（不展示提示）；
+    否则返回 ``⚠ 证据不齐：<guidance>`` 一行显著提示。
+    """
+    if audit["complete"] and not audit["failed"]:
+        return ""
+    return f"⚠ 证据不齐：{audit['guidance']}"
+    # [C 2026-09-15 by codebuddy-glm-5.2] S045 块4：证据缺口显著提示
+
+
+def _evidence_gap_reason(audit: dict) -> str:
+    """生成二次 interrupt（status=evidence_gap）的 reason 文案。"""
+    return f"{_EVIDENCE_GAP_REASON_TEMPLATE}（缺口：{audit['guidance']}）"
+    # [C 2026-09-15 by codebuddy-glm-5.2] S045 块4：证据缺口 reason 文案
 
 
 def classify_feasibility_answer(text: str) -> str:
@@ -569,14 +713,25 @@ def make_feasibility_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节�
     """确认AI可行性门节点工厂：返回签名 (state: dict) -> dict 的节点函数（不调模型）。
 
     交互协议（首次中断 status="draft"）：
-    - pass（含自由文本补充意见，默认按 pass）-> 只追加 human_feedback、写 verdict=pass
-      -> 条件边去 prd_generation；
+    - pass（含自由文本补充意见）-> 先看 ``evidence_audit["complete"]``：
+        证据齐全（complete=True）-> 只追加 human_feedback、写 verdict=pass
+          -> 条件边去 prd_generation（[r2]：含 failed 不再阻断，只靠 guidance/hint 提示）；
+        证据不齐（complete=False）-> **不放行**，进二次 interrupt（status="evidence_gap"）；
     - reclassify -> 写 verdict=reclassify、ai_core=False -> 条件边去 prd_generation；
     - reshape（feasibility_reshape_count=0）-> 计数 +1、写 verdict=reshape
       -> 条件边回 requirement_confirm 调整范围（限 1 次）；
     - reshape（计数已达上限）-> 先 interrupt 升级暂停（status="escalated"），
       二次答复按 通过/改判普通/放弃 分流；再次要求重塑则按通过处理（不再回第 1 段）；
     - abandon -> 写 verdict=abandon -> 条件边到 END，流程结束。
+
+    二次 interrupt（status="evidence_gap"）协议（[r2] 放宽）：
+    - 命中 ``_EVIDENCE_PASS_WORDS``（仍进PRD/仍然进PRD/确认放行/强制放行）-> verdict=pass，留痕；
+    - 普通通过词（classify_feasibility_answer 判为 "pass" 且非空，如「通过」「确认」）
+      -> verdict=pass，留痕；
+    - 其他显式文本（feedback）-> verdict=pass，留痕（"只要用户给出显式答复就放行"）；
+    - reclassify/reshape/abandon -> 走对应分支（reshape 仍受 ``MAX_FEASIBILITY_RESHAPE`` 约束，
+      超限进 escalation_stop）；
+    - 空答复 -> 再问一轮（保持中断，不调模型、不空转升级）。
     """
 
     def feasibility_confirm(state: dict) -> dict:
@@ -588,6 +743,10 @@ def make_feasibility_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节�
             for item in (state.get("human_feedback") or [])
             if isinstance(item, dict)
         ]
+        # S045 块4：审计探针证据完整性，缺口随首次 interrupt 载荷透传给用户
+        evidence = state.get("feasibility_evidence") or []
+        audit = audit_probe_evidence(evidence)
+        audit_hint = _evidence_audit_hint(audit)
 
         def append_log(kind: str, text: str, round_label: str) -> None:
             feedback_log.append(
@@ -611,6 +770,21 @@ def make_feasibility_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节�
             if extra:
                 update.update(extra)
             return update
+
+        def handle_reshape(text: str, round_label: str) -> dict:
+            """处理 reshape 答复：超限进 escalation_stop，否则计数 +1 写 verdict=reshape。
+
+            统一覆盖首次 draft 与二次 evidence_gap 两处 reshape 分支，保证重塑额度
+            约束在两条路径上一致（超限都进 escalation_stop）。
+            """
+            if reshape_count >= MAX_FEASIBILITY_RESHAPE:
+                return escalation_stop(text)
+            append_log("reshape", text, f"{round_label}-reshape")
+            return {
+                "feasibility_confirm": {"verdict": "reshape", "user_feedback": text},
+                "feasibility_reshape_count": reshape_count + 1,
+                "human_feedback": feedback_log,
+            }
 
         def escalation_stop(first_text: str) -> dict:
             """重塑额度用尽：升级暂停，按二次答复分流。
@@ -647,6 +821,75 @@ def make_feasibility_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节�
                 # pass / feedback：按通过处理
                 return decision_update("pass", text2, f"{label}-pass")
 
+        def evidence_gap_loop(first_text: str) -> dict:
+            """证据不齐二次确认循环（[r2] 放宽放行口径）。
+
+            人工驱动的暂停不是空转：每轮都在等真人输入、不调模型、不自动升级。
+
+            放行口径（[r2] 放宽）：
+            - 命中 ``_EVIDENCE_PASS_WORDS``（仍进PRD 等）-> verdict=pass，留痕；
+            - 普通通过词（classify_feasibility_answer 判为 "pass" 且非空，如「通过」「确认」）
+              -> verdict=pass，留痕；
+            - 其他显式文本（feedback 类）-> verdict=pass，留痕
+              （"只要用户给出显式答复就放行"）；
+            - reclassify/reshape/abandon -> 走对应分支
+              （reshape 仍受 ``MAX_FEASIBILITY_RESHAPE`` 约束，超限进 escalation_stop）；
+            - **空答复** -> 不放行，再问一轮（保持中断，不调模型、不空转升级）。
+            """
+            round_idx = 0
+            while True:
+                round_idx += 1
+                answer = interrupt(
+                    {
+                        "node": "feasibility_confirm",
+                        "status": "evidence_gap",
+                        "requirement_name": requirement_name,
+                        "feasibility_report": report,
+                        "feasibility_reshape_count": reshape_count,
+                        "evidence_audit": audit,
+                        "evidence_audit_hint": audit_hint,
+                        "reason": _evidence_gap_reason(audit),
+                        "prior_feedbacks": _prior_feasibility_feedbacks(state),
+                        "first_answer": first_text,
+                        "round": round_idx,
+                    }
+                )
+
+                # 命中强制放行词（仍进PRD 等）→ verdict=pass，留痕注明人工放行
+                if _is_evidence_pass_answer(answer):
+                    note = (
+                        f"证据不齐，经人工放行；原答复：{first_text}；二次答复：{answer}"
+                    )
+                    return decision_update("pass", note, "evidence-gap-pass")
+
+                kind2, text2 = _normalize_answer(answer)
+
+                if kind2 == "reclassify":
+                    return decision_update(
+                        "reclassify",
+                        text2,
+                        "evidence-gap-reclassify",
+                        {"ai_core": False},
+                    )
+                if kind2 == "abandon":
+                    return decision_update("abandon", text2, "evidence-gap-abandon")
+                if kind2 == "reshape":
+                    # reshape 仍受 MAX_FEASIBILITY_RESHAPE 约束，超限进 escalation_stop
+                    return handle_reshape(text2, "evidence-gap")
+
+                # [r2] 放宽：只要用户给出显式答复就放行，只有空答复才继续等待。
+                # - kind2 == "pass" 且 text2 非空（普通通过词如「通过」「确认」）→ 放行；
+                # - kind2 == "feedback"（其他显式文本）→ 放行；
+                # - 空答复（text2 为空）→ 再问一轮（保持中断，不调模型、不空转升级）。
+                if not text2.strip():
+                    continue
+
+                note = (
+                    f"证据不齐，经人工放行；原答复：{first_text}；二次答复：{text2}"
+                )
+                return decision_update("pass", note, "evidence-gap-pass")
+            # [C 2026-09-15 by codebuddy-glm-5.2 r2] S045 块4 r2：二次确认放行口径放宽
+
         # ── 首次中断：请用户审阅可行性报告并录入探针实测结论 ──
         first_answer = interrupt(
             {
@@ -655,21 +898,14 @@ def make_feasibility_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节�
                 "requirement_name": requirement_name,
                 "feasibility_report": report,
                 "feasibility_reshape_count": reshape_count,
+                "evidence_audit": audit,
+                "evidence_audit_hint": audit_hint,
             }
         )
         kind, text = _normalize_answer(first_answer)
 
         if kind == "reshape":
-            if reshape_count >= MAX_FEASIBILITY_RESHAPE:
-                # 第 2 次要求重塑：自动升级暂停
-                return escalation_stop(text)
-            # 首次重塑：计数 +1，回 requirement_confirm 调整范围
-            append_log("reshape", text, "draft-reshape")
-            return {
-                "feasibility_confirm": {"verdict": "reshape", "user_feedback": text},
-                "feasibility_reshape_count": reshape_count + 1,
-                "human_feedback": feedback_log,
-            }
+            return handle_reshape(text, "draft")
 
         if kind == "reclassify":
             return decision_update(
@@ -679,11 +915,19 @@ def make_feasibility_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节�
         if kind == "abandon":
             return decision_update("abandon", text, "draft-abandon")
 
-        # pass / feedback：自由文本作为补充意见，默认按通过处理
-        return decision_update("pass", text, "draft-pass")
+        # pass / feedback：先看证据完整性
+        # [r2] 放宽闸门：只看 complete，不看 failed。
+        # 证据齐全（所有探针有有效 actual_output 且 passed 非 None）→ 直接 pass；
+        # 有 failed 探针不再阻断，只靠 evidence_audit.guidance / evidence_audit_hint
+        # 提示用户「建议重塑」，代码不拦、不改判。
+        if audit["complete"]:
+            return decision_update("pass", text, "draft-pass")
+        return evidence_gap_loop(text)
 
     return feasibility_confirm
     # [C 2026-09-12 by codebuddy-ds41flash] 确认AI可行性门：四态分类/重塑限 1 次/升级暂停
+    # [C 2026-09-15 by codebuddy-glm-5.2] S045 块4：证据必填二次确认 + 段名落地
+    # [C 2026-09-15 by codebuddy-glm-5.2 r2] S045 块4 r2：闸门放宽（complete-only）+ 二次确认放行口径放宽
 
 
 # [C 2026-09-12 by codebuddy-ds41flash] nodes/feasibility.py 新增完成

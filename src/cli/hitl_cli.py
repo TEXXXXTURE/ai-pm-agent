@@ -21,7 +21,7 @@ DECISION_MATERIAL_FIELDS: tuple[str, ...] = (
     "ai_triage",  # [C 2026-09-12 by MA] S033 块2a：确认门展示 AI 适用性分流建议
     "ai_core",  # [C 2026-09-12 by MA] S033 块2a：确认门后展示用户拍板的分流结果
     "ai_feasibility",
-    # [C 2026-09-12 by codebuddy-ds41flash] 验证AI可行性：展示可行性报告与确认门结论
+    # [C 2026-09-12 by codebuddy-ds41flash] 判断需求与 AI 的边界：展示可行性报告与确认门结论
     "feasibility_report",
     "feasibility_confirm",
     "proceed_decision",
@@ -57,6 +57,9 @@ PAYLOAD_RECAP_FIELDS: tuple[str, ...] = (
     # [C 2026-09-12 by codebuddy-ds41flash] 确认AI可行性门中断载荷携带可行性报告与结论
     "feasibility_report",
     "feasibility_confirm",
+    # [C 2026-09-15 by codebuddy-glm-5.2 r3] S045 块4：确认AI可行性门中断载荷携带证据审计与缺口提示
+    "evidence_audit",
+    "evidence_audit_hint",
     # [C 2026-09-12 by codebuddy-ds41flash] 确认评测体系门中断载荷携带评测体系草案
     "eval_system",
     "issue_plan",  # [C 2026-09-11] 块2 工单确认门中断载荷携带工单草案
