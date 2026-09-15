@@ -6,6 +6,13 @@ llm:
   temperature: 0.3
   max_retries: 2
 
+  # [C 2026-09-15 by codebuddy-ds41flash] S046 单次输出 token 上限：
+  # 长结构化产物（拆工单/评测体系/发布计划）输出长，留足上限防被截断成半个 JSON；
+  # 未配置（删除本行）时不传该参数，保持 provider 默认。
+  # [MA 2026-09-15] 值按真机实测校准：第 7 段真机提示词（19,911 字符）实测输出 31,046 token，
+  # 其中隐藏思考占 16,805 token —— 8192 会被思考吃光、正文为空；32768 实测通过（117s，正文 29,429 字符）。
+  max_tokens: 32768
+
   # [C 2026-09-09] providers 改为 LiteLLM 模型串格式：
   # litellm_model = "<provider>/<model>"，一个接口适配 OpenAI兼容/Anthropic/Gemini/Ollama 等协议；
   # api_key_env 为密钥所在环境变量名；本地模型（如 ollama）留空字符串 "" 即可。

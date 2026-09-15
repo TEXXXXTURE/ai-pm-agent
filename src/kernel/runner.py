@@ -7,6 +7,13 @@ from jinja2 import Template
 from kernel.exceptions import CheckResult, NodeExecutionError
 from kernel.spec import NodeSpec
 
+# [C 2026-09-15 by codebuddy-ds41flash] S046 JSON 解析失败重试反馈文案：
+# 与 schema 校验失败共用同一条重试路径、同一个 spec.max_retries 上限
+JSON_FORMAT_FEEDBACK = (
+    "[输出格式反馈] 上次输出不是合法 JSON（可能被输出长度上限截断），"
+    "请只输出完整合法的 JSON；内容较长时压缩字段与描述，不要省略括号或引号"
+)
+
 
 class NodeRunner:
     """节点执行器。
@@ -69,14 +76,27 @@ class NodeRunner:
 
     # ────────────────── 步骤 2：模型调用 + schema 校验重试 ──────────────────
     def _call_model_with_retry(self, spec: NodeSpec, context: str) -> dict:
-        """调用模型（mock 或真实 llm），若 schema 校验失败则带 feedback 重试。
+        """调用模型（mock 或真实 llm），失败则带 feedback 重试。
 
-        达到 max_retries 仍失败则抛 NodeExecutionError。
+        [C 2026-09-15 by codebuddy-ds41flash] S046 两类失败共用同一重试路径与
+        同一 spec.max_retries 上限：
+        - JSON 解析失败（NodeExecutionError，node="llm"，如输出被 max_tokens 截断）：
+          追加 JSON_FORMAT_FEEDBACK 重试；
+        - schema 校验失败：追加 [校验失败反馈] 重试。
+
+        达到 max_retries 仍失败则抛 NodeExecutionError，不静默返回残缺结果。
         """
         last_error: BaseException | None = None
+        last_error_was_json = False
         working_context = context
         for attempt in range(spec.max_retries):
-            raw = self._invoke_model(working_context)
+            try:
+                raw = self._invoke_model(working_context)
+            except NodeExecutionError as exc:
+                last_error = exc
+                last_error_was_json = True
+                working_context = f"{working_context}\n\n{JSON_FORMAT_FEEDBACK}"
+                continue
             if spec.output_schema is None:
                 return raw
             try:
@@ -84,12 +104,16 @@ class NodeRunner:
                 return validated.model_dump()
             except Exception as exc:
                 last_error = exc
+                last_error_was_json = False
                 working_context = f"{working_context}\n\n[校验失败反馈] {exc}"
-        raise NodeExecutionError(
-            spec.name,
-            f"模型输出校验失败，已达最大重试次数 {spec.max_retries}",
-            last_error,
-        )
+        if last_error_was_json:
+            message = (
+                f"模型输出不是合法JSON，已达最大重试次数 {spec.max_retries}: "
+                f"{getattr(last_error, 'message', last_error)}"
+            )
+        else:
+            message = f"模型输出校验失败，已达最大重试次数 {spec.max_retries}"
+        raise NodeExecutionError(spec.name, message, last_error)
 
     def _invoke_model(self, context: str, as_text: bool = False) -> Any:
         """调用模型：llm 非空时用 llm，否则用 mock_llm。

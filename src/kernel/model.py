@@ -54,6 +54,35 @@ def _join_text_blocks(content: Any) -> str:
     return str(content)
 
 
+def _looks_truncated(text: str) -> bool:
+    """判断待解析的 JSON 文本是否疑似被 max_tokens 截断。
+
+    [C 2026-09-15 by codebuddy-ds41flash] S046 两个特征任一命中即判「疑似截断」：
+    1. ``{`` 与 ``}`` 数量不配对（对象结构未闭合）；
+    2. 字符串引号未闭合（逐字符扫描到末尾仍停在字符串内部，已处理 ``\\`` 转义）。
+
+    仅用于区分错误文案，不改变解析逻辑。
+
+    Args:
+        text: 已完成围栏剥离与首尾 ``{}`` 截取后、准备交给 json.loads 的文本。
+
+    Returns:
+        True 表示疑似被输出长度上限截断。
+    """
+    if text.count("{") != text.count("}"):
+        return True
+    in_string = False
+    escaped = False
+    for ch in text:
+        if escaped:
+            escaped = False
+        elif ch == "\\":
+            escaped = True
+        elif ch == '"':
+            in_string = not in_string
+    return in_string
+
+
 def extract_json(content: str) -> dict[str, Any]:
     """从模型返回文本中健壮提取 JSON 对象。
 
@@ -61,6 +90,10 @@ def extract_json(content: str) -> dict[str, Any]:
     1. 剥离 ```json ... ``` / ``` ... ``` Markdown 代码围栏；
     2. 若仍有多余说明文字，取第一个 ``{`` 到最后一个 ``}`` 之间的内容；
     3. json.loads 解析，失败抛 NodeExecutionError(node="llm")。
+
+    解析失败时（[C 2026-09-15 by codebuddy-ds41flash] S046）错误信息区分两类：
+    满足截断特征（括号不配对 / 引号未闭合）报「疑似被 max_tokens 截断，原始长度 N」，
+    否则报常规格式错；二者均为 NodeExecutionError(node="llm")。
 
     Args:
         content: 模型返回的原始文本。
@@ -92,6 +125,12 @@ def extract_json(content: str) -> dict[str, Any]:
         data = json.loads(text)
     except json.JSONDecodeError as exc:
         preview = str(content)[:200].replace("\n", " ")
+        if _looks_truncated(text):
+            # [C 2026-09-15 by codebuddy-ds41flash] S046 截断与格式错分开报，便于 runner 定向重试
+            raise NodeExecutionError(
+                "llm",
+                f"模型返回非JSON（疑似被 max_tokens 截断，原始长度 {len(str(content))}）: {preview}",
+            ) from exc
         raise NodeExecutionError("llm", f"模型返回非JSON: {preview}") from exc
 
     if not isinstance(data, dict):
@@ -135,6 +174,9 @@ def build_llm(
     # 可选：OpenAI 兼容自定义端点（config.yaml 中的 api_base）
     if cfg.get("api_base"):
         chat_kwargs["api_base"] = cfg["api_base"]
+    # [C 2026-09-15 by codebuddy-ds41flash] S046 max_tokens 非 None 才透传（未配置时保持 provider 默认）
+    if cfg.get("max_tokens") is not None:
+        chat_kwargs["max_tokens"] = cfg["max_tokens"]
 
     chat = ChatLiteLLM(**chat_kwargs)
 
@@ -189,6 +231,9 @@ def build_chat(
         chat_kwargs["api_key"] = cfg["api_key"]
     if cfg.get("api_base"):
         chat_kwargs["api_base"] = cfg["api_base"]
+    # [C 2026-09-15 by codebuddy-ds41flash] S046 与 build_llm 同口径：max_tokens 非 None 才透传
+    if cfg.get("max_tokens") is not None:
+        chat_kwargs["max_tokens"] = cfg["max_tokens"]
 
     return ChatLiteLLM(**chat_kwargs)
     # [C 2026-09-14 by S043-b3] 新增 build_chat：返回裸 ChatLiteLLM 供节点自行 bind_tools + invoke

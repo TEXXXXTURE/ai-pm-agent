@@ -5,7 +5,7 @@
 用法:
     from kernel.config import load_config, get_llm_config
     config = load_config()
-    llm_cfg = get_llm_config(config)  # 返回 {litellm_model, api_key, temperature, max_retries, provider, ...}
+    llm_cfg = get_llm_config(config)  # 返回 {litellm_model, api_key, temperature, max_retries, max_tokens, provider, ...}
 """
 from __future__ import annotations
 
@@ -48,10 +48,12 @@ def get_llm_config(config: dict[str, Any], provider: str | None = None) -> dict[
         api_base:     （可选）OpenAI 兼容自定义端点
 
     返回:
-        {litellm_model, api_key, temperature, max_retries, provider}，
+        {litellm_model, api_key, temperature, max_retries, max_tokens, provider}，
         配置了 api_base 时额外包含 api_base。
 
     说明:
+        - max_tokens 取自 llm 段，未配置时为 None（[C 2026-09-15 by codebuddy-ds41flash] S046），
+          调用方据此决定是否透传该参数；
         - api_key_env 为空字符串（本地模型，如 ollama）：api_key 返回空串，不报错；
         - api_key_env 非空但环境变量缺失：抛 ValueError，报错信息含环境变量名。
     """
@@ -93,6 +95,9 @@ def get_llm_config(config: dict[str, Any], provider: str | None = None) -> dict[
         "max_retries": llm_section.get("max_retries", 2),
         "provider": provider_name,
     }
+    # [C 2026-09-15 by codebuddy-ds41flash] S046 max_tokens：长结构化产物防截断；
+    # 未配置时为 None，build_llm/build_chat 不传该参数（保持 provider 默认，向后兼容）
+    result["max_tokens"] = llm_section.get("max_tokens")
     # 可选：OpenAI 兼容自定义端点（透传给 ChatLiteLLM 的 api_base）
     if p.get("api_base"):
         result["api_base"] = p["api_base"]
