@@ -189,7 +189,8 @@ AI 产品经理工作流 Agent——把优秀 AI PM 的职能做成**可执行�
 ### 6.3 轻活（自主模式）
 
 - 问答、咨询、调研分析、单篇文档、会议纪要等由 Pi 加载技能直接完成
-- 11 个 PM 技能（research-investigation / feedback-triage / roadmap / metrics-tree / prd-review / prd-to-issues / stakeholder-comms / experiment-design / launch-plan / retro / demo-handover）+ RAG 查询技能
+- 8 个 PM 技能（research-investigation / feedback-triage / roadmap / metrics-tree / stakeholder-comms / experiment-design / retro / demo-handover）+ RAG 查询技能（domain-kb-query）
+- **单一载体规则**：与流水线段重复的技能已删（prd-review↔第 4 段、prd-to-issues↔第 7 段、launch-plan↔第 9 段），同一职能只留一个载体——有进度、有判定的走流水线段，无状态的轻量问答才留技能
 
 ### 6.4 演示类需求
 

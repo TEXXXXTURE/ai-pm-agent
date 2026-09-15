@@ -21,7 +21,6 @@ class PMState(TypedDict, total=False):
     # ─── 知识库底座（G4 横切）───
     kb_context: dict                  # G4: 开工前查家底的检索结果
     domain_kb_context: list             # R02: AI 领域知识库（kb.rag）检索结果列表，kb_lookup 节点写入
-    kb_written_back: list             # G4: 已写回知识库的档案 ID 列表
 
     # ─── 探索阶段 ───
     raw_requirement: str              # 用户原始需求描述
@@ -34,9 +33,6 @@ class PMState(TypedDict, total=False):
     requirement_refine_pending: bool    # 确认门是否需要走整合节点（feedback/改判带附言时 True）
     requirement_refine_result: dict     # 整合确认门结论 {verdict, user_feedback}（confirm/reclassify/abandon/feedback）
     user_insights: dict               # 从用户脑中挖出的信息
-    external_evidence: dict           # 外部验证证据
-    opportunity_score: dict           # 机会评分（ODI/RICE）+ cost_feasibility
-    competitor_teardown: dict         # 竞品拆解结果
     ai_feasibility: dict              # G5: 必须AI做/传统就能做/AI更差
     capability_boundary: dict         # G8: 自动/工具/人工 三色表（[C 2026-09-12 by MA] S033 块2a：
                                        #   确认门不再调用此组件，仅保留字段供旧检查点兼容；
@@ -44,7 +40,6 @@ class PMState(TypedDict, total=False):
     # [C 2026-09-12 by MA] S033 块2a：AI 适用性分流判定字段（v3.0 第 1 段分流）
     ai_triage: dict                   # 模型给出的分流建议 {suggestion, reason, signals}
     ai_core: bool | None              # 用户拍板的最终分流：True=AI 全轨 / False=普通轨 / None=未判定
-    component_candidates: list        # G8+G9: 组件候选 + 开源检查
     proceed_decision: bool | None     # 是否继续做（用户决策）
 
     # ─── 判断需求与 AI 的边界（feasibility_check + feasibility_confirm 确认门）───
@@ -75,12 +70,7 @@ class PMState(TypedDict, total=False):
 
     # ─── PRD 阶段 ───
     section_plan: dict                # 章节裁剪计划
-    section_confirmed: bool           # 章节裁剪是否经用户确认
     prd_markdown: str                 # 模型原生 Markdown PRD 全文 [C 2026-09-09] T1
-    # [C 2026-09-09] T1 以下两个字段退役：旧 JSON sections / HTML 套壳通道不再写入，
-    # 保留字段定义仅供旧 SQLite 检查点/历史 state 兼容，新流程一律用 prd_markdown
-    prd_html: str                     # [T1 退役] 旧 PRD HTML 内容，保留供旧检查点兼容，不再写入
-    prd_sections: list                # [T1 退役] 旧 PRD 章节片段列表，保留供旧检查点兼容，不再写入
     red_team_review: dict             # 红队审查反馈
     prd_revision_count: int           # PRD 修订次数（上限 3 轮）
 
@@ -107,14 +97,9 @@ class PMState(TypedDict, total=False):
     # [C 2026-09-12 by pi-deepseek-flash] 第⑥项修复：升级暂停后再给意见的硬深度上限计数
     launch_escalation_depth: int       # 已批准的升级后重调轮数（达上限后保持 escalated 暂停不自动空转）
 
-    # ─── 评估阶段 ───
-    metrics_tree: dict                # 指标树
-    experiment_design: dict           # 实验设计
-    ai_eval_design: dict              # AI 评估设计
 
     # ─── AI 专项 ───
     model_selection: dict             # G1: 模型选型；第 6 段对比选型写 {status, recommended, candidates...}
-    failure_modes: dict               # 失败模式分析 + 缓解方案
 
     # ─── 对比选型模型（bake_off 节点）───
     # [C 2026-09-13 by codebuddy-ds41flash] 第 6 段：仅 AI 核心需求经过；普通轨字段恒空
@@ -124,8 +109,6 @@ class PMState(TypedDict, total=False):
     artifacts: dict                   # 产物文件路径映射
     human_feedback: list              # 所有人机交互记录
 
-    # ─── 交付后接口（G3 二期留接口）───
-    post_launch_hooks: dict | None    # G3: bad case 回收 / 回归重跑 接口占位
 
 
 def default_state() -> dict[str, Any]:
@@ -144,7 +127,6 @@ def default_state() -> dict[str, Any]:
         # 知识库底座
         "kb_context": {},
         "domain_kb_context": [],  # R02: AI 领域知识库检索结果
-        "kb_written_back": [],
         # 探索阶段
         "raw_requirement": "",
         "info_completeness": {},
@@ -156,15 +138,11 @@ def default_state() -> dict[str, Any]:
         "requirement_refine_pending": False,
         "requirement_refine_result": {},
         "user_insights": {},
-        "external_evidence": {},
-        "opportunity_score": {},
-        "competitor_teardown": {},
         "ai_feasibility": {},
         "capability_boundary": {},
         # [C 2026-09-12 by MA] S033 块2a：AI 分流字段（默认 None=未判定，prd_generation 视为普通轨）
         "ai_triage": {},
         "ai_core": None,
-        "component_candidates": [],
         "proceed_decision": None,
         # 判断需求与 AI 的边界 [C 2026-09-12 by codebuddy-ds41flash]
         "feasibility_report": {},
@@ -186,10 +164,7 @@ def default_state() -> dict[str, Any]:
         "eval_artifacts": {},
         # PRD 阶段
         "section_plan": {},
-        "section_confirmed": False,
         "prd_markdown": "",  # [C 2026-09-09] T1 模型原生 Markdown PRD 全文
-        "prd_html": "",       # [T1 退役] 保留默认值供旧检查点兼容，不再写入
-        "prd_sections": [],   # [T1 退役] 保留默认值供旧检查点兼容，不再写入
         "red_team_review": {},
         "prd_revision_count": 0,
         # 工单拆解 [C 2026-09-11]
@@ -211,22 +186,15 @@ def default_state() -> dict[str, Any]:
         "launch_issue_redo_count": 0,
         # [C 2026-09-12 by pi-deepseek-flash] 第⑥项修复：升级深度上限计数
         "launch_escalation_depth": 0,
-        # 评估阶段
-        "metrics_tree": {},
-        "experiment_design": {},
-        "ai_eval_design": {},
         # AI 专项
         # [C 2026-09-13 by codebuddy-ds41flash] 第 6 段对比选型：model_selection 默认 {}（已预留），
         # 新增 bakeoff_artifacts 产物路径
         "model_selection": {},
-        "failure_modes": {},
         # 对比选型模型 [C 2026-09-13 by codebuddy-ds41flash]
         "bakeoff_artifacts": {},
         # 产物管理
         "artifacts": {},
         "human_feedback": [],
-        # 交付后接口
-        "post_launch_hooks": None,
     }
 
 
