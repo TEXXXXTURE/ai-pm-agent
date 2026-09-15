@@ -48,6 +48,28 @@ def sanitize_name(name: str) -> str:
     return _ILLEGAL_CHARS.sub("_", str(name)).strip()
 
 
+# [C 2026-09-15] 成本列渲染过滤：Python 对小于 1e-4 的浮点用科学计数法（1.2e-05），
+#     直接塞进模板不美观。按数量级选小数位、去掉末尾多余的零、至少保留 2 位小数。
+def format_cost(value: object) -> str:
+    """把成本数值渲染成固定小数文本，避免浮点科学计数法（如 1.2e-05）。
+
+    Args:
+        value: 成本数值（float/int，或 None/字符串等非数值）。
+
+    Returns:
+        固定小数文本（如 "0.000012" "0.015" "12.34"）；非数值原样转字符串返回。
+    """
+    try:
+        num = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return str(value)
+    if num == 0:
+        return "0.00"
+    digits = 4 if abs(num) >= 1 else (6 if abs(num) >= 0.01 else 8)
+    int_part, _, frac = f"{num:.{digits}f}".partition(".")
+    return f"{int_part}.{frac.rstrip('0').ljust(2, '0')}"
+
+
 class ArtifactManager:
     """渲染模板并保存产物（T1 起主产物为 Markdown .md；HTML 通道保留为演示导出器）。"""
 
@@ -66,6 +88,8 @@ class ArtifactManager:
             autoescape=False,
             keep_trailing_newline=True,
         )
+        # [C 2026-09-15] 注册成本格式化过滤，模板里写 {{ x|cost }} 即可
+        self._env.filters["cost"] = format_cost
 
     def _load_asset(self, name: str) -> str:
         """读取 assets 目录下静态资源（css/js）的全文内容。"""

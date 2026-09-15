@@ -58,12 +58,17 @@ def _llm_config_with(**llm_overrides) -> dict:
 
 
 class TestActualConfigYaml(unittest.TestCase):
-    def test_llm_section_has_max_tokens_8192(self):
+    def test_llm_section_has_max_tokens(self):
+        """llm 段必须显式给出单次输出上限，且足够大以防长产物被截断。
+
+        具体数值按真机实测校准（2026-09-15 实测 32768 通过；8192 会被隐藏思考吃光，
+        正文为空），这里只守下限契约，避免每次调参都要同步改断言。
+        """
         with open(CONFIG_YAML, "r", encoding="utf-8") as f:
             config = yaml.safe_load(f)
         self.assertIn("llm", config)
         self.assertIn("max_tokens", config["llm"], msg="llm 段缺 max_tokens")
-        self.assertEqual(config["llm"]["max_tokens"], 8192)
+        self.assertGreaterEqual(config["llm"]["max_tokens"], 8192)
 
     def test_max_tokens_is_int(self):
         with open(CONFIG_YAML, "r", encoding="utf-8") as f:

@@ -56,7 +56,7 @@
 | Prompt tokens | {{ token.get('prompt', 0) }} |
 | Completion tokens | {{ token.get('completion', 0) }} |
 | Total tokens | {{ token.get('total', 0) }} |
-| 成本 | {{ parsed.get('cost', 0) }} |
+| 成本 | {{ parsed.get('cost', 0)|cost }} |
 | 总耗时(ms) | {{ parsed.get('duration_ms', 0) }} |
 | 执行次数 | {{ judge.get('run_count', parsed.get('total', 0)) }} |
 

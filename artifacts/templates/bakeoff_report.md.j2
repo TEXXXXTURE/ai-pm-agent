@@ -17,7 +17,7 @@
 |---|---|
 | 整体通过率 | {{ "%.1f"|format(rec.get('overall_rate', 0) * 100) }}% |
 | 关键题通过率 | {{ "%.1f"|format(rec.get('critical_rate', 0) * 100) }}% |
-| 成本 | {{ rec.get('cost', 0) }} |
+| 成本 | {{ rec.get('cost', 0)|cost }} |
 | 延迟 P50(ms) | {{ rec.get('latency_p50_ms', 0) }} |
 | 延迟 P95(ms) | {{ rec.get('latency_p95_ms', 0) }} |
 {% else %}
@@ -29,14 +29,14 @@
 | 候选 | 整体通过率 | 关键题通过率 | 成本 | P50(ms) | P95(ms) | token |
 |---|---|---|---|---|---|---|
 {% for item in candidates %}
-| {{ item.get('label', item.get('provider_id', '')) }}（{{ item.get('provider_id', '') }}） | {{ "%.1f"|format(item.get('overall_rate', 0) * 100) }}% | {{ "%.1f"|format(item.get('critical_rate', 0) * 100) }}% | {{ item.get('cost', 0) }} | {{ item.get('latency_p50_ms', 0) }} | {{ item.get('latency_p95_ms', 0) }} | {{ item.get('token_total', 0) }} |
+| {{ item.get('label', item.get('provider_id', '')) }}（{{ item.get('provider_id', '') }}） | {{ "%.1f"|format(item.get('overall_rate', 0) * 100) }}% | {{ "%.1f"|format(item.get('critical_rate', 0) * 100) }}% | {{ item.get('cost', 0)|cost }} | {{ item.get('latency_p50_ms', 0) }} | {{ item.get('latency_p95_ms', 0) }} | {{ item.get('token_total', 0) }} |
 {% endfor %}
 
 ## 逐模型备注
 
 {% if candidates %}
 {% for item in candidates %}
-- **{{ item.get('label', item.get('provider_id', '')) }}**（{{ item.get('provider_id', '') }}）：通过 {{ item.get('successes', 0) }} / 未通过 {{ item.get('failures', 0) }}（含工具级错误 {{ item.get('errors', 0) }}），成本 {{ item.get('cost', 0) }}，token {{ item.get('token_total', 0) }}，P50 {{ item.get('latency_p50_ms', 0) }}ms / P95 {{ item.get('latency_p95_ms', 0) }}ms。
+- **{{ item.get('label', item.get('provider_id', '')) }}**（{{ item.get('provider_id', '') }}）：通过 {{ item.get('successes', 0) }} / 未通过 {{ item.get('failures', 0) }}（含工具级错误 {{ item.get('errors', 0) }}），成本 {{ item.get('cost', 0)|cost }}，token {{ item.get('token_total', 0) }}，P50 {{ item.get('latency_p50_ms', 0) }}ms / P95 {{ item.get('latency_p95_ms', 0) }}ms。
 {% endfor %}
 {% else %}
 无候选模型记录。
@@ -47,7 +47,7 @@
 | 项目 | 数值 |
 |---|---|
 | 候选数 | {{ candidates|length }} |
-| 成本合计 | {{ candidates|sum(attribute='cost') }} |
+| 成本合计 | {{ candidates|sum(attribute='cost')|cost }} |
 | token 合计 | {{ candidates|sum(attribute='token_total') }} |
 
 ---

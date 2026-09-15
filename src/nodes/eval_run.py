@@ -52,11 +52,12 @@ _PROXY_ENV_KEYS = ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy")
 _REASON_TAIL_LENGTH = 500
 
 # provider 归一后的固定 config（S031 样例验证过的形态；showThinking:false 避免思考段污染断言）
-# max_tokens=2048（S039 真机修复）：deepseek-v4-flash 为带隐藏思考的模型，500 额度会被
-# reasoning 全部占满导致可见正文为空（finishReason=length），2048 保证思考后仍有余量作答。
+# max_tokens=32768（2026-09-15 真机复测上调，原 2048）：deepseek-v4-flash 带隐藏思考，
+# 2048 会被 reasoning 全部占满、可见正文为空（finishReason=length、output=""），空正文再被
+# 判为「不通过」——把配置问题伪装成模型质量结论；32768 与 config.yaml 单次输出上限口径一致。
 _NORMALIZED_PROVIDER_CONFIG: dict = {
     "temperature": 0,
-    "max_tokens": 2048,
+    "max_tokens": 32768,
     "showThinking": False,
 }
 

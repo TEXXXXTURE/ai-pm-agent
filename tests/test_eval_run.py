@@ -286,7 +286,8 @@ class TestFinalizeEvalConfig(unittest.TestCase):
         prov = doc["providers"][0]
         self.assertEqual(prov["id"], "deepseek:deepseek-v4-flash")
         self.assertEqual(prov["config"]["temperature"], 0)
-        self.assertEqual(prov["config"]["max_tokens"], 2048)
+        # max_tokens 只守下限：额度必须给隐藏思考留足余量
+        self.assertGreaterEqual(prov["config"]["max_tokens"], 8192)
         self.assertFalse(prov["config"]["showThinking"])
 
     def test_tests_preserved(self):

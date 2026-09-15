@@ -50,13 +50,14 @@ _SYSTEM_PROMPT_REF = "./system_prompt.txt"
 
 # provider config 按 kind 区分：chat 类用 eval_run 现形；reasoner 类只带 max_tokens
 # （reasoner 可能不认 showThinking/temperature 参数，见任务书第四节）
-# max_tokens=2048（S039 真机修复）：思考型模型 500 额度会被 reasoning 占满、正文为空。
+# max_tokens=32768（2026-09-15 真机复测上调，原 2048）：思考型模型会被 reasoning 占满额度、
+# 正文为空（finishReason=length、output=""），空正文再被判为「不通过」，口径同 eval_run。
 _CHAT_PROVIDER_CONFIG: dict = {
     "temperature": 0,
-    "max_tokens": 2048,
+    "max_tokens": 32768,
     "showThinking": False,
 }
-_REASONER_PROVIDER_CONFIG: dict = {"max_tokens": 2048}
+_REASONER_PROVIDER_CONFIG: dict = {"max_tokens": 32768}
 
 # 摘要中要落 state 的候选字段（顺序即落盘顺序）
 _SUMMARY_FIELDS: tuple[str, ...] = (

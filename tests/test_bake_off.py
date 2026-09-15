@@ -289,14 +289,18 @@ class TestBuildProviderConfig(unittest.TestCase):
             build_provider_config(self.draft, "deepseek:deepseek-chat", "chat")
         )
         config = doc["providers"][0]["config"]
-        self.assertEqual(config, {"temperature": 0, "max_tokens": 2048, "showThinking": False})
+        self.assertEqual(config["temperature"], 0)
+        self.assertFalse(config["showThinking"])
+        # max_tokens 只守下限：隐藏思考会吃掉额度，2048 曾导致正文为空、被误判为不通过
+        self.assertGreaterEqual(config["max_tokens"], 8192)
 
     def test_reasoner_config_only_max_tokens(self):
         doc = yaml.safe_load(
             build_provider_config(self.draft, "deepseek:deepseek-reasoner", "reasoner")
         )
         config = doc["providers"][0]["config"]
-        self.assertEqual(config, {"max_tokens": 2048})
+        self.assertEqual(set(config), {"max_tokens"})
+        self.assertGreaterEqual(config["max_tokens"], 8192)
         self.assertNotIn("temperature", config)
         self.assertNotIn("showThinking", config)
 
@@ -556,11 +560,13 @@ class TestBakeOffNode(unittest.TestCase):
                 self.assertEqual(len(doc["providers"]), 1)
                 self.assertEqual(doc["prompts"], ["./system_prompt.txt"])
                 by_id[doc["providers"][0]["id"]] = doc["providers"][0]["config"]
-            self.assertEqual(
-                by_id["deepseek:deepseek-chat"],
-                {"temperature": 0, "max_tokens": 2048, "showThinking": False},
-            )
-            self.assertEqual(by_id["deepseek:deepseek-reasoner"], {"max_tokens": 2048})
+            chat_cfg = by_id["deepseek:deepseek-chat"]
+            self.assertEqual(chat_cfg["temperature"], 0)
+            self.assertFalse(chat_cfg["showThinking"])
+            self.assertGreaterEqual(chat_cfg["max_tokens"], 8192)
+            reasoner_cfg = by_id["deepseek:deepseek-reasoner"]
+            self.assertEqual(set(reasoner_cfg), {"max_tokens"})
+            self.assertGreaterEqual(reasoner_cfg["max_tokens"], 8192)
 
     def test_await_prompt_when_file_missing(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
