@@ -3,7 +3,7 @@
 patch 掉 nodes.refine.interrupt / nodes.hitl.interrupt，假 LLM 回放预制响应，
 不发起任何真实模型调用。
 
-覆盖（R1-R17）：
+覆盖（R1-R17 原用例 + R18/S047 追加）：
 1. classify_refine_answer 纯函数四分类：确认词/改判关键词/放弃关键词/feedback；
 2. route_after_requirement_confirm：pending=True -> requirement_refine，False -> needs_discovery；
 3. route_after_requirement_refine：abandon->END，feedback->requirement_refine，confirm/reclassify->needs_discovery；
@@ -13,14 +13,18 @@ patch 掉 nodes.refine.interrupt / nodes.hitl.interrupt，假 LLM 回放预制�
 7. 确认门 改判带附言 -> pending=True，ai_core 已改，feedback=用户文本；
 8. 整合节点首次调模型产草案，中断载荷含草案+变更说明+count；
 9. 整合节点确认 -> confirmed_requirement=草案，eval_cases 重初始化，pending=False；
-10. 整合节点 feedback（count<MAX）-> verdict=feedback，count+1，草案存 state，自环；
-11. 整合节点 feedback（count>=MAX）-> 升级暂停，不调模型，第二中断只接受确认/改判/放弃；
-12. 升级暂停确认 -> 接受当前草案；
-13. 升级暂停改判 -> 接受草案+改 ai_core；
-14. 升级暂停放弃 -> END；
+10. 整合节点 feedback -> verdict=feedback，count+1，草案存 state，自环；
+11. [S047 改写] 连续 5 轮 feedback 每轮都调模型整合，无升级暂停（原"第 3 版升级暂停"用例改写）；
+12. [S047 改写] 第 3 轮确认 -> 仍调模型、接受新版草案（原"升级暂停确认"用例改写）；
+13. [S047 改写] 第 3 轮改判 -> 仍调模型、接受新版草案 + 改 ai_core（含 AI核心 关键词）；
+14. [S047 改写] 第 3 轮放弃 -> END（原"升级暂停放弃"用例改写）；
 15. 普通轨路径不变：confirm -> needs_discovery -> prd_generation（逐字不变）；
 16. 图编译通过，节点数 18；
-17. 可行性门 reshape 回确认门后提 feedback -> 进整合节点。
+17. 可行性门 reshape 回确认门后提 feedback -> 进整合节点；
+18. [S047] 重整合输入组装：已有上一版草案时「当前需求」用上一版草案（含反馈自环端到端），
+    草案为空时（首轮）回落到 confirmed_requirement 原文；
+19. [S047] audit_draft_progress 纯函数：几乎相同提示 / 缩水提示 / 意见重复提示 / 首轮全空；
+20. [S047] 载荷接线：中断载荷含 draft_progress，PAYLOAD_RECAP_FIELDS 含该字段名。
 
 运行（PowerShell，cwd=项目根）：
   $env:PYTHONPATH="src"
@@ -29,6 +33,7 @@ patch 掉 nodes.refine.interrupt / nodes.hitl.interrupt，假 LLM 回放预制�
 """
 from __future__ import annotations
 
+import importlib.util
 import sys
 import tempfile
 from pathlib import Path
@@ -60,7 +65,7 @@ from nodes.exploration import (  # noqa: E402
 from nodes.hitl import make_requirement_confirm  # noqa: E402
 from nodes.prd import make_prd_generation  # noqa: E402
 from nodes.refine import (  # noqa: E402
-    MAX_REQUIREMENT_REFINES,
+    audit_draft_progress,
     classify_refine_answer,
     make_requirement_refine,
     route_after_requirement_confirm,
@@ -416,6 +421,76 @@ class TestRequirementRefineNode(unittest.TestCase):
         self.assertEqual(payloads[0]["change_summary"], ["新增维度1", "调整范围2"])
         self.assertEqual(payloads[0]["requirement_refine_count"], 1)
 
+    def test_prompt_current_requirement_prefers_previous_draft(self):
+        # R18（S047 主回归）：已有上一版草案时，「当前需求」段用上一版草案，不用原始需求
+        fake = FakeLLM(
+            json_queue=[
+                {
+                    "refined_requirement": "整合后的新需求-KKK",
+                    "change_summary": ["调整"],
+                }
+            ]
+        )
+        state = refine_state(
+            requirement_draft="上一版草案-含使用场景与痛点整段",
+            confirmed_requirement="原始需求-帮产品经理做会议纪要总结",
+            requirement_refine_count=1,
+        )
+        out, _, fake_used = run_refine_node(state, [""], fake)
+        prompt = fake_used.calls[0]["prompt"]
+        # 「当前需求」段含上一版草案全文本
+        self.assertIn("- 当前需求：上一版草案-含使用场景与痛点整段", prompt)
+        # 且不含原始需求原文（避免重整合把上一版已整合内容丢掉）
+        self.assertNotIn("原始需求-帮产品经理做会议纪要总结", prompt)
+        # 收尾不变：确认后 confirmed_requirement 等于最终版草案
+        self.assertEqual(out["confirmed_requirement"], "整合后的新需求-KKK")
+
+    def test_second_round_prompt_carries_first_round_draft(self):
+        # R18b（S047 端到端）：feedback 自环后第二轮整合的输入含第一版草案
+        fake = FakeLLM(
+            json_queue=[
+                {
+                    "refined_requirement": "第一版草案-含使用场景痛点现有方案",
+                    "change_summary": ["首版整合"],
+                },
+                {
+                    "refined_requirement": "第二版草案",
+                    "change_summary": ["目标用户收窄"],
+                },
+            ]
+        )
+        base = refine_state()
+        # 第一轮：用户提修订意见，节点产第一版草案并自环
+        first_out, _, _ = run_refine_node(base, ["增加用户画像维度"], fake)
+        self.assertEqual(first_out["requirement_refine_result"]["verdict"], "feedback")
+        self.assertEqual(first_out["requirement_draft"], "第一版草案-含使用场景痛点现有方案")
+        # 第二轮：带第一轮输出继续整合
+        merged = {**base, **first_out}
+        merged["requirement_refine_feedback"] = "再把目标用户收窄"
+        merged["requirement_refine_count"] = first_out["requirement_refine_count"]
+        _, _, fake_used = run_refine_node(merged, [""], fake)
+        second_prompt = fake_used.calls[1]["prompt"]
+        # 第二轮 prompt 的「当前需求」段是第一版草案，而非最初的需求原文
+        self.assertIn("- 当前需求：第一版草案-含使用场景痛点现有方案", second_prompt)
+
+    def test_prompt_current_requirement_falls_back_to_confirmed_on_first_round(self):
+        # R19（首轮不变）：requirement_draft 为空时，「当前需求」仍是 confirmed_requirement 原文
+        fake = FakeLLM(
+            json_queue=[
+                {
+                    "refined_requirement": "整合后的新需求-LLL",
+                    "change_summary": ["调整"],
+                }
+            ]
+        )
+        state = refine_state(
+            requirement_draft="",
+            confirmed_requirement="原始需求-帮产品经理做会议纪要总结",
+        )
+        _, _, fake_used = run_refine_node(state, [""], fake)
+        prompt = fake_used.calls[0]["prompt"]
+        self.assertIn("- 当前需求：原始需求-帮产品经理做会议纪要总结", prompt)
+
     def test_confirm_writes_back_confirmed_and_eval_cases(self):
         # R9：整合节点确认 -> confirmed_requirement=草案，eval_cases 重初始化，pending=False
         fake = FakeLLM(
@@ -468,99 +543,140 @@ class TestRequirementRefineNode(unittest.TestCase):
         # route_after_requirement_refine -> requirement_refine 自环
         self.assertEqual(route_after_requirement_refine(out), "requirement_refine")
 
-    def test_feedback_at_max_triggers_escalation_no_model_call(self):
-        # R11：feedback（count>=MAX）-> 升级暂停，不调模型，第二中断只接受确认/改判/放弃
-        # count=2（达 MAX），用户提 feedback 应进入升级暂停路径
-        fake = FakeLLM(json_queue=[])  # 不应被调用
+    def test_five_rounds_feedback_each_round_calls_model(self):
+        # R11（S047 改写）：取消次数上限后，连续 5 轮 feedback 每轮都调模型整合，
+        # 不再出现 status=escalated（原"第 3 版升级暂停"用例改写）
+        drafts = [
+            "第一版草案：帮产品经理整理会议纪要，覆盖使用场景与痛点。",
+            "第二版草案：帮产品经理整理会议纪要，覆盖使用场景、痛点与现有方案，目标用户收窄到中大型团队。",
+            "第三版草案：帮产品经理整理会议纪要并自动抽待办，覆盖使用场景、痛点、现有方案与成功标准。",
+            "第四版草案：帮产品经理整理会议纪要并自动抽待办，按用户画像归类，含成功标准与验收口径。",
+            "第五版草案：帮产品经理整理会议纪要并自动抽待办，按用户画像归类，含成功标准、验收口径与风险清单。",
+        ]
+        fake = FakeLLM(
+            json_queue=[
+                {"refined_requirement": text, "change_summary": [f"第{i}轮调整"]}
+                for i, text in enumerate(drafts, start=1)
+            ]
+        )
+        state = refine_state()
+        for i in range(1, 6):
+            out, payloads, _ = run_refine_node(
+                state, [f"第{i}轮意见：再收窄一点"], fake
+            )
+            # 每轮都调了一次模型（5 轮共 5 次），且走 JSON 通道
+            self.assertEqual(len(fake.calls), i, msg=f"第{i}轮")
+            self.assertFalse(fake.calls[-1]["as_text"], msg=f"第{i}轮")
+            # 每一轮都停在"草案门"，没有升级暂停载荷
+            self.assertEqual(payloads[0]["status"], "draft", msg=f"第{i}轮")
+            self.assertNotIn("reason", payloads[0], msg=f"第{i}轮")
+            self.assertNotIn("escalated", str(payloads[0]), msg=f"第{i}轮")
+            # 每轮都按 feedback 自环，计数照旧累加（只记录、不拦截）
+            self.assertEqual(out["requirement_refine_result"]["verdict"], "feedback")
+            self.assertEqual(out["requirement_refine_count"], i, msg=f"第{i}轮")
+            self.assertEqual(out["requirement_draft"], drafts[i - 1])
+            state = {**state, **out}
+        self.assertEqual(len(fake.calls), 5)
+        self.assertEqual(state["requirement_refine_count"], 5)
+
+    def test_confirm_at_third_round_still_calls_model(self):
+        # R12（S047 改写）：原"升级暂停确认"用例——count=2（旧上限）后仍调模型产新版草案，
+        # 确认则接受新版草案，不再是"接受上一版草案"
+        fake = FakeLLM(
+            json_queue=[
+                {
+                    "refined_requirement": "第三版草案-EEE",
+                    "change_summary": ["再收窄一点"],
+                }
+            ]
+        )
         state = refine_state(
-            requirement_refine_count=MAX_REQUIREMENT_REFINES,
+            requirement_refine_count=2,
             requirement_draft="上一版草案-DDD",
             requirement_refine_feedback="还想再加一点",
         )
-        out, payloads, fake_used = run_refine_node(state, ["还想再加一点", "确认"], fake)
-        # 不调模型（升级暂停路径不调模型）
-        self.assertEqual(len(fake_used.calls), 0)
-        # 第二次中断 status=escalated，第一轮的"还想再加一点"应进入升级暂停
-        self.assertEqual(len(payloads), 1)
-        self.assertEqual(payloads[0]["status"], "escalated")
-        self.assertIn("额度已用尽", payloads[0]["reason"])
-        self.assertEqual(payloads[0]["requirement_draft"], "上一版草案-DDD")
-        # 升级后用户确认 -> verdict=confirm，接受当前草案
-        self.assertEqual(out["requirement_refine_result"]["verdict"], "confirm")
-        self.assertEqual(out["confirmed_requirement"], "上一版草案-DDD")
-        # eval_cases 用上一版草案重初始化
-        self.assertIn("eval_cases", out)
-        self.assertIn("上一版草案-DDD", out["eval_cases"][0]["question"])
-        # pending=False
-        self.assertFalse(out["requirement_refine_pending"])
-
-    def test_escalation_confirm_accepts_last_draft(self):
-        # R12：升级暂停确认 -> 接受当前草案
-        fake = FakeLLM(json_queue=[])
-        state = refine_state(
-            requirement_refine_count=MAX_REQUIREMENT_REFINES,
-            requirement_draft="升级草案-EEE",
-        )
         out, payloads, fake_used = run_refine_node(state, ["确认"], fake)
-        # 不调模型
-        self.assertEqual(len(fake_used.calls), 0)
-        # 升级暂停中断
-        self.assertEqual(payloads[0]["status"], "escalated")
-        # 接受上一版草案
+        # 调了一次模型（升级暂停路径已删除）
+        self.assertEqual(len(fake_used.calls), 1)
+        self.assertEqual(payloads[0]["status"], "draft")
+        self.assertEqual(payloads[0]["requirement_draft"], "第三版草案-EEE")
+        self.assertEqual(payloads[0]["requirement_refine_count"], 3)
+        # 接受新版草案
         self.assertEqual(out["requirement_refine_result"]["verdict"], "confirm")
-        self.assertEqual(out["confirmed_requirement"], "升级草案-EEE")
-        # eval_cases 用草案重初始化
+        self.assertEqual(out["confirmed_requirement"], "第三版草案-EEE")
+        self.assertEqual(out["requirement_draft"], "第三版草案-EEE")
+        self.assertEqual(out["requirement_refine_count"], 3)
+        # eval_cases 用新版草案重初始化
         self.assertIn("eval_cases", out)
+        self.assertIn("第三版草案-EEE", out["eval_cases"][0]["question"])
         # pending=False
         self.assertFalse(out["requirement_refine_pending"])
 
-    def test_escalation_reclassify_changes_ai_core(self):
-        # R13：升级暂停改判 -> 接受草案+改 ai_core
-        fake = FakeLLM(json_queue=[])
+    def test_reclassify_at_third_round_changes_ai_core(self):
+        # R13（S047 改写）：原"升级暂停改判"用例——第 3 轮仍调模型，改判接受新版草案 + 改 ai_core
+        fake = FakeLLM(
+            json_queue=[
+                {
+                    "refined_requirement": "第三版草案-FFF",
+                    "change_summary": ["收窄"],
+                }
+            ]
+        )
         state = refine_state(
-            requirement_refine_count=MAX_REQUIREMENT_REFINES,
-            requirement_draft="升级草案-FFF",
+            requirement_refine_count=2,
+            requirement_draft="上一版草案-DDD",
             ai_core=True,
         )
         out, payloads, fake_used = run_refine_node(state, ["非AI"], fake)
-        # 不调模型
-        self.assertEqual(len(fake_used.calls), 0)
-        # verdict=reclassify，ai_core 改为 False
+        self.assertEqual(len(fake_used.calls), 1)
+        self.assertEqual(payloads[0]["status"], "draft")
         self.assertEqual(out["requirement_refine_result"]["verdict"], "reclassify")
         self.assertIs(out["ai_core"], False)
-        # 接受上一版草案为 confirmed_requirement
-        self.assertEqual(out["confirmed_requirement"], "升级草案-FFF")
-        # eval_cases 用草案重初始化
+        self.assertEqual(out["confirmed_requirement"], "第三版草案-FFF")
         self.assertIn("eval_cases", out)
-        # pending=False
         self.assertFalse(out["requirement_refine_pending"])
 
-    def test_escalation_reclassify_ai_core_keyword(self):
-        # R13b：升级暂停用 AI核心 关键词改判 -> ai_core=True
-        fake = FakeLLM(json_queue=[])
+    def test_reclassify_ai_core_keyword_at_third_round(self):
+        # R13b（S047 改写）：原"升级暂停 AI核心 关键词"用例——第 3 轮仍调模型，改判 ai_core=True
+        fake = FakeLLM(
+            json_queue=[
+                {
+                    "refined_requirement": "第三版草案-GGG",
+                    "change_summary": ["转向"],
+                }
+            ]
+        )
         state = refine_state(
-            requirement_refine_count=MAX_REQUIREMENT_REFINES,
-            requirement_draft="升级草案-GGG",
+            requirement_refine_count=2,
+            requirement_draft="上一版草案-DDD",
             ai_core=False,
         )
-        out, _, fake_used = run_refine_node(state, ["AI核心"], fake)
-        self.assertEqual(len(fake_used.calls), 0)
+        out, payloads, fake_used = run_refine_node(state, ["AI核心"], fake)
+        self.assertEqual(len(fake_used.calls), 1)
+        self.assertEqual(payloads[0]["status"], "draft")
         self.assertEqual(out["requirement_refine_result"]["verdict"], "reclassify")
         self.assertIs(out["ai_core"], True)
-        self.assertEqual(out["confirmed_requirement"], "升级草案-GGG")
+        self.assertEqual(out["confirmed_requirement"], "第三版草案-GGG")
         self.assertIn("eval_cases", out)
         self.assertFalse(out["requirement_refine_pending"])
 
-    def test_escalation_abandon_goes_to_end(self):
-        # R14：升级暂停放弃 -> END（route 据 verdict=abandon 路由）
-        fake = FakeLLM(json_queue=[])
+    def test_abandon_at_third_round_goes_to_end(self):
+        # R14（S047 改写）：原"升级暂停放弃"用例——第 3 轮仍调模型，放弃走 END
+        fake = FakeLLM(
+            json_queue=[
+                {
+                    "refined_requirement": "第三版草案-HHH",
+                    "change_summary": ["调整"],
+                }
+            ]
+        )
         state = refine_state(
-            requirement_refine_count=MAX_REQUIREMENT_REFINES,
-            requirement_draft="升级草案-HHH",
+            requirement_refine_count=2,
+            requirement_draft="上一版草案-DDD",
         )
         out, payloads, fake_used = run_refine_node(state, ["放弃"], fake)
-        # 不调模型
-        self.assertEqual(len(fake_used.calls), 0)
+        self.assertEqual(len(fake_used.calls), 1)
+        self.assertEqual(payloads[0]["status"], "draft")
         self.assertEqual(out["requirement_refine_result"]["verdict"], "abandon")
         # pending=False（流程结束）
         self.assertFalse(out["requirement_refine_pending"])
@@ -668,6 +784,200 @@ class TestNormalTrackUnchanged(unittest.TestCase):
             self.assertEqual(prd_out["prd_markdown"], "# 普通 PRD 全文")
             # 普通 prompt 不含 ai-native 专有锚点
             self.assertNotIn("AI 协作边界表", fake.calls[-1]["prompt"])
+
+
+# ────────────────────────── S047. audit_draft_progress 纯函数（零 API） ──────────────────────────
+
+
+class TestAuditDraftProgress(unittest.TestCase):
+    """变化体检纯函数：只提示、不拦流程，四个规则逐条覆盖。"""
+
+    PREV_DRAFT = (
+        "第一版草案：帮产品经理整理会议纪要，覆盖使用场景、痛点、现有方案与成功标准，"
+        "并自动抽出待办事项清单。"
+    )
+
+    def test_similar_drafts_produces_nearly_same_note(self):
+        # 规则 1：新版与上一版几乎相同 -> "几乎相同"提示
+        result = audit_draft_progress(
+            self.PREV_DRAFT, self.PREV_DRAFT, "意见A", "意见B"
+        )
+        self.assertGreaterEqual(result["similarity"], 0.95)
+        self.assertTrue(
+            any("几乎相同" in note for note in result["notes"]),
+            msg=result["notes"],
+        )
+        # 长度字段齐备
+        self.assertEqual(result["length_prev"], len(self.PREV_DRAFT))
+        self.assertEqual(result["length_new"], len(self.PREV_DRAFT))
+        self.assertEqual(result["length_delta"], 0)
+        self.assertEqual(result["length_ratio"], 1.0)
+
+    def test_nearly_identical_drafts_still_note(self):
+        # 规则 1 边界：仅改 1 个字的近同草案也应命中（相似度 >= 0.95）
+        new_draft = self.PREV_DRAFT.replace("第一版", "第二版")
+        result = audit_draft_progress(
+            self.PREV_DRAFT, new_draft, "意见A", "意见B"
+        )
+        self.assertGreaterEqual(result["similarity"], 0.95)
+        self.assertTrue(any("几乎相同" in note for note in result["notes"]))
+
+    def test_shrunk_draft_produces_length_note(self):
+        # 规则 2：新版比上一版少 30% 字 -> "少了 N 字"提示
+        prev = self.PREV_DRAFT
+        new = prev[: int(len(prev) * 0.7)]
+        dropped = len(prev) - len(new)
+        result = audit_draft_progress(prev, new, "", "")
+        self.assertLessEqual(result["length_ratio"], 0.8)
+        self.assertEqual(result["length_delta"], -dropped)
+        self.assertTrue(
+            any(f"少了 {dropped} 字" in note for note in result["notes"]),
+            msg=result["notes"],
+        )
+
+    def test_repeated_feedback_produces_similar_note(self):
+        # 规则 3：本轮意见与上一轮意见高相似 -> "与上一轮提的高度相似"提示
+        result = audit_draft_progress(
+            "上一版草案：帮产品经理整理会议纪要，覆盖使用场景、痛点与现有方案。",
+            "新版草案：帮产品经理整理会议纪要，并自动抽出待办，覆盖使用场景与痛点。",
+            "把目标用户收窄到中大型团队",
+            "把目标用户再收窄到中大型团队",
+        )
+        self.assertGreaterEqual(result["feedback_similarity"], 0.8)
+        # 草案本身不同、字数未明显缩水，只出意见重复这一条
+        self.assertTrue(
+            any("与上一轮提的高度相似" in note for note in result["notes"]),
+            msg=result["notes"],
+        )
+        self.assertFalse(any("几乎相同" in note for note in result["notes"]))
+
+    def test_first_round_has_no_notes(self):
+        # 规则 4：首轮（prev_draft 为空）-> 全部提示为空、两个相似度为 None
+        new_draft = "首版草案：帮产品经理整理会议纪要。"
+        result = audit_draft_progress("", new_draft, "", "把目标用户收窄")
+        self.assertEqual(result["notes"], [])
+        self.assertIsNone(result["similarity"])
+        self.assertIsNone(result["feedback_similarity"])
+        self.assertEqual(result["length_prev"], 0)
+        self.assertEqual(result["length_new"], len(new_draft))
+        self.assertIsNone(result["length_ratio"])
+
+    def test_missing_prev_feedback_skips_feedback_note(self):
+        # 取不到上一轮意见时（第 2 轮）：feedback_similarity=None，不产意见重复提示
+        result = audit_draft_progress(
+            "上一版草案：帮产品经理整理会议纪要，覆盖使用场景与痛点。",
+            "新版草案：帮产品经理整理会议纪要，覆盖使用场景、痛点与现有方案。",
+            "",
+            "把目标用户收窄到中大型团队",
+        )
+        self.assertIsNone(result["feedback_similarity"])
+        self.assertFalse(
+            any("与上一轮提的高度相似" in note for note in result["notes"])
+        )
+
+
+class TestDraftProgressWiring(unittest.TestCase):
+    """载荷接线：中断载荷携带 draft_progress，且渲染白名单含该字段。"""
+
+    def test_first_round_payload_carries_empty_notes(self):
+        # 验收 5：首轮 payload 含 draft_progress，notes 为空列表
+        refined = "修正后的首版需求文本"
+        fake = FakeLLM(
+            json_queue=[
+                {"refined_requirement": refined, "change_summary": ["首版整合"]}
+            ]
+        )
+        _, payloads, _ = run_refine_node(refine_state(), ["确认"], fake)
+        self.assertIn("draft_progress", payloads[0])
+        progress = payloads[0]["draft_progress"]
+        self.assertEqual(progress["notes"], [])
+        self.assertIsNone(progress["similarity"])
+        self.assertEqual(progress["length_prev"], 0)
+        self.assertEqual(progress["length_new"], len(refined))
+        # 老字段照旧在载荷里
+        self.assertEqual(payloads[0]["status"], "draft")
+        self.assertEqual(payloads[0]["requirement_refine_count"], 1)
+
+    def test_second_round_shrink_payload_carries_note_and_keeps_verdict(self):
+        # 验收 3+6：第二轮草案缩水 -> 载荷带"少了 N 字"，四态判定不受提示影响（仍 feedback）
+        prev = (
+            "上一版草案：帮产品经理整理会议纪要，覆盖使用场景、痛点、现有方案与成功标准，"
+            "并自动抽出待办事项清单。"
+        )
+        new = prev[: int(len(prev) * 0.7)]
+        fake = FakeLLM(
+            json_queue=[
+                {"refined_requirement": new, "change_summary": ["收窄范围"]}
+            ]
+        )
+        state = refine_state(
+            requirement_refine_count=1,
+            requirement_draft=prev,
+            requirement_refine_feedback="把范围收窄",
+        )
+        out, payloads, _ = run_refine_node(state, ["再改一处"], fake)
+        notes = payloads[0]["draft_progress"]["notes"]
+        self.assertTrue(any("少了" in note and "字" in note for note in notes), msg=notes)
+        # 提示不拦流程：用户文本仍按 feedback 自环
+        self.assertEqual(out["requirement_refine_result"]["verdict"], "feedback")
+        self.assertEqual(out["requirement_refine_count"], 2)
+
+    def test_third_round_repeated_feedback_note_end_to_end(self):
+        # 验收 4（端到端接线）：第 3 轮重复提同一意见 -> 载荷 draft_progress 出现意见重复提示。
+        # 同时覆盖"上一轮意见"从 human_feedback 日志按轮次标签取回的真实链路。
+        fake = FakeLLM(
+            json_queue=[
+                {
+                    "refined_requirement": "第一版草案：帮产品经理整理会议纪要，覆盖使用场景与痛点。",
+                    "change_summary": ["首版整合"],
+                },
+                {
+                    "refined_requirement": "第二版草案：帮产品经理整理会议纪要并自动抽待办，覆盖使用场景与痛点。",
+                    "change_summary": ["增加待办抽取"],
+                },
+                {
+                    "refined_requirement": "第三版草案：帮产品经理整理会议纪要并自动抽待办，覆盖使用场景、痛点与成功标准。",
+                    "change_summary": ["增加成功标准"],
+                },
+            ]
+        )
+        answers = [
+            "把目标用户收窄到中大型团队",
+            "把目标用户再收窄到中大型团队",
+            "把目标用户再收窄到中大型团队",
+        ]
+        state = refine_state()
+        seen: list[dict] = []
+        for answer in answers:
+            out, payloads, _ = run_refine_node(state, [answer], fake)
+            seen.append(payloads[0]["draft_progress"])
+            state = {**state, **out}
+        # 前两轮取不到"上一轮意见"（第 1 轮首版、第 2 轮日志里还没有更早一轮），不产该提示
+        self.assertIsNone(seen[0]["feedback_similarity"])
+        self.assertIsNone(seen[1]["feedback_similarity"])
+        # 第 3 轮：本轮意见与上一轮高相似 -> 意见重复提示上载荷
+        self.assertGreaterEqual(seen[2]["feedback_similarity"], 0.8)
+        self.assertTrue(
+            any("与上一轮提的高度相似" in note for note in seen[2]["notes"]),
+            msg=seen[2]["notes"],
+        )
+        # 提示不拦流程：三轮都调模型、都按 feedback 自环，计数累加到 3
+        self.assertEqual(len(fake.calls), 3)
+        self.assertEqual(state["requirement_refine_count"], 3)
+
+    def test_payload_recap_fields_contains_draft_progress(self):
+        # 验收 6：渲染白名单含 draft_progress（run_prd_workflow 从同一常量 import，无需重复改）
+        from cli.hitl_cli import PAYLOAD_RECAP_FIELDS
+
+        self.assertIn("draft_progress", PAYLOAD_RECAP_FIELDS)
+        # 确认导入侧同源：以独立模块名加载脚本（加载不触发 main）
+        script_path = REPO_ROOT / "scripts" / "run_prd_workflow.py"
+        spec = importlib.util.spec_from_file_location(
+            "run_prd_workflow_under_test_refine", script_path
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        self.assertIn("draft_progress", module.PAYLOAD_RECAP_FIELDS)
 
 
 # ────────────────────────── R16. 图编译与节点数 ──────────────────────────

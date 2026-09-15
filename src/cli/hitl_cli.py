@@ -76,6 +76,9 @@ PAYLOAD_RECAP_FIELDS: tuple[str, ...] = (
     "requirement_draft",
     "requirement_refine_result",
     "requirement_refine_count",
+    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S047 变化体检：整合节点载荷携带
+    # 草案变化/缩水/意见重复提示（只提示不拦流程）
+    "draft_progress",
     # [C 2026-09-11] 升级暂停信息透传：status=draft/escalated、暂停原因、历轮意见；
     # 仅 issue_confirm / launch_confirm 载荷携带这些键，其他节点载荷无键自动跳过，不污染其 recap
     "status",

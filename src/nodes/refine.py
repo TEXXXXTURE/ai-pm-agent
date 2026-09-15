@@ -9,13 +9,13 @@
       confirm   -> needs_discovery（整合后需求写回 confirmed_requirement，eval_cases 重初始化）
       reclassify -> needs_discovery（接受整合后需求 + 改判 ai_core，eval_cases 重初始化）
       abandon   -> END（放弃，留档当前草案与意见）
-      feedback  -> requirement_refine 自环（带新意见重整合；前 2 版自动，第 3 版升级暂停）
+      feedback  -> requirement_refine 自环（带新意见重整合，不设次数上限）
 
 交互协议：
-- 正常路径（count < MAX_REQUIREMENT_REFINES=2）：调模型产草案 -> interrupt 展示 ->
-  用户 confirm/reclassify/abandon/feedback 四态分流；
-- 升级暂停路径（count >= MAX）：不再调模型，展示上一版草案 ->
-  只接受 confirm/reclassify/abandon；feedback 按确认处理（防理论无限递归）。
+- 单一路径：调模型产草案 -> interrupt 展示（含「变化体检」draft_progress） ->
+  用户 confirm/reclassify/abandon/feedback 四态分流。
+- 每次重整合都必须真人回话才会发生，模型不会自己循环，故不设整合次数上限；
+  `requirement_refine_count` 只作记录，不用于拦截。
 
 复用 hitl.py 的确认词集合和改判关键词（_REQUIREMENT_CONFIRM_WORDS / _NON_AI_KEYWORDS /
 _AI_CORE_KEYWORDS / _matches_non_ai / _matches_ai_core / _strip_reclassify_keywords）；
@@ -23,6 +23,7 @@ _AI_CORE_KEYWORDS / _matches_non_ai / _matches_ai_core / _strip_reclassify_keywo
 """
 from __future__ import annotations
 
+import difflib
 import re
 
 from langgraph.graph import END
@@ -30,9 +31,6 @@ from langgraph.types import interrupt
 
 from components.tools.init_eval_cases import init_eval_cases
 from kernel.spec import NodeSpec
-
-# 自动整合最多 2 版；第 3 版（计数达 MAX）起进入升级暂停 [C 2026-09-14]
-MAX_REQUIREMENT_REFINES = 2
 
 # 复用 hitl.py 的确认词集合和改判关键词——直接 import，避免重复定义 [C 2026-09-14]
 from nodes.hitl import (  # noqa: E402 - 延迟导入避免循环（hitl.py 不依赖本模块）
@@ -47,12 +45,94 @@ from nodes.hitl import (  # noqa: E402 - 延迟导入避免循环（hitl.py 不�
 # 放弃关键词（与 feasibility.py 一致）
 _ABANDON_KEYWORDS: tuple[str, ...] = ("放弃", "不做", "终止", "搁置", "停做")
 
-# 升级暂停说明（额度用尽后不再自动调模型，等真人拍板） [C 2026-09-14]
-_REFINE_LIMIT_REASON = (
-    "需求整合额度已用尽（限 2 次自动整合），流水线升级暂停、不再自动整合。"
-    "请重新拍板：回复「确认」按当前草案进挖需求；回复「非AI/普通轨」或「AI核心」改判分流；"
-    "回复「放弃」结束流程。"
-)
+# 变化体检阈值（纯提示，不拦流程） [C 2026-09-16 by codebuddy-deepseek-v4.1-flash]
+_SIMILARITY_NOTE_THRESHOLD = 0.95  # 草案与上一版相似度达此值 -> 提示"几乎相同"
+_SHRINK_RATIO_THRESHOLD = 0.8  # 新版字数 / 上一版字数 <= 此值 -> 提示"少了 N 字"
+_FEEDBACK_SIMILARITY_NOTE_THRESHOLD = 0.8  # 与上一轮意见相似度达此值 -> 提示"高度相似"
+
+
+def audit_draft_progress(
+    prev_draft: str,
+    new_draft: str,
+    prev_feedback: str,
+    new_feedback: str,
+) -> dict:
+    """纯函数：体检"这一版草案相对上一版有没有变化"，产出给人看的提示（零 API、只提示）。
+
+    输入口径（相邻两轮对比）：
+    - ``prev_draft``：上一轮展示过的草案（首轮为空串）；``new_draft``：本轮模型新产草案；
+    - ``prev_feedback``：上一轮整合所依据的意见；``new_feedback``：本轮整合所依据的意见。
+
+    判定规则（命中即加一条 notes 文案，规则之间不互斥）：
+    1. 草案相似度 >= 0.95 -> "几乎相同"；
+    2. 上一版非空且新版字数比 <= 0.8（缩水 >= 20%）-> "少了 N 字"；
+    3. 意见相似度 >= 0.8 -> "与上一轮提的高度相似"；
+    4. 首轮（``prev_draft`` 为空）-> ``notes`` 为空列表，两个相似度字段为 ``None``。
+
+    相似度用标准库 ``difflib.SequenceMatcher`` 计算（不引新依赖）。
+
+    Returns:
+        含 ``similarity`` / ``length_prev`` / ``length_new`` / ``length_delta`` /
+        ``length_ratio`` / ``feedback_similarity`` / ``notes`` 的字典。
+    """
+    prev = str(prev_draft or "")
+    new = str(new_draft or "")
+    length_prev = len(prev)
+    length_new = len(new)
+    length_delta = length_new - length_prev
+    length_ratio = round(length_new / length_prev, 4) if length_prev > 0 else None
+
+    # 首轮：没有上一版草案可比，全部提示为空
+    if not prev:
+        return {
+            "similarity": None,
+            "length_prev": length_prev,
+            "length_new": length_new,
+            "length_delta": length_delta,
+            "length_ratio": length_ratio,
+            "feedback_similarity": None,
+            "notes": [],
+        }
+
+    similarity = round(difflib.SequenceMatcher(None, prev, new).ratio(), 4)
+    prev_fb = str(prev_feedback or "")
+    new_fb = str(new_feedback or "")
+    feedback_similarity = (
+        round(difflib.SequenceMatcher(None, prev_fb, new_fb).ratio(), 4)
+        if prev_fb and new_fb
+        else None
+    )
+
+    notes: list[str] = []
+    if similarity >= _SIMILARITY_NOTE_THRESHOLD:
+        notes.append(
+            f"这一版草案与上一版几乎相同（相似度 {round(similarity * 100)}%），"
+            "这条意见可能已经在草案里体现了"
+        )
+    if length_ratio is not None and length_ratio <= _SHRINK_RATIO_THRESHOLD:
+        notes.append(
+            f"这一版比上一版少了 {length_prev - length_new} 字"
+            f"（从 {length_prev} 缩到 {length_new}），可能丢了内容，请核对"
+        )
+    if (
+        feedback_similarity is not None
+        and feedback_similarity >= _FEEDBACK_SIMILARITY_NOTE_THRESHOLD
+    ):
+        notes.append(
+            f"这条意见与上一轮提的高度相似（{round(feedback_similarity * 100)}%），"
+            "上一轮的处理见上一版草案"
+        )
+
+    return {
+        "similarity": similarity,
+        "length_prev": length_prev,
+        "length_new": length_new,
+        "length_delta": length_delta,
+        "length_ratio": length_ratio,
+        "feedback_similarity": feedback_similarity,
+        "notes": notes,
+    }
+    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S047 草案变化体检纯函数（零 API）
 
 
 def classify_refine_answer(text: str) -> str:
@@ -124,70 +204,9 @@ def make_requirement_refine(deps):
                 }
             )
 
-        # ── 升级暂停路径：不再调模型，展示上一版草案，二次答复分流 ──
-        if count >= MAX_REQUIREMENT_REFINES:
-            last_draft = state.get("requirement_draft", "")
-            answer = interrupt(
-                {
-                    "node": "requirement_refine",
-                    "status": "escalated",
-                    "reason": _REFINE_LIMIT_REASON,
-                    "requirement_name": req_name,
-                    "requirement_draft": last_draft,
-                    "requirement_refine_count": count,
-                }
-            )
-            text = answer.strip() if isinstance(answer, str) else str(answer).strip()
-            kind = classify_refine_answer(text)
-
-            if kind == "abandon":
-                append_log("abandon", text, "escalated-abandon")
-                return {
-                    "requirement_refine_result": {
-                        "verdict": "abandon",
-                        "user_feedback": text,
-                    },
-                    "requirement_refine_pending": False,
-                    "human_feedback": feedback_log,
-                }
-
-            # reclassify：接受上一版草案 + 改判 ai_core
-            if kind == "reclassify":
-                compact = re.sub(r"[\s\u3000]+", "", text.lower())
-                ai_core = not _matches_non_ai(compact)
-                eval_cases = init_eval_cases(
-                    {**state, "confirmed_requirement": last_draft}
-                )
-                append_log("reclassify", text, "escalated-reclassify")
-                return {
-                    "requirement_refine_result": {
-                        "verdict": "reclassify",
-                        "user_feedback": text,
-                    },
-                    "confirmed_requirement": last_draft,
-                    "ai_core": ai_core,
-                    "eval_cases": eval_cases,
-                    "requirement_refine_pending": False,
-                    "human_feedback": feedback_log,
-                }
-
-            # confirm 或 feedback（升级后 feedback 按确认处理，不再调模型重整合）
-            append_log("confirm", text, "escalated-confirm")
-            eval_cases = init_eval_cases(
-                {**state, "confirmed_requirement": last_draft}
-            )
-            return {
-                "requirement_refine_result": {
-                    "verdict": "confirm",
-                    "user_feedback": text,
-                },
-                "confirmed_requirement": last_draft,
-                "eval_cases": eval_cases,
-                "requirement_refine_pending": False,
-                "human_feedback": feedback_log,
-            }
-
-        # ── 正常路径：调模型整合当前需求 + 修订意见 -> 中断展示草案 -> 四态分流 ──
+        # ── 调模型整合当前需求 + 修订意见 -> 中断展示草案 -> 四态分流 ──
+        # 不设整合次数上限：每次重整合都必须真人回话才会发生，模型不会自己循环；
+        # count 只作记录、不作拦截。 [C 2026-09-16 by codebuddy-deepseek-v4.1-flash]
         prompt = deps.registry.read_prompt("requirement_refine")
         schema = deps.registry.load_schema("requirement_refine")
         spec = NodeSpec(
@@ -195,10 +214,39 @@ def make_requirement_refine(deps):
             prompt_template=prompt,
             output_schema=schema,
         )
-        draft = deps.runner.run_raw(spec, state)
+        # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S047 重整合丢内容修复：
+        # prompt 模板的「当前需求」取自 confirmed_requirement，而 feedback 自环分支只写
+        # requirement_draft、不写 confirmed_requirement，导致第二轮起整合输入恒为最初需求原文、
+        # 上一版草案从未进入输入（真机 thread a320de8e：856 字草案缩到 235 字）。
+        # 此处只在节点侧覆盖这一处输入：上一版草案优先，其为空（首轮）时回落到已确认需求。
+        prev_draft = str(state.get("requirement_draft") or "")
+        base_requirement = prev_draft or str(state.get("confirmed_requirement") or "")
+        draft = deps.runner.run_raw(
+            spec, {**state, "confirmed_requirement": base_requirement}
+        )
         refined = str(draft.get("refined_requirement") or "")
         changes = draft.get("change_summary") or []
         new_count = count + 1
+
+        # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S047 变化体检接线：
+        # 本轮意见 = 本轮整合所依据的意见（state 的 requirement_refine_feedback）；
+        # 上一轮意见 = 上一轮整合所依据的意见（从 human_feedback 日志按轮次标签取，
+        # 日志中 draft-{k}-feedback 记录的是第 k 轮用户答复，即第 k+1 轮的整合输入）。
+        # 取不到（首轮 / 第 2 轮）时留空 -> feedback_similarity=None，不产意见重复提示。
+        prev_feedback = ""
+        target_round = f"draft-{count - 1}-feedback"
+        for item in feedback_log:
+            if (
+                item.get("kind") == "feedback"
+                and str(item.get("round") or "") == target_round
+            ):
+                prev_feedback = str(item.get("feedback") or "")
+        draft_progress = audit_draft_progress(
+            prev_draft,
+            refined,
+            prev_feedback,
+            str(state.get("requirement_refine_feedback") or ""),
+        )
 
         answer = interrupt(
             {
@@ -208,6 +256,7 @@ def make_requirement_refine(deps):
                 "requirement_draft": refined,
                 "change_summary": changes,
                 "requirement_refine_count": new_count,
+                "draft_progress": draft_progress,
             }
         )
         text = answer.strip() if isinstance(answer, str) else str(answer).strip()
