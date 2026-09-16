@@ -18,6 +18,12 @@
 
 口径 4（不改的部分）：围栏剥离、首尾 {} 截取、正常 JSON 解析行为保持不变。
 
+[S048 修复B] 空内容报错说明追加：
+- 空正文且 finish_reason == "length" -> 原句后补可执行提示（疑似隐藏思考占满输出额度…）；
+- 空正文但响应无截断信号 -> 文案逐字不变；
+- 空正文但 additional_kwargs 带 reasoning 段 -> 同样补提示；
+- 正文非空时新参数不影响解析（提示只在为空分支生效）。
+
 运行（cwd=项目根）：
   $env:PYTHONPATH="src"
   C:\\Users\\A\\AppData\\Local\\hermes\\hermes-agent\\venv\\Scripts\\python.exe -m pytest tests/test_kernel_model.py -v
@@ -42,7 +48,12 @@ sys.path.insert(0, str(SRC_DIR))
 import unittest  # noqa: E402
 
 from kernel.exceptions import NodeExecutionError  # noqa: E402
-from kernel.model import build_chat, build_llm, extract_json  # noqa: E402
+from kernel.model import (  # noqa: E402
+    EMPTY_CONTENT_HINT,
+    build_chat,
+    build_llm,
+    extract_json,
+)
 
 # 真机现象原文片段（拆工单节点被截断的真实输出形态：字符串中途断在 I2）
 REAL_TRUNCATED = (
@@ -67,6 +78,21 @@ class _FakeChat:
 
     def invoke(self, messages):
         return SimpleNamespace(content=_FakeChat.next_content)
+
+
+class _FakeChatWithMeta:
+    """假 ChatLiteLLM：invoke 返回带响应元数据的预制响应对象（S048 修复B 用）。
+
+    响应形态对齐 langchain AIMessage：content / response_metadata / additional_kwargs。
+    """
+
+    next_response: object = None
+
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+
+    def invoke(self, messages):
+        return _FakeChatWithMeta.next_response
 
 
 def _fake_llm_config(**llm_overrides) -> dict:
@@ -220,8 +246,81 @@ class TestMaxTokensPassthrough(unittest.TestCase):
             _FakeChat.next_content = '{"status": "ok"}'
 
 
+# ────────────────────────── 4. S048 修复B：空内容报错文案 ──────────────────────────
+
+EMPTY_PREFIX = "模型返回非JSON: 响应内容为空"
+
+
+class TestEmptyContentMessage(unittest.TestCase):
+    """空正文时错误文案：有截断信号补可执行提示，无信号保持原文案。"""
+
+    def _invoke(self, response) -> NodeExecutionError:
+        """用预制响应对象跑一遍 build_llm 闭包，返回抛出的 NodeExecutionError。"""
+        _FakeChatWithMeta.next_response = response
+        with patch("kernel.model.ChatLiteLLM", _FakeChatWithMeta):
+            llm = build_llm(_fake_llm_config(max_tokens=8192))
+            with self.assertRaises(NodeExecutionError) as ctx:
+                llm("出题")
+        return ctx.exception
+
+    def test_empty_with_finish_reason_length_adds_hint(self):
+        """空 + finish_reason=length：保留原句，补一句可执行提示。"""
+        exc = self._invoke(
+            SimpleNamespace(
+                content="",
+                response_metadata={"finish_reason": "length"},
+                additional_kwargs={},
+            )
+        )
+        self.assertEqual(exc.node_name, "llm")
+        self.assertEqual(exc.message, EMPTY_PREFIX + EMPTY_CONTENT_HINT)
+        self.assertIn("疑似隐藏思考占满输出额度", exc.message)
+        self.assertIn("max_tokens", exc.message)
+        self.assertIn("非思考模型", exc.message)
+
+    def test_empty_without_reasoning_info_keeps_old_message(self):
+        """空 + 无 reasoning 信息（finish_reason=stop）：文案逐字不变。"""
+        exc = self._invoke(
+            SimpleNamespace(
+                content="   ",
+                response_metadata={"finish_reason": "stop"},
+                additional_kwargs={},
+            )
+        )
+        self.assertEqual(exc.message, EMPTY_PREFIX)
+        self.assertNotIn("max_tokens", exc.message)
+
+    def test_empty_without_response_metadata_keeps_old_message(self):
+        """响应对象不带元数据（旧假对象形态）：文案逐字不变，不抛二次异常。"""
+        exc = self._invoke(SimpleNamespace(content=""))
+        self.assertEqual(exc.message, EMPTY_PREFIX)
+
+    def test_empty_with_reasoning_content_adds_hint(self):
+        """空正文但 additional_kwargs 带 reasoning 段：同样补提示（thinking 块吃满额度）。"""
+        exc = self._invoke(
+            SimpleNamespace(
+                content="",
+                response_metadata={},
+                additional_kwargs={"reasoning_content": "先想一下题目…"},
+            )
+        )
+        self.assertEqual(exc.message, EMPTY_PREFIX + EMPTY_CONTENT_HINT)
+
+    def test_non_empty_content_parses_unchanged(self):
+        """正文非空：带截断信号也不影响解析（提示只在为空分支生效）。"""
+        _FakeChatWithMeta.next_response = SimpleNamespace(
+            content='```json\n{"status": "ok"}\n```',
+            response_metadata={"finish_reason": "length"},
+            additional_kwargs={"reasoning_content": "思考"},
+        )
+        with patch("kernel.model.ChatLiteLLM", _FakeChatWithMeta):
+            llm = build_llm(_fake_llm_config(max_tokens=8192))
+            self.assertEqual(llm("随便"), {"status": "ok"})
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
 
 
 # [C 2026-09-15 by codebuddy-ds41flash] tests/test_kernel_model.py 新增完成
+# [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 修复B：补第 4 节空内容文案用例

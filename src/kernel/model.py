@@ -83,7 +83,40 @@ def _looks_truncated(text: str) -> bool:
     return in_string
 
 
-def extract_json(content: str) -> dict[str, Any]:
+# [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 修复B：空正文的可执行提示。
+# 与 _looks_truncated 同一种情况——输出被长度上限吃掉（S046 真机：单次输出 31,046 token 中
+# 隐藏思考占 16,805，把 8,192 额度吃光，可见正文为空）。空正文没有可扫描的文本，
+# 故改用响应元数据里的等价信号（finish_reason=length，或带 reasoning 段而正文为空），
+# 不新增第二套截断判据，也不改解析与重试逻辑。
+EMPTY_CONTENT_HINT = "（疑似隐藏思考占满输出额度，可上调 `max_tokens` 或改用非思考模型）"
+
+
+def _empty_content_hint(response: Any) -> str:
+    """正文为空时判断原因是否属于「输出额度被吃掉」，返回可执行提示（否则空串）。
+
+    判定信号（缺失或不符时不加提示，保持原文案）：
+    1. 响应元数据 ``finish_reason == "length"``：provider 明确报告因长度上限停止；
+    2. ``additional_kwargs`` 里 reasoning 段非空：思考段吃满额度、可见正文为空。
+
+    Args:
+        response: ChatLiteLLM.invoke 返回的 AIMessage（或任何带同名属性的对象）。
+
+    Returns:
+        EMPTY_CONTENT_HINT 或空串。
+    """
+    meta = getattr(response, "response_metadata", None)
+    if isinstance(meta, dict):
+        if str(meta.get("finish_reason") or "").lower() == "length":
+            return EMPTY_CONTENT_HINT
+    extra = getattr(response, "additional_kwargs", None)
+    if isinstance(extra, dict):
+        reasoning = extra.get("reasoning_content")
+        if isinstance(reasoning, str) and reasoning.strip():
+            return EMPTY_CONTENT_HINT
+    return ""
+
+
+def extract_json(content: str, empty_hint: str = "") -> dict[str, Any]:
     """从模型返回文本中健壮提取 JSON 对象。
 
     处理顺序：
@@ -95,8 +128,13 @@ def extract_json(content: str) -> dict[str, Any]:
     满足截断特征（括号不配对 / 引号未闭合）报「疑似被 max_tokens 截断，原始长度 N」，
     否则报常规格式错；二者均为 NodeExecutionError(node="llm")。
 
+    [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 修复B：内容为空时，
+    原句「模型返回非JSON: 响应内容为空」保留，并在 ``empty_hint`` 非空时追加可执行提示
+    （由调用方按 _empty_content_hint 判据给出；缺省空串 = 原文案不变）。
+
     Args:
         content: 模型返回的原始文本。
+        empty_hint: 内容为空时追加到错误文案后的提示，空串表示不追加。
 
     Returns:
         解析出的 dict。
@@ -105,7 +143,7 @@ def extract_json(content: str) -> dict[str, Any]:
         NodeExecutionError: 内容为空或无法解析为 JSON 对象。
     """
     if content is None or not str(content).strip():
-        raise NodeExecutionError("llm", "模型返回非JSON: 响应内容为空")
+        raise NodeExecutionError("llm", f"模型返回非JSON: 响应内容为空{empty_hint}")
 
     text = str(content).strip()
 
@@ -196,7 +234,9 @@ def build_llm(
         content = _join_text_blocks(response.content)
         if as_text:
             return content.strip()
-        return extract_json(content)
+        # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 修复B：提示只在内容为空时
+        # 生效（extract_json 的为空分支），内容非空时该参数不影响任何解析行为
+        return extract_json(content, empty_hint=_empty_content_hint(response))
         # [C 2026-09-09] T1 llm 增加 as_text 文本通道：JSON 通道行为保持不变
 
     return llm

@@ -530,14 +530,18 @@ def _run_resume(
 ) -> int:
     """模式 2：断点恢复。检查待处理中断 -> Command(resume) -> 检查中断 -> HITL/DONE。
 
-    若 thread_id 不存在或无待处理中断：检查 graph 状态，已结束 -> DONE，否则 ERROR。
+    无待处理中断时按三态处理：
+    1. values 空 -> thread_id 不存在，报 ERROR；
+    2. values 非空且 next 空 -> 已到结尾，幂等输出 DONE；
+    3. values 非空且 next 非空 -> 节点执行中途崩溃留下的中间态，从待执行节点续跑
+       （graph.stream(None, config)），再按有无中断输出 HITL/DONE。
     """
     answer_text = answer if answer else "confirmed"
 
     # 先检查是否有待处理的中断
     interrupts = collect_interrupts(graph, config)
     if not interrupts:
-        # 无待处理中断：检查 graph 状态判断是"已结束"还是"thread 不存在/卡住"
+        # 无待处理中断：检查 graph 状态区分三态
         snap = graph.get_state(config)
         values = snap.values or {}
         next_nodes = list(snap.next or [])
@@ -545,11 +549,23 @@ def _run_resume(
             # thread 存在且已到达 END：幂等输出 DONE
             _emit_done(thread_id, values)
             return 0
-        # thread 不存在（values 空）或卡在无中断的中间态（next 非空）
+        if values and next_nodes:
+            # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 修复A：节点执行中途崩溃
+            # （如模型网关超时）后的中间态——next 非空、无待处理中断。此时从待执行节点
+            # 继续跑到下一个停等点或跑完，行为与一次性脚本等价（graph.stream(None) 后检查中断）。
+            for _chunk in graph.stream(None, config, stream_mode="updates"):
+                pass
+            interrupts = collect_interrupts(graph, config)
+            if interrupts:
+                _emit_hitl(graph, config, thread_id, interrupts[0])
+                return 0
+            final_state = graph.get_state(config).values or {}
+            _emit_done(thread_id, final_state)
+            return 0
+        # thread 不存在（values 空）
         _emit_error(
             thread_id,
-            f"thread_id {thread_id} 无待处理中断"
-            + ("（thread_id 不存在）" if not values else "（状态异常，无法恢复）"),
+            f"thread_id {thread_id} 无待处理中断（thread_id 不存在）",
         )
         return 1
 
