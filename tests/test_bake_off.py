@@ -22,6 +22,15 @@ subprocess 全部 mock，不发起任何真实模型调用、不跑真 Promptfoo
 8. QUESTION 文案：run_prd_workflow._build_question 对 bake_off 三态输出对应提示；
 9. 配置与字段：config.yaml bake_off 段候选、state 默认 bakeoff_artifacts、hitl_cli 展示 model_selection。
 
+S048（2026-09-16 第二块）补充覆盖：
+10. classify_candidate_choice 六种答复（序号 / 名称 / 全部 / 跳过 / 其他 / 空）+ 点名优先于全选
+    + 否定式优先 + 候选名里的版本号不被误当序号；
+11. 候选来源改为 state["model_candidates"]（停等材料含候选池全字段与「本次可实跑」一行）；
+12. 未接入候选进结论、标「需接入后验证」且不给三维数据；只跑「选中 ∩ 本机已接入」；
+13. 「选中但一个都不能跑」再停一次（stop_reason=no_runnable），不自动放行；
+14. 候选池为空退回 config 候选并留痕（载荷 reason + model_selection.candidate_pool_note）；
+15. 报告模板两列与「未实跑的候选与原因」一节；_build_question 新答复方式文案。
+
 运行（PowerShell，cwd=项目根）：
   $env:PYTHONPATH="src"
   C:\\Users\\A\\AppData\\Local\\hermes\\hermes-agent\\venv\\Scripts\\python.exe -m pytest tests/test_bake_off.py -v
@@ -60,8 +69,11 @@ from kernel.state import default_state  # noqa: E402
 from nodes import NodeDeps  # noqa: E402
 from nodes.bake_off import (  # noqa: E402
     aggregate_candidate_stats,
+    build_candidate_view,
+    build_decision_payload,
     build_provider_config,
     classify_bakeoff_answer,
+    classify_candidate_choice,
     judge_bakeoff,
     make_bake_off,
     route_after_bake_off,
@@ -84,6 +96,45 @@ DEFAULT_CANDIDATES = {
          "kind": "reasoner", "api_key_env": "DEEPSEEK_API_KEY"},
     ]
 }
+
+# S048：第 2 段候选池形态（provider_id 用 litellm 斜杠格式；第 2 段已补价与接入状态）
+POOL_CHAT = {
+    "provider_id": "deepseek/deepseek-chat",
+    "label": "DeepSeek-Chat",
+    "role": "主模型",
+    "why": "本需求的核心问答能力它已覆盖",
+    "access_hint": "本机已接入",
+    "notes": "长文稳定性一般",
+    "price": {"input_per_million": 0.5, "output_per_million": 1.5, "found": True},
+    "price_source": "远端实时",
+    "price_fetched_at": "2026-09-16 10:00:00 +0800",
+    "price_note": "",
+    "access_status": "本机已接入",
+}
+POOL_ZAI = {
+    "provider_id": "zai/glm-5.3-flash",
+    "label": "GLM-5.3-Flash",
+    "role": "备选（低成本）",
+    "why": "单价更低，适合高并发场景",
+    "access_hint": "需要 ZAI_API_KEY",
+    "notes": "函数调用支持较弱",
+    "price": {"input_per_million": 1.0, "output_per_million": 2.0, "found": True},
+    "price_source": "远端实时",
+    "price_fetched_at": "2026-09-16 10:00:00 +0800",
+    "price_note": "",
+    "access_status": "需接入后验证",
+}
+
+
+def _pool(*items) -> list:
+    """按传入顺序拼候选池（深拷贝，避免用例间互相污染）。"""
+    return [json.loads(json.dumps(item)) for item in items]
+
+
+def _view(pool: list, candidates_cfg=None) -> list:
+    return build_candidate_view(
+        pool, (candidates_cfg or DEFAULT_CANDIDATES)["candidates"]
+    )
 
 
 # ────────────────────────── 测试替身与夹具 ──────────────────────────
@@ -184,6 +235,13 @@ def _base_state(ai_core: bool = True) -> dict:
         "eval_archive": {"pass_lines": system["pass_lines"], "archive_version": 1},
         "eval_system": system,
     }
+
+
+def _state_with_pool(pool: list) -> dict:
+    """带第 2 段候选池的 state（S048 第二块：第 6 段读候选池）。"""
+    state = _base_state()
+    state["model_candidates"] = pool
+    return state
 
 
 def run_bakeoff_node(state, deps, answers, runs=None):
@@ -753,6 +811,333 @@ class TestConfigAndFields(unittest.TestCase):
             self.assertEqual(Path(config).parent.name, "评测")
             results = manager.save("z", "req", "bakeoff-deepseek_chat-results", ext=".json")
             self.assertEqual(Path(results).parent.name, "评测")
+
+
+# ──────────────────── 10. classify_candidate_choice（S048 第二块） ────────────────────
+
+
+class TestClassifyCandidateChoice(unittest.TestCase):
+    """六种答复：序号 / 名称 / 全部 / 跳过 / 其他 / 空；点名优先于全选、否定式优先。"""
+
+    def setUp(self):
+        self.view = _view(_pool(POOL_CHAT, POOL_ZAI))
+        self.pids = [item["provider_id"] for item in self.view]
+
+    def test_skip_words(self):
+        for word in ("跳过", "不用", "先用默认", "用默认", "直接用", "默认", "skip", "no"):
+            result = classify_candidate_choice(word, self.view)
+            self.assertEqual(result["decision"], "skip", msg=repr(word))
+            self.assertEqual(result["picked"], [], msg=repr(word))
+
+    def test_all_words(self):
+        for word in ("全部", "全部候选", "全跑", "都跑", "都试", "所有", "跑", "确认", "run"):
+            result = classify_candidate_choice(word, self.view)
+            self.assertEqual(result["decision"], "all", msg=repr(word))
+            self.assertEqual(result["picked"], self.pids, msg=repr(word))
+
+    def test_pick_by_index(self):
+        self.assertEqual(
+            classify_candidate_choice("1", self.view),
+            {"decision": "pick", "picked": ["deepseek/deepseek-chat"]},
+        )
+        self.assertEqual(
+            classify_candidate_choice("第2个", self.view),
+            {"decision": "pick", "picked": ["zai/glm-5.3-flash"]},
+        )
+
+    def test_pick_by_multi_index(self):
+        for word in ("1和2", "1、2", "1 2"):
+            self.assertEqual(
+                classify_candidate_choice(word, self.view)["picked"],
+                self.pids,
+                msg=repr(word),
+            )
+
+    def test_pick_by_name(self):
+        # label 片段
+        self.assertEqual(
+            classify_candidate_choice("就 deepseek-chat 吧", self.view)["picked"],
+            ["deepseek/deepseek-chat"],
+        )
+        # 完整 provider_id（litellm 斜杠格式）
+        self.assertEqual(
+            classify_candidate_choice("zai/glm-5.3-flash", self.view)["picked"],
+            ["zai/glm-5.3-flash"],
+        )
+
+    def test_version_digits_not_treated_as_index(self):
+        """候选名里的版本号（glm-5.3-flash）不能被当成序号 5 / 3。"""
+        result = classify_candidate_choice("跑 glm-5.3-flash", self.view)
+        self.assertEqual(result["decision"], "pick")
+        self.assertEqual(result["picked"], ["zai/glm-5.3-flash"])
+
+    def test_pick_beats_all(self):
+        # 点名与全选同时出现 -> 以点名为准
+        result = classify_candidate_choice("全部里只跑第2个", self.view)
+        self.assertEqual(result["decision"], "pick")
+        self.assertEqual(result["picked"], ["zai/glm-5.3-flash"])
+
+    def test_negation_first(self):
+        for word in ("不跳过", "别跳过", "不用跳过"):
+            self.assertEqual(
+                classify_candidate_choice(word, self.view)["decision"], "all", msg=repr(word)
+            )
+        for word in ("不跑", "别跑"):
+            self.assertEqual(
+                classify_candidate_choice(word, self.view)["decision"], "skip", msg=repr(word)
+            )
+
+    def test_other_and_empty(self):
+        for word in ("随便看看", "先讨论一下", None, "", "   ", "9"):
+            result = classify_candidate_choice(word, self.view)
+            self.assertEqual(result["decision"], "other", msg=repr(word))
+            self.assertEqual(result["picked"], [], msg=repr(word))
+
+
+# ────────────── 11~13. 节点读候选池、未接入过滤、「一个都不能跑」再停 ──────────────
+
+
+class TestBakeOffCandidatePool(unittest.TestCase):
+    def test_payload_carries_pool_fields_and_runnable_line(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            deps = make_deps(Path(tmp))
+            out, payloads = run_bakeoff_node(
+                _state_with_pool(_pool(POOL_CHAT, POOL_ZAI)), deps, answers=["跳过"]
+            )
+            payload = payloads[0]
+            self.assertEqual(payload["status"], "await_decision")
+            self.assertIn("本版暂无历史选型记录", payload["reason"])
+            self.assertIn("本次可实跑的候选：", payload["reason"])
+            self.assertIn("真实产生多次模型调用", payload["reason"])
+            # 候选池全字段（角色/理由/接入代价/已知限制/单价/取数来源/接入状态）
+            pool = payload["model_candidates"]
+            self.assertEqual(len(pool), 2)
+            for field in ("index", "provider_id", "label", "role", "why", "access_hint",
+                          "notes", "price", "price_source", "price_fetched_at",
+                          "price_note", "access_status"):
+                self.assertIn(field, pool[0], msg=field)
+            self.assertEqual(pool[0]["role"], "主模型")
+            self.assertEqual(pool[0]["price"]["input_per_million"], 0.5)
+            self.assertEqual(pool[0]["price_source"], "远端实时")
+            self.assertEqual(pool[1]["access_status"], "需接入后验证")
+            # 「本次可实跑」= 候选池 ∩ 本机已接入（zai 未接入，不在其中）
+            self.assertEqual(
+                [c["provider_id"] for c in payload["candidates"]],
+                ["deepseek/deepseek-chat"],
+            )
+            self.assertEqual(
+                payload["runnable_candidates"], "1. DeepSeek-Chat（deepseek/deepseek-chat）"
+            )
+            self.assertEqual(out["model_selection"]["status"], "skipped")
+
+    def test_only_runnable_selected_gets_run_and_unrun_is_annotated(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            deps = make_deps(Path(tmp))
+            _preset_prompt(deps)
+            out, payloads = run_bakeoff_node(
+                _state_with_pool(_pool(POOL_CHAT, POOL_ZAI)), deps,
+                answers=["1和2"], runs=[(EXIT_OK, _results([True] * 8, cost=0.02))],
+            )
+            self.assertEqual(payloads[0]["status"], "await_decision")
+            selection = out["model_selection"]
+            self.assertEqual(selection["status"], "completed")
+            self.assertEqual(len(selection["candidates"]), 2)
+
+            by_id = {c["provider_id"]: c for c in selection["candidates"]}
+            ran = by_id["deepseek/deepseek-chat"]
+            self.assertEqual(ran["run_status"], "已实跑")
+            self.assertEqual(ran["access_status"], "本机已接入")
+            self.assertEqual(ran["role"], "主模型")
+            self.assertEqual(ran["overall_rate"], 1.0)
+
+            unran = by_id["zai/glm-5.3-flash"]
+            self.assertEqual(unran["run_status"], "未实跑")
+            self.assertEqual(unran["run_note"], "需接入后验证")
+            self.assertEqual(unran["access_status"], "需接入后验证")
+            # 未实跑候选不给三维数据
+            for field in ("overall_rate", "critical_rate", "cost", "token_total",
+                          "latency_p50_ms", "latency_p95_ms"):
+                self.assertNotIn(field, unran, msg=field)
+
+            # 推荐只从实跑候选里硬判
+            self.assertEqual(
+                selection["recommended"]["provider_id"], "deepseek/deepseek-chat"
+            )
+            # 只有可跑的候选生成了配置与结果（实跑 1 个，不是 2 个）
+            self.assertEqual(len(out["bakeoff_artifacts"]["config_paths"]), 1)
+            self.assertEqual(len(out["bakeoff_artifacts"]["results_paths"]), 1)
+            self.assertTrue(
+                Path(out["bakeoff_artifacts"]["config_paths"][0]).name.startswith(
+                    "bakeoff-smoke-bakeoff-deepseek_deepseek-chat-eval_config"
+                )
+            )
+
+            # 报告：两列 + 「未实跑的候选与原因」一节 + 未实跑行三维渲染为 —
+            report = Path(out["bakeoff_artifacts"]["report_path"]).read_text(encoding="utf-8")
+            self.assertIn("角色与提案理由", report)
+            self.assertIn("接入状态", report)
+            self.assertIn("## 未实跑的候选与原因", report)
+            self.assertIn("GLM-5.3-Flash（zai/glm-5.3-flash）", report)
+            self.assertIn("需接入后验证", report)
+            self.assertIn("| — |", report)
+            self.assertIn("实跑候选数 | 1", report)
+
+    def test_pick_unrunnable_only_stops_again_then_reselect(self):
+        """选中但一个都不能跑：再停一次等改选，改选到可跑的才实跑（不自动放行）。"""
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            deps = make_deps(Path(tmp))
+            _preset_prompt(deps)
+            pool = _pool(POOL_ZAI, POOL_CHAT)  # 序号 1 = 未接入，序号 2 = 已接入
+            out, payloads = run_bakeoff_node(
+                _state_with_pool(pool), deps, answers=["1", "2"],
+                runs=[(EXIT_OK, _results([True] * 8))],
+            )
+            self.assertEqual([p["status"] for p in payloads],
+                             ["await_decision", "await_decision"])
+            self.assertEqual(payloads[1]["stop_reason"], "no_runnable")
+            self.assertIn("你选的候选本机都没有接入", payloads[1]["reason"])
+            self.assertIn("本次可选的是：2. DeepSeek-Chat（deepseek/deepseek-chat）",
+                          payloads[1]["reason"])
+            # 改选到可跑的候选后才实跑，且只跑它一个（配置与结果各 1 份 = 1 次 Promptfoo）
+            selection = out["model_selection"]
+            self.assertEqual(selection["status"], "completed")
+            self.assertEqual([c["provider_id"] for c in selection["candidates"]],
+                             ["deepseek/deepseek-chat"])
+            self.assertEqual(len(out["bakeoff_artifacts"]["config_paths"]), 1)
+            self.assertEqual(len(out["bakeoff_artifacts"]["results_paths"]), 1)
+
+    def test_all_unrunnable_never_auto_passes(self):
+        """全池未接入：不自动放行；用户改口「跳过」才放行（按默认模型记推荐）。"""
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            deps = make_deps(Path(tmp))
+            out, payloads = run_bakeoff_node(
+                _state_with_pool(_pool(POOL_ZAI)), deps, answers=["全部", "跳过"]
+            )
+            self.assertEqual(len(payloads), 2)
+            self.assertEqual(payloads[1]["stop_reason"], "no_runnable")
+            self.assertEqual(payloads[1]["runnable_candidates"], "（无）")
+            # 未进执行段：没有生成任何 Promptfoo 配置/结果（零实跑）
+            self.assertNotIn("bakeoff_artifacts", out)
+            selection = out["model_selection"]
+            self.assertEqual(selection["status"], "skipped")
+            self.assertEqual(selection["recommended"]["provider_id"], "deepseek:deepseek-chat")
+
+    def test_pool_empty_falls_back_to_config_with_trace(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            deps = make_deps(Path(tmp))
+            _preset_prompt(deps)
+            out, payloads = run_bakeoff_node(
+                _base_state(), deps, answers=["跑"],
+                runs=[(EXIT_OK, _results([True] * 8)), (EXIT_OK, _results([True] * 8))],
+            )
+            self.assertIn("未读到候选池，退回配置候选", payloads[0]["reason"])
+            self.assertEqual(payloads[0]["fallback_note"], "未读到候选池，退回配置候选")
+            # 退回后的候选 = config 候选（可跑）
+            self.assertEqual(
+                [c["id"] for c in payloads[0]["candidates"]],
+                ["deepseek:deepseek-chat", "deepseek:deepseek-reasoner"],
+            )
+            selection = out["model_selection"]
+            self.assertEqual(selection["candidate_pool_note"], "未读到候选池，退回配置候选")
+            report = Path(out["bakeoff_artifacts"]["report_path"]).read_text(encoding="utf-8")
+            self.assertIn("未读到候选池，退回配置候选", report)
+
+    def test_pool_empty_and_config_empty_still_raises(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            deps = make_deps(Path(tmp), bake_off_config={"candidates": []})
+            with self.assertRaises(NodeExecutionError):
+                make_bake_off(deps)(_base_state())
+
+    def test_build_decision_payload_shape(self):
+        view = _view(_pool(POOL_CHAT, POOL_ZAI))
+        payload = build_decision_payload("需求X", view)
+        self.assertEqual(payload["node"], "bake_off")
+        self.assertEqual(payload["status"], "await_decision")
+        self.assertEqual(payload["requirement_name"], "需求X")
+        self.assertEqual(payload["model_candidates"], view)
+        self.assertNotIn("stop_reason", payload)
+
+    def test_candidate_view_marks_runnable_by_config_match(self):
+        view = _view(_pool(POOL_CHAT, POOL_ZAI))
+        self.assertTrue(view[0]["runnable"])
+        self.assertEqual(view[0]["config_id"], "deepseek:deepseek-chat")
+        self.assertEqual(view[0]["kind"], "chat")
+        self.assertFalse(view[1]["runnable"])
+        self.assertEqual(view[1]["access_status"], "需接入后验证")
+        self.assertEqual([item["index"] for item in view], [1, 2])
+
+
+# ──────────────────── 15. QUESTION 文案与 CLI 载荷（S048 第二块） ────────────────────
+
+
+class TestS048QuestionAndCli(unittest.TestCase):
+    @staticmethod
+    def _load_workflow_module():
+        spec = importlib.util.spec_from_file_location(
+            "run_prd_workflow_under_test_bakeoff_s048",
+            REPO_ROOT / "scripts" / "run_prd_workflow.py",
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_await_decision_question_new_answer_ways(self):
+        question = self._load_workflow_module()._build_question(
+            "bake_off", {"node": "bake_off", "status": "await_decision"}, {}
+        )
+        self.assertIn("对比选型", question)
+        self.assertIn("真实产生多次模型调用", question)
+        self.assertIn("candidates", question)
+        self.assertIn("model_candidates", question)
+        self.assertIn("序号", question)
+        self.assertIn("全部", question)
+        self.assertIn("跳过", question)
+        self.assertIn("需接入后验证", question)
+
+    def test_no_runnable_question(self):
+        question = self._load_workflow_module()._build_question(
+            "bake_off",
+            {"node": "bake_off", "status": "await_decision",
+             "stop_reason": "no_runnable", "runnable_candidates": "（无）"},
+            {},
+        )
+        self.assertIn("本机都没有接入", question)
+        self.assertIn("改选", question)
+
+    def test_hitl_recap_fields_include_model_candidates(self):
+        from cli.hitl_cli import PAYLOAD_RECAP_FIELDS
+        self.assertIn("model_candidates", PAYLOAD_RECAP_FIELDS)
+        self.assertIn("runnable_candidates", PAYLOAD_RECAP_FIELDS)
+        self.assertIn("candidates", PAYLOAD_RECAP_FIELDS)
+
+    def test_recap_prints_model_candidates(self):
+        from cli.hitl_cli import _print_payload_recap
+        payload = build_decision_payload("需求X", _view(_pool(POOL_CHAT)))
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            _print_payload_recap(payload)
+        out = buf.getvalue()
+        self.assertIn("model_candidates", out)
+        self.assertIn("runnable_candidates", out)
+        self.assertIn("本次可实跑的候选", out)
+        self.assertIn("deepseek/deepseek-chat", out)
+
+    def test_status_block_carries_pool_and_runnable_line(self):
+        module = self._load_workflow_module()
+        payload = build_decision_payload(
+            "bakeoff-smoke", _view(_pool(POOL_CHAT, POOL_ZAI))
+        )
+        graph = MagicMock()
+        graph.get_state.return_value.values = {}
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            module._emit_hitl(graph, {}, "tid-bakeoff-s048", payload)
+        out = buf.getvalue()
+        self.assertIn("NODE: bake_off", out)
+        self.assertIn("model_candidates", out)
+        self.assertIn("runnable_candidates", out)
+        self.assertIn("本次可实跑的候选", out)
+        self.assertIn("需接入后验证", out)
 
 
 if __name__ == "__main__":

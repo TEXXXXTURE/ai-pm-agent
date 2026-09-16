@@ -1,13 +1,23 @@
 {# [C 2026-09-13 by codebuddy-ds41flash] 对比选型报告模板（bake_off 节点渲染）
    渲染上下文：requirement_name / generated_at / selection（含 status/recommended/candidates）。
-   推荐结论由代码硬判给出（judge_bakeoff），模板只负责呈现，不做任何判定。 #}
+   推荐结论由代码硬判给出（judge_bakeoff），模板只负责呈现，不做任何判定。
+   [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 第二块：
+   候选来源改为第 2 段候选池（用户拍板选哪几个），候选表加「角色与提案理由」「接入状态」
+   两列；未实跑候选（本机未接入）不给三维数据（渲染为 —），另起一节说明没跑的原因。 #}
 {% set rec = selection.get('recommended', {}) %}
 {% set candidates = selection.get('candidates', []) %}
+{% set ran = candidates | selectattr('run_status', 'equalto', '已实跑') | list %}
+{% set unran = candidates | selectattr('run_status', 'equalto', '未实跑') | list %}
+{% if not ran and not unran %}{% set ran = candidates %}{% endif %}
 # 模型对比选型报告 — {{ requirement_name }}
 
-> 本报告由流水线第 6 段「对比选型模型」自动生成；用第 5 段同一批考题横跑候选模型，
-> 推荐结论由代码按「整体通过率 > 关键题通过率 > 成本」硬判，模型不参与推荐。
+> 本报告由流水线第 6 段「对比选型模型」自动生成；候选来自第 2 段产出的候选池，
+> 由用户拍板跑哪几个，只对「本机已接入」的候选实跑；未接入的候选照列但标「需接入后验证」，
+> 不给实测数据。推荐结论由代码按「整体通过率 > 关键题通过率 > 成本」硬判，模型不参与推荐。
 
+{% if selection.get('candidate_pool_note') %}
+> 说明：{{ selection.get('candidate_pool_note') }}（本次候选来自 config.yaml 的 bake_off.candidates）。
+{% endif %}
 ## 推荐结论
 
 {% if rec %}
@@ -26,16 +36,27 @@
 
 ## 三维对比
 
-| 候选 | 整体通过率 | 关键题通过率 | 成本 | P50(ms) | P95(ms) | token |
-|---|---|---|---|---|---|---|
+| 候选 | 角色与提案理由 | 接入状态 | 整体通过率 | 关键题通过率 | 成本 | P50(ms) | P95(ms) | token |
+|---|---|---|---|---|---|---|---|---|
 {% for item in candidates %}
-| {{ item.get('label', item.get('provider_id', '')) }}（{{ item.get('provider_id', '') }}） | {{ "%.1f"|format(item.get('overall_rate', 0) * 100) }}% | {{ "%.1f"|format(item.get('critical_rate', 0) * 100) }}% | {{ item.get('cost', 0)|cost }} | {{ item.get('latency_p50_ms', 0) }} | {{ item.get('latency_p95_ms', 0) }} | {{ item.get('token_total', 0) }} |
+{% set is_ran = item.get('run_status', '已实跑') == '已实跑' %}
+| {{ item.get('label', item.get('provider_id', '')) }}（{{ item.get('provider_id', '') }}） | {{ item.get('role', '') }}{% if item.get('why') %}：{{ item.get('why') }}{% endif %} | {{ item.get('access_status', '') }} | {% if is_ran %}{{ "%.1f"|format(item.get('overall_rate', 0) * 100) }}%{% else %}—{% endif %} | {% if is_ran %}{{ "%.1f"|format(item.get('critical_rate', 0) * 100) }}%{% else %}—{% endif %} | {% if is_ran %}{{ item.get('cost', 0)|cost }}{% else %}—{% endif %} | {% if is_ran %}{{ item.get('latency_p50_ms', 0) }}{% else %}—{% endif %} | {% if is_ran %}{{ item.get('latency_p95_ms', 0) }}{% else %}—{% endif %} | {% if is_ran %}{{ item.get('token_total', 0) }}{% else %}—{% endif %} |
 {% endfor %}
+
+## 未实跑的候选与原因
+
+{% if unran %}
+{% for item in unran %}
+- **{{ item.get('label', item.get('provider_id', '')) }}**（{{ item.get('provider_id', '') }}）：{{ item.get('run_note', '需接入后验证') }}——本机未接入该候选（接入代价：{{ item.get('access_hint', '未注明') }}），本次不实跑、不编造数据；实测需先接入再重跑本节点。
+{% endfor %}
+{% else %}
+本次所选候选均已实跑，无未实跑候选。
+{% endif %}
 
 ## 逐模型备注
 
-{% if candidates %}
-{% for item in candidates %}
+{% if ran %}
+{% for item in ran %}
 - **{{ item.get('label', item.get('provider_id', '')) }}**（{{ item.get('provider_id', '') }}）：通过 {{ item.get('successes', 0) }} / 未通过 {{ item.get('failures', 0) }}（含工具级错误 {{ item.get('errors', 0) }}），成本 {{ item.get('cost', 0)|cost }}，token {{ item.get('token_total', 0) }}，P50 {{ item.get('latency_p50_ms', 0) }}ms / P95 {{ item.get('latency_p95_ms', 0) }}ms。
 {% endfor %}
 {% else %}
@@ -46,9 +67,9 @@
 
 | 项目 | 数值 |
 |---|---|
-| 候选数 | {{ candidates|length }} |
-| 成本合计 | {{ candidates|sum(attribute='cost')|cost }} |
-| token 合计 | {{ candidates|sum(attribute='token_total') }} |
+| 实跑候选数 | {{ ran|length }} |
+| 成本合计 | {{ ran|sum(attribute='cost')|cost }} |
+| token 合计 | {{ ran|sum(attribute='token_total') }} |
 
 ---
 

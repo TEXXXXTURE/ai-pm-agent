@@ -71,6 +71,11 @@ PAYLOAD_RECAP_FIELDS: tuple[str, ...] = (
     "prompt_path",
     # [C 2026-09-13 by codebuddy-ds41flash] 第 6 段对比选型门中断载荷携带候选清单与选型结论
     "candidates",
+    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 第二块：第 6 段 await_decision
+    # 载荷携带第 2 段候选池（全字段：角色/理由/接入代价/已知限制/单价/取数来源/接入状态）
+    # 与「本次可实跑的候选」一行（= 候选池 ∩ 本机已接入）
+    "model_candidates",
+    "runnable_candidates",
     "model_selection",
     # [C 2026-09-14 by codebuddy-ds41flash] S041 整合节点中断载荷携带草案/结论/计数
     "requirement_draft",
