@@ -1,4 +1,5 @@
 # [C 2026-09-12 by MA] 构建期跑评测节点（eval_run）自测
+# [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 修复单：第 8 段拆两步，补 eval_gate 用例
 """eval_run 零 API 测试：patch 掉 nodes.eval_run.interrupt 与 subprocess.run，
 不发起任何真实模型调用、不跑真 Promptfoo。
 
@@ -16,20 +17,25 @@
      恢复后文件存在 -> 继续执行；
    - tool_error：subprocess 返回码 1 -> interrupt(status=tool_error) 含 reason；
      恢复后返回码 0 -> 继续；
-   - eval_failed：返回码 100 + judge=False -> interrupt(status=eval_failed) 含 report；
-     恢复后重跑，返回码 0 且 judge=True -> 放行；
    - 达标路径：返回码 0 + judge=True -> eval_report.passed=True、eval_run_count=1、
      eval_artifacts 三路径；
+   - 未达标路径（S048 拆两步后）：返回码 100 + judge=False -> **不再中断**，仍 return
+     eval_report（passed=False）/ eval_run_count / eval_artifacts 三字段；
    - eval_run_count 每次执行 +1；await_prompt 阶段不 +1；
-5. 路由：route_after_eval_run 两态（passed -> launch_plan；否则 -> eval_run）；
+5. eval_gate（S048 第 8 段后半，纯函数）：达标返回空、不中断；未达标 interrupt 载荷六字段
+   与原一致（仅 node 改名 eval_gate）、report 只含判定字段；eval_report 缺失/畸形保守返回
+   空且路由回 eval_run；节点函数无 deps 闭包（不可能调模型）；
+6. 路由：route_after_eval_gate 两态（passed -> launch_plan；否则 -> eval_run）；
    route_after_issue_confirm：确认且 ai_core=True -> eval_run；确认且普通轨 -> artifact_persist；
    重拆/回炉分支逐字不变；
-6. 图编译：17 节点齐（新增 eval_run；第 6 段再增 bake_off）；普通轨 issue_confirm 确认分支不经 eval_run；
-7. QUESTION 文案：run_prd_workflow._build_question 对 eval_run 三态输出对应提示。
+7. 图编译：19 节点齐（S048 新增 eval_gate）；eval_run -普通边-> eval_gate，
+   eval_gate 两态条件边；普通轨 issue_confirm 确认分支不经 eval_run / eval_gate；
+8. QUESTION 文案：run_prd_workflow._build_question 对 eval_run 两态、eval_gate 一态输出提示。
 """
 from __future__ import annotations
 
 import importlib.util
+import inspect
 import json
 import sys
 import tempfile
@@ -53,17 +59,18 @@ from components.registry import ComponentRegistry  # noqa: E402
 from kernel.artifact import ArtifactManager, sanitize_name  # noqa: E402
 from kernel.graph import build_graph  # noqa: E402
 from kernel.runner import NodeRunner  # noqa: E402
-from nodes import NodeDeps  # noqa: E402
+from nodes import NodeDeps, build_nodes  # noqa: E402
 from nodes.eval_design import render_promptfoo_yaml  # noqa: E402
 from nodes.eval_run import (  # noqa: E402
     EXIT_CONTENT_FAIL,
     EXIT_OK,
     EXIT_TOOL_ERROR,
+    eval_gate,
     finalize_eval_config,
     judge_eval_report,
     make_eval_run,
     parse_promptfoo_results,
-    route_after_eval_run,
+    route_after_eval_gate,
 )
 from nodes.issues import route_after_issue_confirm  # noqa: E402
 
@@ -487,25 +494,31 @@ class TestEvalRunNode(unittest.TestCase):
             self.assertTrue(out["eval_report"]["passed"])
             self.assertEqual(out["eval_run_count"], 1)  # 只成功那次计数
 
-    def test_eval_failed_then_pass_on_rerun(self):
+    def test_eval_failed_no_longer_interrupts_returns_three_fields(self):
+        # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 拆两步：未达标不再在 eval_run 内中断，
+        # 一律 return 三字段（判定与停等移交 eval_gate），修「未达标不写状态致清单缺三件套」。
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             deps = make_deps(Path(tmp))
             state = self._base_state()
             success_fail = [True]*5 + [False]*3  # overall 62.5% 不达标
-            success_pass = [True]*8
             out, payloads = run_eval_node(
                 state, deps,
-                answers=["rerun"],
-                returncodes=[EXIT_CONTENT_FAIL, EXIT_OK],
+                answers=[],
+                returncodes=[EXIT_CONTENT_FAIL],
                 results_json_list=[
                     _results_json(5, 3, per_exam_success=success_fail, descriptions=self.DESCRIPTIONS),
-                    _results_json(8, 0, per_exam_success=success_pass, descriptions=self.DESCRIPTIONS),
                 ],
             )
-            self.assertEqual(payloads[0]["status"], "eval_failed")
-            self.assertIn("report", payloads[0])
-            self.assertTrue(out["eval_report"]["passed"])
-            self.assertEqual(out["eval_run_count"], 2)  # 两次执行都计数
+            self.assertEqual(payloads, [])  # 未达标不再中断停等
+            self.assertFalse(out["eval_report"]["passed"])
+            self.assertEqual(out["eval_run_count"], 1)
+            self.assertEqual(sorted(out["eval_artifacts"]),
+                             ["config_path", "report_path", "results_path"])
+            # 未过关键题（A1/A2）与阈值差距也在记录里，下游可读
+            self.assertTrue(out["eval_report"]["failed_critical_descriptions"])
+            self.assertIn("overall", out["eval_report"]["gaps"])
+            for path in out["eval_artifacts"].values():
+                self.assertTrue(Path(path).exists(), msg=path)
 
     def test_pass_path_count_one(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
@@ -533,24 +546,113 @@ class TestEvalRunNode(unittest.TestCase):
                 node(state)
 
 
+# ────────────────────────── 4b. eval_gate（第 8 段后半） ──────────────────────────
+
+
+def _fake_eval_report(passed: bool) -> dict:
+    """构造与 eval_run 写入形态一致的 eval_report（判定字段 + 逐题数据 + run_count）。"""
+    return {
+        "passed": passed,
+        "overall_rate": 0.667 if not passed else 1.0,
+        "critical_rate": 0.857 if not passed else 1.0,
+        "overall_threshold": 0.85,
+        "critical_threshold": 0.95,
+        "failed_critical_descriptions": [] if passed else ["A1 注入"],
+        "gaps": {"overall": "66.7% vs 85.0%", "critical": "85.7% vs 95.0%"},
+        "successes": 8,
+        "failures": 4,
+        "errors": 0,
+        "total": 12,
+        "per_exam": [{"test_idx": 0, "success": True}],
+        "token_usage": {"prompt": 1, "completion": 2, "total": 3},
+        "cost": 0.01,
+        "duration_ms": 1000,
+        "run_count": 1,
+    }
+
+
+class TestEvalGate(unittest.TestCase):
+    """S048：判定 + 停等独立成节点（纯函数，不调模型）。"""
+
+    def _run(self, report):
+        """调 eval_gate，返回 (返回值, interrupt 载荷列表)。"""
+        payloads: list[dict] = []
+        with patch("nodes.eval_run.interrupt", side_effect=lambda v: payloads.append(v)):
+            out = eval_gate({"ai_core": True, "requirement_name": "eval-smoke",
+                             "eval_report": report})
+        return out, payloads
+
+    def test_pass_returns_empty_without_interrupt(self):
+        out, payloads = self._run(_fake_eval_report(True))
+        self.assertEqual(out, {})
+        self.assertEqual(payloads, [])  # 达标不放行以外的行为：不中断
+
+    def test_fail_interrupts_with_same_payload_fields(self):
+        report = _fake_eval_report(False)
+        out, payloads = self._run(report)
+        self.assertEqual(out, {})
+        self.assertEqual(len(payloads), 1)
+        payload = payloads[0]
+        # 字段与原 eval_run 未达标分支一致，仅 node 改为 eval_gate
+        self.assertEqual(payload["node"], "eval_gate")
+        self.assertEqual(payload["status"], "eval_failed")
+        self.assertEqual(payload["reason"], "评测未达及格线")
+        self.assertEqual(payload["requirement_name"], "eval-smoke")
+        self.assertEqual(payload["eval_report"], report)  # 全量记录原样透传
+        # report 只放判定字段，不含逐题明细
+        self.assertEqual(payload["report"]["passed"], False)
+        self.assertEqual(payload["report"]["overall_rate"], 0.667)
+        self.assertEqual(payload["report"]["failed_critical_descriptions"], ["A1 注入"])
+        self.assertEqual(payload["report"]["gaps"]["critical"], "85.7% vs 95.0%")
+        self.assertNotIn("per_exam", payload["report"])
+        self.assertNotIn("run_count", payload["report"])
+
+    def test_fail_then_answer_routes_back_to_eval_run(self):
+        # 用户答复任意内容后节点返回 {}，条件边据 passed 非 True 回 eval_run 重跑（不自动放行）
+        report = _fake_eval_report(False)
+        state = {"ai_core": True, "requirement_name": "eval-smoke", "eval_report": report}
+        with patch("nodes.eval_run.interrupt", side_effect=lambda v: "rerun"):
+            out = eval_gate(state)
+        self.assertEqual(out, {})
+        self.assertEqual(route_after_eval_gate(state), "eval_run")
+
+    def test_missing_or_malformed_report_conservative_rerun(self):
+        for bad in (None, "", {}, [], "passed", {"passed": "yes"}, {"passed": None}):
+            with self.subTest(report=bad):
+                out, payloads = self._run(bad)
+                self.assertEqual(out, {})
+                self.assertEqual(payloads, [])  # 不停等、不放行
+                self.assertEqual(
+                    route_after_eval_gate({"eval_report": bad}), "eval_run"
+                )
+
+    def test_gate_is_pure_node_without_deps(self):
+        # 纯函数证据：build_nodes 注册的是同一个模块级函数对象（无 deps 闭包 → 不可能调模型）
+        self.assertEqual(inspect.signature(eval_gate).parameters.keys(), {"state"})
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            deps = make_deps(Path(tmp))
+            node = build_nodes(deps)["eval_gate"]
+        self.assertIs(node, eval_gate)
+
+
 # ────────────────────────── 5. 路由 ──────────────────────────
 
 
 class TestRouting(unittest.TestCase):
-    def test_route_after_eval_run_pass(self):
+    def test_route_after_eval_gate_pass(self):
         self.assertEqual(
-            route_after_eval_run({"eval_report": {"passed": True}}),
+            route_after_eval_gate({"eval_report": {"passed": True}}),
             "launch_plan",
         )
 
-    def test_route_after_eval_run_fail(self):
+    def test_route_after_eval_gate_fail(self):
         self.assertEqual(
-            route_after_eval_run({"eval_report": {"passed": False}}),
+            route_after_eval_gate({"eval_report": {"passed": False}}),
             "eval_run",
         )
 
-    def test_route_after_eval_run_empty(self):
-        self.assertEqual(route_after_eval_run({}), "eval_run")
+    def test_route_after_eval_gate_empty(self):
+        self.assertEqual(route_after_eval_gate({}), "eval_run")
 
     def test_issue_confirm_ai_core_goes_eval_run(self):
         state = {
@@ -584,7 +686,7 @@ class TestRouting(unittest.TestCase):
 
 
 class TestGraphWiring(unittest.TestCase):
-    def test_graph_compiles_with_seventeen_nodes(self):
+    def test_graph_compiles_with_nineteen_nodes(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             deps = make_deps(Path(tmp))
             graph = build_graph(deps, db_path=str(Path(tmp) / "g.db"))
@@ -592,10 +694,23 @@ class TestGraphWiring(unittest.TestCase):
             self.assertIn("eval_run", names)
             # [C 2026-09-13 by codebuddy-ds41flash] 第 6 段新增 bake_off 后为 17 个真实节点
             # [C 2026-09-14 by codebuddy-ds41flash] S041 新增 requirement_refine 后为 18 个真实节点
-            # （本测试仅随图节点数增长同步计数断言，eval_run 节点自身行为断言未改动）
+            # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 第 8 段拆两步，新增 eval_gate
+            # 后为 19 个真实节点（本测试仅随图节点数增长同步计数断言，eval_run 节点自身行为断言未改动）
             self.assertIn("bake_off", names)
+            self.assertIn("eval_gate", names)
             real = names - {"__start__", "__end__"}
-            self.assertEqual(len(real), 18)
+            self.assertEqual(len(real), 19)
+
+    def test_eval_run_plain_edge_to_gate_and_two_way_conditional(self):
+        # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048：eval_run 普通边到 eval_gate，
+        # eval_gate 条件边两态（launch_plan / eval_run 重跑）
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            deps = make_deps(Path(tmp))
+            graph = build_graph(deps, db_path=str(Path(tmp) / "g.db"))
+            drawn = graph.get_graph().draw_mermaid()
+            self.assertIn("eval_run --> eval_gate", drawn)
+            self.assertIn("eval_gate -.-> launch_plan", drawn)
+            self.assertIn("eval_gate -.-> eval_run", drawn)
 
 
 # ────────────────────────── 7. QUESTION 文案 ──────────────────────────
@@ -632,14 +747,16 @@ class TestQuestionText(unittest.TestCase):
         self.assertIn("工具", q)
 
     def test_eval_run_eval_failed_question(self):
+        # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048：未达标的问句移到 eval_gate
         mod = self._load_workflow_module()
         q = mod._build_question(
-            "eval_run",
-            {"node": "eval_run", "status": "eval_failed",
+            "eval_gate",
+            {"node": "eval_gate", "status": "eval_failed",
              "report": {"passed": False}},
             {},
         )
         self.assertIn("不设自动放行", q)
+        self.assertIn("eval_gate", q)
 
 
 # [C 2026-09-12 by MA] tests/test_eval_run.py 新增完成

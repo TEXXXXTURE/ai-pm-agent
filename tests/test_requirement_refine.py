@@ -986,6 +986,7 @@ class TestDraftProgressWiring(unittest.TestCase):
 class TestGraphWiring(unittest.TestCase):
     def test_graph_compiles_with_eighteen_nodes(self):
         # R16：图编译通过，节点数 18（17 + requirement_refine）
+        # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 新增 eval_gate 后为 19
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             tmp_path = Path(tmp)
             deps = make_deps(tmp_path, FakeLLM())
@@ -1009,14 +1010,16 @@ class TestGraphWiring(unittest.TestCase):
                 "issue_splitting",
                 "issue_confirm",
                 "eval_run",
+                # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 第 8 段拆两步新增判定门
+                "eval_gate",
                 "launch_plan",
                 "launch_confirm",
                 "artifact_persist",
             ):
                 self.assertIn(name, names, msg=name)
-            # 真实业务节点数 = 18（剔除 langgraph 内置 __start__/__end__）
+            # 真实业务节点数 = 19（剔除 langgraph 内置 __start__/__end__）
             real_nodes = names - {"__start__", "__end__"}
-            self.assertEqual(len(real_nodes), 18)
+            self.assertEqual(len(real_nodes), 19)
 
     def test_graph_edges_requirement_confirm_conditional(self):
         # 确认门出口改条件边：到 needs_discovery 和 requirement_refine 两条

@@ -37,7 +37,11 @@
 #     纯改判）走 needs_discovery（原路径，普通轨行为逐字不变）。整合节点条件边三态：
 #     confirm/reclassify→needs_discovery；feedback→自环重整合（前 2 版自动，第 3 版升级暂停）；
 #     abandon→END。普通轨实际执行路径逐字不变（确认 → 挖需求 → 写 PRD）。
-"""LangGraph 图装配：纵切 18 节点真实接线 + requirement_confirm / requirement_refine /
+# [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 修复单：第 8 段拆两步（19 节点）。
+#     eval_run 改为普通边到 eval_gate（只跑与记录，达标与否都 return 三状态字段）；
+#     eval_gate 条件边两态（passed is True → launch_plan；其余 → eval_run 重跑）。
+#     未达标的停等从 eval_run 内部移到 eval_gate；普通轨仍由 issue_confirm 直达 launch_plan，逐字不变。
+"""LangGraph 图装配：纵切 19 节点真实接线 + requirement_confirm / requirement_refine /
 feasibility_confirm / eval_confirm / issue_confirm / launch_confirm 六扇 HITL 门。
 
 节点函数由 nodes.build_nodes(deps) 构建（依赖通过 NodeDeps 注入）。
@@ -64,8 +68,10 @@ feasibility_confirm / eval_confirm / issue_confirm / launch_confirm 六扇 HITL 
         launch_plan（确认 且普通轨：route 返回 "artifact_persist" 语义值映射到 launch_plan 节点）
         issue_splitting（修改意见打回重拆；前 2 轮自动，第 3 版起升级暂停）
         prd_generation（"回PRD"回炉重写，全程限 1 次；重写后自动复审→重拆→重回确认门）
-    → eval_run（第 8 段构建期跑评测，AI 核心需求经此）→ 条件边两态：
-        launch_plan（达标放行）／eval_run（未达标/工具错误在节点内 interrupt，恢复后重跑自环）
+    → eval_run（第 8 段前半：构建期跑评测 + 记录，AI 核心需求经此）
+        → 普通边 eval_gate（第 8 段后半：判定 + 停等，纯函数）
+            → 条件边两态：launch_plan（达标放行）／eval_run（未达标/记录缺失回重跑；
+              未达标在 eval_gate 内 interrupt，恢复后经条件边回 eval_run 重跑，不设自动放行）
     → launch_plan → launch_confirm(HITL 发布计划确认门) → 条件边三分支：
         artifact_persist（确认：落盘 launch_plan.md 及前序四产物）
         launch_plan（修改意见打回重调；前 2 轮自动，第 3 版起升级暂停）
@@ -109,7 +115,7 @@ def build_graph(deps: Any, db_path: str | None = None) -> Any:
         route_after_eval_confirm,
     )
     from nodes.eval_run import (  # [C 2026-09-12 by codebuddy-ds41flash] 构建期跑评测条件边
-        route_after_eval_run,
+        route_after_eval_gate,  # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 由 route_after_eval_run 改名
     )
     from nodes.bake_off import (  # [C 2026-09-13 by codebuddy-ds41flash] 第 6 段对比选型条件边
         route_after_bake_off,
@@ -239,12 +245,14 @@ def build_graph(deps: Any, db_path: str | None = None) -> Any:
             "eval_run": "eval_run",
         },
     )
-    # [C 2026-09-12 by codebuddy-ds41flash] 第 8 段：构建期跑评测（AI 核心需求经此，普通轨不经）。
-    # 达标 -> launch_plan；未达标/工具错误/待 prompt 均在节点内部 interrupt，graph 拿到的
-    # 只有 passed=True 的返回值；route 保守兜底自环 eval_run->eval_run（未达标恢复后重跑本节点）。
+    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 修复单：第 8 段拆两步（AI 核心需求经此，
+    # 普通轨不经）。eval_run 只跑与记录（三种前置暂停留在节点内），无条件走普通边到 eval_gate；
+    # eval_gate 判定达标放行 / 未达标在节点内 interrupt，恢复后由条件边回 eval_run 重跑（口径一致：
+    # 不设自动放行）。route_after_eval_gate 的判定规则与原 route_after_eval_run 一字不改。
+    graph.add_edge("eval_run", "eval_gate")
     graph.add_conditional_edges(
-        "eval_run",
-        route_after_eval_run,
+        "eval_gate",
+        route_after_eval_gate,
         {
             "launch_plan": "launch_plan",
             "eval_run": "eval_run",

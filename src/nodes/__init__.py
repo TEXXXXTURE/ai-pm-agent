@@ -29,7 +29,10 @@
 #     requirement_confirm 出口改条件边——pending=True（feedback/改判带附言）走 requirement_refine
 #     （调模型整合 + HITL 确认/改判/放弃/带新意见重整合，前 2 版自动，第 3 版升级暂停）；
 #     pending=False（confirm/纯改判）走 needs_discovery（原路径，普通轨行为逐字不变）。
-"""nodes 包：纵切 18 节点真实接线。
+# [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 修复单：第 8 段拆两步（19 节点）。
+#     eval_run 只跑与记录（达标与否都 return 三状态字段），判定与停等独立成 eval_gate
+#     （纯函数，不调模型，未达标停等不自动放行）；普通轨不经这两个节点，行为逐字不变。
+"""nodes 包：纵切 19 节点真实接线。
 
 - NodeDeps：节点依赖容器（runner / registry / artifacts / kb / rag / eval_tool / bake_off_config）；
 - build_nodes(deps)：返回有序 dict，key 顺序即图执行顺序：
@@ -42,7 +45,8 @@
   → bake_off（第 6 段对比选型，仅 AI 核心需求；条件边：issue_splitting / bake_off 自环）
   →（条件边：非 reject 且普通轨）issue_splitting
   → issue_confirm（HITL；条件边：eval_run / launch_plan / issue_splitting / prd_generation）
-  → eval_run（第 8 段构建期跑评测，仅 AI 核心需求；条件边：launch_plan / eval_run 自环）
+  → eval_run（第 8 段前半：跑评测 + 记录，仅 AI 核心需求；普通边到 eval_gate）
+  → eval_gate（第 8 段后半：判定 + 未达标停等；条件边：launch_plan / eval_run 重跑）
   → launch_plan → launch_confirm（HITL；条件边：artifact_persist / launch_plan / issue_splitting）。
 """
 from __future__ import annotations
@@ -78,6 +82,7 @@ from nodes.eval_design import (  # [C 2026-09-12 by codebuddy-ds41flash] 设计�
     make_eval_design,
 )
 from nodes.eval_run import (  # [C 2026-09-12 by codebuddy-ds41flash] 第 8 段：构建期跑评测
+    eval_gate,  # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 第 8 段后半：判定 + 停等
     make_eval_run,
 )
 from nodes.bake_off import (  # [C 2026-09-13 by codebuddy-ds41flash] 第 6 段：对比选型模型
@@ -110,7 +115,7 @@ class NodeDeps:
 
 
 def build_nodes(deps: NodeDeps) -> dict:
-    """构建 18 个节点函数的有序 dict（key 顺序与图执行顺序一致）。"""
+    """构建 19 个节点函数的有序 dict（key 顺序与图执行顺序一致）。"""
     return {
         "kb_lookup": make_kb_lookup(deps),
         "intake": make_intake(deps),
@@ -143,6 +148,9 @@ def build_nodes(deps: NodeDeps) -> dict:
         # [C 2026-09-12 by codebuddy-ds41flash] 第 8 段构建期跑评测（仅 AI 核心需求经过）：
         # 确认工单后、写发布计划前，subprocess 调 Promptfoo + 代码硬判达标；普通轨由条件边跳过
         "eval_run": make_eval_run(deps),
+        # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048：第 8 段后半判定门
+        #（纯函数，不调模型）：eval_run 跑通记录后判定，未达标在此停等，不设自动放行
+        "eval_gate": eval_gate,
         # [C 2026-09-11] 块1 发布计划节点（工单确认门通过后产计划）
         "launch_plan": make_launch_plan(deps),
         # [C 2026-09-11] 块2 发布计划确认门（HITL，不调模型），三分支条件边由 graph.py 装配：

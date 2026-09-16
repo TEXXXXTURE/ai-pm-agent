@@ -706,8 +706,9 @@ class TestGraphWiring(unittest.TestCase):
             names = set(graph.get_graph().nodes.keys())
             self.assertIn("bake_off", names)
             # [C 2026-09-14 by codebuddy-ds41flash] S041 新增 requirement_refine 后为 18 个真实节点
+            # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 新增 eval_gate 后为 19 个真实节点
             real = names - {"__start__", "__end__"}
-            self.assertEqual(len(real), 18)
+            self.assertEqual(len(real), 19)
             drawn = graph.get_graph().draw_mermaid()
             self.assertTrue(
                 any("eval_confirm" in ln and "bake_off" in ln

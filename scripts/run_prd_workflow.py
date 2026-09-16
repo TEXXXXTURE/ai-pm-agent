@@ -261,6 +261,9 @@ def _emit_hitl(
         # [C 2026-09-12 by codebuddy-ds41flash] 第 8 段评测执行门：透传 status/reason
         #（await_prompt/tool_error/eval_failed 三态都带 status + reason；与 issue_confirm 等同处理）
         "eval_run",
+        # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048：第 8 段后半判定门
+        #（eval_failed 停等已搬到此节点，载荷同样带 status + reason）
+        "eval_gate",
         # [C 2026-09-13 by codebuddy-ds41flash] 第 6 段对比选型门：透传 status/reason
         #（await_decision/await_prompt/tool_error 三态都带 status + reason）
         "bake_off",
@@ -359,7 +362,9 @@ def _build_question(node_name: str, payload: dict, state: dict) -> str:
             "可让 Pi 协助调查后带新决策再起草）。"
         )
     if node_name == "eval_run":
-        # [C 2026-09-12 by codebuddy-ds41flash] 第 8 段评测执行门：按 status 三态给中文提示
+        # [C 2026-09-12 by codebuddy-ds41flash] 第 8 段评测执行节点：按 status 两态给中文提示
+        # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048：第 8 段拆两步后，本节点只剩
+        # 「跑」这一步的两种暂停（await_prompt / tool_error）；未达标的问句移到 eval_gate 分支。
         status = payload.get("status")
         if status == "await_prompt":
             return (
@@ -367,15 +372,16 @@ def _build_question(node_name: str, payload: dict, state: dict) -> str:
                 "请把被测 system_prompt.txt 放到下方中断材料的 prompt_path 指定路径，"
                 "放好后回复任意内容恢复，流水线将重新检查并继续执行评测。"
             )
-        if status == "tool_error":
-            return (
-                "节点「eval_run」构建期跑评测：Promptfoo 工具执行失败（配置/环境/网络错误，"
-                "不代表模型质量结论），失败原因见下方中断材料的 reason 字段尾部。"
-                "请修复环境或评测配置后回复任意内容重跑评测。"
-            )
-        # eval_failed：工具跑通但未达及格线
         return (
-            "节点「eval_run」构建期跑评测：评测结果未达及格线，流水线暂停（不设自动放行）。"
+            "节点「eval_run」构建期跑评测：Promptfoo 工具执行失败（配置/环境/网络错误，"
+            "不代表模型质量结论），失败原因见下方中断材料的 reason 字段尾部。"
+            "请修复环境或评测配置后回复任意内容重跑评测。"
+        )
+    if node_name == "eval_gate":
+        # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048：第 8 段后半判定门。
+        # 文案沿用拆分前 eval_run 未达标那段，只把节点名改成 eval_gate。
+        return (
+            "节点「eval_gate」评测判定门：评测结果未达及格线，流水线暂停（不设自动放行）。"
             "下方中断材料的 eval_report / report 给出整体通过率、关键题通过率、与阈值的差距"
             "及未通过的关键题。请工程师线下修复被测 prompt、考题或模型方案后"
             "回复任意内容重跑评测；达标前不会进入发布计划。"

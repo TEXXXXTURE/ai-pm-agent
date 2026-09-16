@@ -1,22 +1,29 @@
 # [C 2026-09-12 by codebuddy-ds41flash] 构建期跑评测节点（eval_run，第 8 段）
 """构建期跑评测：把 S035 产出的评测体系 YAML 草案变成真实执行 + 代码硬判结论。
 
-图位置（第 8 段，仅 AI 核心需求经过；插在「确认工单」确认分支之后、「写发布计划」之前）：
-    issue_confirm --(确认 且 ai_core=True)--> eval_run --(passed)--> launch_plan
-                                                 eval_run --(未达标/工具错误)--> eval_run（自环重跑）
+图位置（第 8 段拆两步，仅 AI 核心需求经过；插在「确认工单」确认分支之后、「写发布计划」之前）：
+    issue_confirm --(确认 且 ai_core=True)--> eval_run --(无条件普通边)--> eval_gate
+                                                 eval_gate --(passed is True)--> launch_plan
+                                                 eval_gate --(未达标/记录缺失)--> eval_run（重跑）
 普通需求（ai_core=False/None）确认分支直达 launch_plan（route 返回 "artifact_persist" 语义值
-由 graph 映射到 launch_plan），行为与现状逐字一致，完全不经本节点。
+由 graph 映射到 launch_plan），行为与现状逐字一致，完全不经这两个节点。
 
-节点内部四步（不调模型）：
+第 8 段拆成两步的原因：原实现在「达标」分支才 return 三个状态字段，未达标走 interrupt 后
+continue，永远走不到 return；而 LangGraph 中断语义是"节点重跑"，节点内未返回的写入不保留——
+于是未达标暂停时 state 里没有评测记录，收尾产物清单缺评测三件套、下游读不到实测数字。
+现在 eval_run 只负责「跑 + 记录 + 落盘」（达标与否都 return），eval_gate 只负责「判定 + 停等」。
+
+eval_run 内部四步（不调模型）：
     ① finalize_eval_config 备可执行配置（prompts 换 file://、provider 归一、showThinking 关）；
     ② subprocess 调 Promptfoo（退出码 0/100 跑通、1 工具错误）；
     ③ parse_promptfoo_results 解析 results.json；
-    ④ judge_eval_report 按双及格线代码硬判（模型不决定走向）。
+    ④ judge_eval_report 按双及格线代码硬判（模型不决定走向）后一律 return 三字段。
 
-三种暂停（都不自动空转，靠人修复后恢复重跑）：
-- await_prompt：评测目录缺 system_prompt.txt，放入后恢复；
-- tool_error  ：Promptfoo 退出码 1（工具/配置/网络错误），修好后恢复；
-- eval_failed ：工具跑通但未达及格线，工程师线下改 prompt/题/模型方案后恢复，**不设自动放行**。
+暂停（都不自动空转，靠人修复后恢复重跑）：
+- eval_run  : await_prompt（评测目录缺 system_prompt.txt）、tool_error（Promptfoo 退出码 1，
+              工具/配置/网络错误）——都发生在"跑"这一步之前/之中；
+- eval_gate : eval_failed（工具跑通但未达及格线），工程师线下改 prompt/题/模型方案后恢复，
+              **不设自动放行**（判定与停等由 eval_gate 承担，判定数值逻辑一字未改）。
 计数：每次实际执行（跑到出 results.json）eval_run_count +1；await_prompt 阶段不计。
 
 公共件（第 6 段 bake_off 复用）：``run_promptfoo_eval``（入口解析/env/subprocess/results 读取）
@@ -389,18 +396,65 @@ def judge_eval_report(parsed: dict, pass_lines: dict, exam_sets: list) -> dict:
     # [C 2026-09-12 by codebuddy-ds41flash] 评测达标硬判纯函数（双及格线，模型不参与）
 
 
-def route_after_eval_run(state: dict) -> str:
-    """条件边路由：按 eval_report.passed 两态。
+# 判定结论字段：eval_report 是「judge_eval_report 结论 + 逐题解析数据 + run_count」的合并字典；
+# 未达标中断载荷里的 report 只放这几项判定字段，与拆分前 eval_run 未达标载荷的语义一致。
+_JUDGE_REPORT_FIELDS = (
+    "passed",
+    "overall_rate",
+    "critical_rate",
+    "overall_threshold",
+    "critical_threshold",
+    "failed_critical_descriptions",
+    "gaps",
+)
 
-    - ``eval_report.passed == True`` -> ``launch_plan``；
-    - 其余（未达标/工具错误/待 prompt，这些状态都在节点内部 interrupt，graph 不会拿到
-      未达标返回值；此处保守兜底）-> ``eval_run``（自环重跑）。
+
+def eval_gate(state: dict) -> dict:
+    """第 8 段后半：评测判定 + 未达标停等（纯函数节点，不调模型、不落盘）。
+
+    读 ``state["eval_report"]``（eval_run 已写入：含 passed / overall_rate / critical_rate /
+    及格线 / 未过关键题）：
+    - 达标（``passed is True``）-> 返回 ``{}``，条件边去 ``launch_plan``；
+    - 未达标 -> ``interrupt``（载荷字段与拆分前 eval_run 未达标分支逐字一致，仅 ``node`` 改为
+      ``eval_gate``），用户答复任意内容后返回 ``{}``，条件边回 ``eval_run`` 重跑——不设自动放行；
+    - ``eval_report`` 缺失或畸形（非 dict、或 ``passed`` 不是布尔）-> 返回 ``{}``，条件边据此
+      保守回 ``eval_run`` 重跑，不静默放行。
+
+    判定规则与及格线数值均在 ``judge_eval_report`` 内，本函数不改判定、不代为放行。
+    """
+    report = state.get("eval_report")
+    if not isinstance(report, dict) or not isinstance(report.get("passed"), bool):
+        # 缺失/畸形：不进停等、不放行，交给条件边回 eval_run 重跑
+        return {}
+
+    if report["passed"]:
+        return {}
+
+    interrupt(
+        {
+            "node": "eval_gate",
+            "status": "eval_failed",
+            "reason": "评测未达及格线",
+            "requirement_name": state.get("requirement_name") or "未命名需求",
+            "report": {key: report.get(key) for key in _JUDGE_REPORT_FIELDS},
+            "eval_report": report,
+        }
+    )
+    return {}
+    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 第 8 段拆两步：判定与停等独立成节点
+
+
+def route_after_eval_gate(state: dict) -> str:
+    """条件边路由：按 ``eval_report.passed`` 两态（判定规则与原 route_after_eval_run 一字不改）。
+
+    - ``eval_report.passed is True`` -> ``launch_plan``（达标放行）；
+    - 其余（未达标 / eval_report 缺失或畸形）-> ``eval_run``（回重跑，不静默放行）。
     """
     report = state.get("eval_report") or {}
     if isinstance(report, dict) and report.get("passed") is True:
         return "launch_plan"
     return "eval_run"
-    # [C 2026-09-12 by codebuddy-ds41flash] 评测达标两态条件边路由纯函数
+    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 由 route_after_eval_run 改名，判定规则未改
 
 
 def _stderr_tail(proc: object) -> str:
@@ -522,6 +576,7 @@ def make_eval_run(deps):
 
     仅 AI 核心需求（ai_core=True）执行；非真直接返回 ``{}``（普通轨到了也直通，不阻断）。
     依赖 ``deps.eval_tool["promptfoo_dir"]`` 定位 Promptfoo 执行器；缺配置抛 NodeExecutionError。
+    达标与否都 return 三个状态字段（未达标的判定与停等由 eval_gate 承担）。
     """
 
     def eval_run(state: dict) -> dict:
@@ -581,7 +636,7 @@ def make_eval_run(deps):
 
         raw_results_path = eval_dir / "results.json"
 
-        # 5~9. 执行循环：工具错误中断重跑；跑通后判定，未达标中断重跑（不自动放行）
+        # 5~8. 执行循环：工具错误中断重跑；跑通后解析 + 硬判 + 落盘并一律 return（判定停等在 eval_gate）
         # [C 2026-09-13 by codebuddy-ds41flash] 入口解析/env/subprocess/results 读取抽到
         # run_promptfoo_eval（与 bake_off 共用）；退出码与 results.json 的提示文案逐字不变。
         while True:
@@ -660,21 +715,9 @@ def make_eval_run(deps):
                 "report_path": str(report_path),
             }
 
-            # 9. 未达标：报告已落盘，中断请工程师线下修复后重跑（不自动放行）
-            if not judge["passed"]:
-                interrupt(
-                    {
-                        "node": "eval_run",
-                        "status": "eval_failed",
-                        "reason": "评测未达及格线",
-                        "requirement_name": name,
-                        "report": judge,
-                        "eval_report": eval_report,
-                    }
-                )
-                continue
-
-            # 8. 达标：放行去 launch_plan
+            # 8. 跑通即返回（达标与未达标都返回）：三个状态字段进 state 由 LangGraph 保留，
+            #    未达标暂停时的记录不再丢失（产物清单据 eval_artifacts 汇总评测三件套）。
+            #    判定与停等移交 eval_gate（下一节点），本节点不再有未达标中断。
             return {
                 "eval_report": eval_report,
                 "eval_run_count": run_count,
@@ -683,6 +726,7 @@ def make_eval_run(deps):
 
     return eval_run
     # [C 2026-09-12 by codebuddy-ds41flash] eval_run 节点主体完成（四步 + 三种暂停，不自动空转）
+    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048：达标/未达标一律 return，停等移交 eval_gate
 
 
 # [C 2026-09-12 by codebuddy-ds41flash] nodes/eval_run.py 新增完成

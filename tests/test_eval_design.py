@@ -621,6 +621,8 @@ class TestGraphWiring(unittest.TestCase):
         "issue_confirm",
         # [C 2026-09-12 by codebuddy-ds41flash] 第 8 段新增构建期跑评测节点
         "eval_run",
+        # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 第 8 段拆两步新增评测判定门
+        "eval_gate",
         "launch_plan",
         "launch_confirm",
         "artifact_persist",
@@ -636,9 +638,10 @@ class TestGraphWiring(unittest.TestCase):
                 self.assertIn(name, names, msg=name)
             # [C 2026-09-13 by codebuddy-ds41flash] 第 6 段新增 bake_off 后为 17 个真实节点
             # [C 2026-09-14 by codebuddy-ds41flash] S041 新增 requirement_refine 后为 18 个真实节点
+            # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 新增 eval_gate 后为 19 个真实节点
             # （另加 langgraph 内置 __start__/__end__）
             real_nodes = names - {"__start__", "__end__"}
-            self.assertEqual(len(real_nodes), 18)
+            self.assertEqual(len(real_nodes), 19)
 
     def test_mermaid_wiring(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
