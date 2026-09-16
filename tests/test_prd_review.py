@@ -655,5 +655,60 @@ class TestGenerationPromptConditional(unittest.TestCase):
                 schema_cls.model_validate(bad)
 
 
+# ────────────────────────── R10 证据分级 ──────────────────────────
+# [C 2026-09-16 by MA] R10：关键结论标来源等级 [T1]-[T5]，低等级驱动的决策显式标记。
+
+
+class TestR10EvidenceTier(unittest.TestCase):
+    def test_schema_accepts_evidence_tier_and_keeps_default_none(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            registry = make_deps(Path(tmp)).registry
+            schema_cls = registry.load_schema("prd_review")
+            # 未带 evidence_tier（旧 payload）：默认 None，向后兼容
+            obj = schema_cls.model_validate(review_payload([4, 4, 4, 4, 4]))
+            self.assertTrue(all(s.evidence_tier is None for s in obj.scores))
+            # 显式标注 [T3]：能校验通过
+            tagged = review_payload([4, 4, 3, 4, 3])
+            tagged["scores"][0]["evidence_tier"] = "T3"
+            obj2 = schema_cls.model_validate(tagged)
+            self.assertEqual(obj2.scores[0].evidence_tier, "T3")
+            # 只接受 [T1]-[T5] 之一或 null；非法值被拒
+            illegal = review_payload([4, 4, 4, 4, 4])
+            illegal["scores"][0]["evidence_tier"] = "T9"
+            with self.assertRaises(Exception):
+                schema_cls.model_validate(illegal)
+
+    def test_template_renders_tier_when_present_and_dash_when_absent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            deps = make_deps(Path(tmp))
+            # 无 tier：渲染 — 占位，且注释说明出现
+            md_plain = deps.artifacts.render(
+                "review.md.j2",
+                {
+                    "requirement_name": "demo-req",
+                    "generated_at": "2026-09-16",
+                    "review": sample_review_dict(),
+                },
+            )
+            self.assertIn("证据等级", md_plain)
+            self.assertIn("[T1] 实测数据", md_plain)  # 注释图例
+            table = md_plain.split("五维评分")[1].split("均分")[0]
+            self.assertIn("—", table)  # 未见 tier 的行显示 —
+            # 带 tier：具体等级落进表格
+            review = sample_review_dict()
+            review["scores"][0]["evidence_tier"] = "T4"
+            md_tagged = deps.artifacts.render(
+                "review.md.j2",
+                {
+                    "requirement_name": "demo-req",
+                    "generated_at": "2026-09-16",
+                    "review": review,
+                },
+            )
+            table_tagged = md_tagged.split("五维评分")[1].split("均分")[0]
+            self.assertIn("[T4]", table_tagged)
+            self.assertNotIn("| — |", table_tagged.split("[T4]")[0])  # 首行不带 tier
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

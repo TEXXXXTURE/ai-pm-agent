@@ -23,6 +23,15 @@ class SuccessMetrics(BaseModel):
 
     d7: str = Field(description="第 7 天的数字化成功目标（如日活破 X、核心转化率 Y%）")
     d30: str = Field(description="第 30 天的数字化成功目标")
+    # [C 2026-09-16 by MA] R10 证据分级：D7/D30 目标数字的关键来源等级 [T1]-[T5]，可空。
+    evidence_tier: Literal["T1", "T2", "T3", "T4", "T5"] | None = Field(
+        default=None,
+        description=(
+            "这些目标数字最有依据的那条证据来源等级，取 [T1]~[T5] 之一（T1 实测数据 / "
+            "T2 直接用户证据 / T3 结构化分析 / T4 口述意见 / T5 直觉）；"
+            "依据分散或无法归级时留 null 不硬标"
+        ),
+    )
 
 
 class Workstream(BaseModel):
@@ -114,6 +123,15 @@ class Risk(BaseModel):
     mitigation: str = Field(description="缓解措施")
     early_warning: str = Field(
         description="早期预警信号（可观察的数字或事件，不是'感觉不对'）"
+    )
+    # [C 2026-09-16 by MA] R10 证据分级：本风险判断依据的关键来源等级 [T1]-[T5]，可空。
+    evidence_tier: Literal["T1", "T2", "T3", "T4", "T5"] | None = Field(
+        default=None,
+        description=(
+            "本风险判断最有依据的那条证据来源等级，取 [T1]~[T5] 之一（T1 实测数据 / "
+            "T2 直接用户证据 / T3 结构化分析 / T4 口述意见 / T5 直觉）；"
+            "依据分散或无法归级时留 null 不硬标"
+        ),
     )
 
 

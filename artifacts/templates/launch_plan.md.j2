@@ -16,7 +16,7 @@
 **定位一句话**：{{ plan.get("positioning", "") }}{% endif %}
 {%- set sm = plan.get("success_metrics") %}
 {%- if sm %}
-**成功定义**：D7 {{ sm.get("d7", "未填") }} · D30 {{ sm.get("d30", "未填") }}
+**成功定义**：D7 {{ sm.get("d7", "未填") }} · D30 {{ sm.get("d30", "未填") }}{% if sm.get("evidence_tier") %}（依据 [{{ sm.evidence_tier }}]）{% endif %}
 {%- endif %}
 {%- if plan.self_fixed %}
 - 字段自检：首轮计划曾被检出字段缺失，已带反馈重生成（请留意下方是否仍有残留错误）
@@ -142,11 +142,13 @@
 
 ## Top {{ risks | length }} 风险
 
-| 风险 | 缓解措施 | 早期预警信号 |
-|---|---|---|
+| 风险 | 证据等级 | 缓解措施 | 早期预警信号 |
+|---|---|---|---|
 {% for r in risks -%}
-| {{ r.get("risk", "") }} | {{ r.get("mitigation", "") }} | {{ r.get("early_warning", "") }} |
+| {{ r.get("risk", "") }} | {% if r.get("evidence_tier") %}[{{ r.get("evidence_tier") }}]{% else %}—{% endif %} | {{ r.get("mitigation", "") }} | {{ r.get("early_warning", "") }} |
 {% endfor %}
+
+证据等级注释：[T1] 实测数据 / [T2] 直接用户证据 / [T3] 结构化分析 / [T4] 干系人口头意见 / [T5] PM 直觉；「—」表示依据分散或未归级。
 {%- endif %}
 {%- set ext = plan.get("tier1_extension") %}
 {%- if ext %}

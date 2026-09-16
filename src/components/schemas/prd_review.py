@@ -21,6 +21,16 @@ class ScoreItem(BaseModel):
     dimension: str = Field(description="评分维度名（五维之一，按 prompt 指定的名称）")
     score: int = Field(ge=1, le=5, description="1-5 整数评分")  # [C 2026-09-10] 分数硬边界
     rationale: str = Field(description="锚点理由：必须引用 PRD 具体章节/原文，不许只写空泛形容词")
+    # [C 2026-09-16 by MA] R10 证据分级：本维度评分所依据的关键证据的来源等级 [T1]-[T5]。
+    # 可空——模型没把握时不硬标；缺省 None 模板跳过渲染，普通轨零变化。
+    evidence_tier: Literal["T1", "T2", "T3", "T4", "T5"] | None = Field(
+        default=None,
+        description=(
+            "本维度评分最依赖的关键证据的来源等级，取 [T1]~[T5] 之一（T1 实测数据 / "
+            "T2 直接用户证据 / T3 结构化分析 / T4 口述意见 / T5 直觉）；"
+            "若依据分散在不同等级、或无法明确归级，留 null 不硬标"
+        ),
+    )
 
 
 class FindingItem(BaseModel):

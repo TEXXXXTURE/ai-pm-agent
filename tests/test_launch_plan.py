@@ -972,6 +972,59 @@ class TestLaunchPromptAiConditional(unittest.TestCase):
         self.assertNotIn("cohort_rollout", rendered)
 
 
+# ────────────────────────── R10 证据分级 ──────────────────────────
+# [C 2026-09-16 by MA] R10：为 D7/D30 目标数字与 Top3 风险标注证据来源等级 [T1]-[T5]。
+
+
+class TestR10EvidenceTier(unittest.TestCase):
+    def test_schema_accepts_evidence_tier_and_keeps_default_none(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            schema_cls = make_deps(Path(tmp)).registry.load_schema("launch_plan")
+            # 旧 payload 不带 evidence_tier：默认 None，向后兼容
+            obj = schema_cls.model_validate(valid_plan())
+            self.assertIsNone(obj.success_metrics.evidence_tier)
+            self.assertTrue(all(r.evidence_tier is None for r in obj.risks))
+            # 显式标注：能校验通过
+            tagged = dict(valid_plan())
+            tagged["success_metrics"]["evidence_tier"] = "T3"
+            tagged["risks"][0]["evidence_tier"] = "T5"
+            obj2 = schema_cls.model_validate(tagged)
+            self.assertEqual(obj2.success_metrics.evidence_tier, "T3")
+            self.assertEqual(obj2.risks[0].evidence_tier, "T5")
+            # 只接受 [T1]-[T5] 之一或 null；非法值被拒
+            bad = dict(valid_plan())
+            bad["success_metrics"]["evidence_tier"] = "T9"
+            with self.assertRaises(Exception):
+                schema_cls.model_validate(bad)
+
+    def test_template_renders_evidence_tier_when_present(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            deps = make_deps(Path(tmp))
+            plan = dict(valid_plan())
+            plan.update({"shape_errors": [], "shape_warnings": [], "self_fixed": False})
+            plan["success_metrics"]["evidence_tier"] = "T3"
+            plan["risks"][0]["evidence_tier"] = "T3"  # 其余风险留 None
+            md = render_launch(deps, plan)
+            self.assertIn("（依据 [T3]）", md)  # 成功定义旁标注
+            self.assertIn("证据等级注释", md)
+            self.assertIn("[T1] 实测数据", md)  # 注释图例
+            self.assertIn("[T3]", md)  # 风险表格独立风险旁带等级
+
+    def test_template_plain_plan_no_tier_still_renders(self):
+        # 旧 payload 不带 evidence_tier：模板照常渲染，无证据标注、无报错
+        with tempfile.TemporaryDirectory() as tmp:
+            deps = make_deps(Path(tmp))
+            plan = dict(valid_plan())
+            plan.update({"shape_errors": [], "shape_warnings": [], "self_fixed": False})
+            md = render_launch(deps, plan)
+            self.assertIn("成功定义", md)
+            self.assertIn("Top", md)
+            self.assertIn("风险", md)
+            # 无 tier 的行显示 — 占位（风险表格行）
+            risks_table = md.split("Top")[1].split("证据等级注释")[0]
+            self.assertIn("—", risks_table)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
 

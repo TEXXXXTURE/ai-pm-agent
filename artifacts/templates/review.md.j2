@@ -37,12 +37,14 @@
 
 ## 五维评分
 
-| 维度 | 分数 | 锚点理由（引用具体章节/原文） |
-|---|---|---|
+| 维度 | 分数 | 证据等级 | 锚点理由（引用具体章节/原文） |
+|---|---|---|---|
 {% for item in review.get("scores", []) -%}
-| {{ item.dimension }} | {{ item.score }}/5 | {{ item.rationale }} |
+| {{ item.dimension }} | {{ item.score }}/5 | {% if item.evidence_tier %}[{{ item.evidence_tier }}]{% else %}—{% endif %} | {{ item.rationale }} |
 {% endfor %}
-| **均分** | **{{ review.avg }}/5** | 最低分 {{ review.minimum }}/5 |
+| **均分** | **{{ review.avg }}/5** | — | 最低分 {{ review.minimum }}/5 |
+
+证据等级注释（每条评分旁标注本维度打分最依赖的关键证据来源）：[T1] 实测数据 / [T2] 直接用户证据 / [T3] 结构化分析 / [T4] 干系人口头意见 / [T5] PM 直觉；「—」表示依据分散或未归级。
 {%- set blockers = review.get("blockers", []) -%}
 {%- if blockers %}
 
