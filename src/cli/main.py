@@ -194,6 +194,17 @@ def main(argv: list[str] | None = None) -> int:
     # [C 2026-09-13 by codebuddy-ds41flash] 第 6 段：装配对比选型候选清单（bake_off 段）
     # 直接传 dict（不含路径，无需 _resolve_path）；缺失则 bake_off 节点抛 NodeExecutionError。
     bake_off_cfg = cfg.get("bake_off", {}) or {}
+    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 候选池料件（model_catalog 段）：
+    # 与 scripts/run_prd_workflow.py 保持一致，两处路径解析为绝对路径；缺失则 None，
+    # feasibility_check 节点降级为空候选池并记原因（不报错）。
+    model_catalog_cfg = cfg.get("model_catalog", {}) or {}
+    model_catalog: dict = {}
+    if model_catalog_cfg.get("path"):
+        model_catalog["path"] = str(_resolve_path(model_catalog_cfg["path"]))
+    if model_catalog_cfg.get("price_script"):
+        model_catalog["price_script"] = str(
+            _resolve_path(model_catalog_cfg["price_script"])
+        )
     runner = NodeRunner(llm=llm)
     deps = NodeDeps(
         runner=runner,
@@ -203,6 +214,7 @@ def main(argv: list[str] | None = None) -> int:
         rag=rag_store,
         eval_tool=eval_tool or None,
         bake_off_config=bake_off_cfg or None,
+        model_catalog=model_catalog or None,
     )
 
     console.print(

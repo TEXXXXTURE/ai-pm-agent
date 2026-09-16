@@ -9,6 +9,10 @@ feasibility_confirm 确认门录入并拍板（见 nodes/feasibility.py）。
 S043-b2：CapabilityItem 从单看模型三色扩为三方对照结构
 （模型判定→工具补充→综合判定），为后续探针真跑打数据结构基础；
 ProbeStep 加 target_capability 与第 1 步能力点建关联。
+
+S048（2026-09-16）：新增 ModelCandidate 与 model_candidates（2–5 条）——
+候选池提前到第 2 段产出，第 3 段 AI-native PRD「模型要求与切换条件」与
+第 6 段对比选型引用；节点代码补实时单价与接入状态。
 """
 from __future__ import annotations
 
@@ -61,6 +65,31 @@ class RiskItem(BaseModel):
     mitigation: str = Field(description="缓解措施（可执行的动作，不是'会注意'）")
 
 
+class ModelCandidate(BaseModel):
+    """候选池一条：本需求可用的模型候选（第 2 段产出）。
+
+    由 feasibility_check 阶段 1 的模型从候选清单（references/模型候选清单.md）里挑出，
+    2–5 条；节点随后补 price / price_source / price_fetched_at / price_note / access_status
+    五个字段（见 nodes/feasibility.py），供第 3 段 AI-native PRD「模型要求与切换条件」
+    与第 6 段对比选型引用。
+    """
+
+    provider_id: str = Field(
+        description="litellm 调用格式，如 deepseek/deepseek-chat（须来自候选清单）"
+    )
+    label: str = Field(description="显示名（如 DeepSeek-Chat）")
+    role: str = Field(
+        description="角色：主模型 / 备选 / 专用档（长文、高并发、低成本等）"
+    )
+    why: str = Field(
+        description="为什么适合本需求（一句话，必须挂到本需求的能力点）"
+    )
+    access_hint: str = Field(
+        description="接入代价（需要什么密钥/账号，或\"本机已接入\"）"
+    )
+    notes: str = Field(description="已知限制与坑（取自候选清单）")
+
+
 class CostEstimate(BaseModel):
     """成本粗估：按预估调用量、上下文长度、候选模型单价算月度区间。"""
 
@@ -85,12 +114,24 @@ class FeasibilitySchema(BaseModel):
         min_length=1,
         description="风险扫描（幻觉/注入/泄露/监管四类逐项给风险等级与缓解措施）",
     )
-    cost_estimate: CostEstimate = Field(description="月度成本区间粗估")
+    cost_estimate: CostEstimate = Field(
+        description="月度成本区间粗估（单价口径必须写明按候选池里哪个候选算）"
+    )
     conclusion: str = Field(
         description="初步结论（仅供参考，最终由人工在确认门拍板，不是放行结论）"
+    )
+    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048：候选池前置（2–5 条）。
+    # 缺省为空列表（老检查点/降级不报错，节点记 candidate_pool_note）；
+    # 模型显式给出列表时受 2–5 条约束（pydantic 不校验 default，故缺省可放行）。
+    model_candidates: list[ModelCandidate] = Field(
+        default_factory=list,
+        min_length=2,
+        max_length=5,
+        description="模型候选池（2–5 条，每个写清角色/适配理由/接入代价/已知限制）；节点补实时单价与接入状态",
     )
 
 
 # [C 2026-09-12 by codebuddy-ds41flash] schemas/feasibility.py 新增完成
 # [C 2026-09-14 by S043-b2] CapabilityItem 扩三方对照（model_status/model_note/tool_supplement/final_status/final_note）
 #     + ProbeStep 加 target_capability 关联第 1 步能力点
+# [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048：新增 ModelCandidate + FeasibilitySchema.model_candidates（2–5 条）

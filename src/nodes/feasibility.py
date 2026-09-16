@@ -23,6 +23,10 @@ feasibility_check（make_feasibility_check）：
   - build_chat/build_llm 报错走 interrupt（status="tool_error"），等用户修复后重跑。
 - 阶段 3：证据回填报告——按 target_capability 匹配，绿能力点有对应探针但无证据时自动降级为黄，
   红能力点无证据保持红；证据列表写入 state["feasibility_evidence"]。
+- 阶段 4（S048 候选池前置）：把报告的 model_candidates（2–5 条）拆出模型名后调
+  config model_catalog.price_script 取实时单价，逐条补 price / price_source /
+  price_fetched_at / price_note / access_status，写 state["model_candidates"]；
+  清单缺失 / 价格脚本失败 / 候选为空三条降级路径都只记原因（candidate_pool_note），不阻断。
 
 feasibility_confirm（make_feasibility_confirm，HITL，不调模型）：
 - 展示可行性报告，interrupt 等用户录入探针实测结论；
@@ -36,8 +40,12 @@ feasibility_confirm（make_feasibility_confirm，HITL，不调模型）：
 """
 from __future__ import annotations
 
+import datetime
 import json
 import re
+import subprocess
+import sys
+from pathlib import Path
 from typing import Any, Callable
 
 from langchain_core.messages import (
@@ -635,20 +643,345 @@ def _backfill_evidence_to_report(report: dict, evidence: list[dict]) -> dict:
     # [C 2026-09-14 by S043-b3] 证据回填 + 绿色无证据降级规则
 
 
+# ────────────────────────── 候选池前置（S048）──────────────────────────
+# 第 2 段在产可行性报告的同时产出候选池（2–5 个候选），由本节点代码补齐实时单价与
+# 「本机已接入 / 需接入后验证」，供第 3 段 AI-native PRD「模型要求与切换条件」引用。
+# 三条降级路径（清单缺失 / 价格脚本失败 / 候选为空）都不阻断流程，只在报告里记原因。
+# [C 2026-09-16 by codebuddy-deepseek-v4.1-flash]
+
+# 价格脚本硬超时（秒）：脚本自身远端取数默认 20 秒，留 10 秒余量 [C 2026-09-16]
+PRICE_SCRIPT_TIMEOUT = 30
+
+# price_source 三个取值（口径见任务书 3.1 第 3 条）
+_PRICE_SOURCE_REMOTE = "远端实时"
+_PRICE_SOURCE_BACKUP = "本地备份并标注可能已过期"
+_PRICE_SOURCE_MISSING = "未取到"
+
+# 接入状态两个取值
+_ACCESS_READY = "本机已接入"
+_ACCESS_PENDING = "需接入后验证"
+
+
+def _now_text() -> str:
+    """本机当前时间（与 scripts/model_catalog.py 的取数时间格式一致）。"""
+    return datetime.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %z")
+
+
+def _split_provider_id(provider_id: object) -> str:
+    """litellm 调用格式拆出模型名：``deepseek/deepseek-chat`` -> ``deepseek-chat``。
+
+    兼容配置侧的冒号写法（``deepseek:deepseek-chat``）；无分隔符时原样返回。
+    """
+    pid = str(provider_id or "").strip()
+    if "/" in pid:
+        return pid.rsplit("/", 1)[-1].strip()
+    if ":" in pid:
+        return pid.rsplit(":", 1)[-1].strip()
+    return pid
+    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 provider_id 拆名
+
+
+def _read_model_catalog(deps) -> tuple[str, str]:
+    """读候选清单整份文本（第 2 段 prompt 的 ``model_catalog`` 输入）。
+
+    Returns:
+        ``(文本, 降级原因)``：读到时原因为空串；读不到时文本为空串并给出原因
+        （配置缺失 / 文件不存在 / 读取异常 / 内容为空），由节点写进
+        ``feasibility_report["candidate_pool_note"]``，不阻断流程。
+    """
+    cfg = getattr(deps, "model_catalog", None)
+    path = cfg.get("path") if isinstance(cfg, dict) else None
+    if not path:
+        return "", "未配置候选清单路径（config model_catalog.path 缺失）"
+    target = Path(str(path))
+    if not target.is_file():
+        return "", f"候选清单文件不存在：{target}"
+    try:
+        text = target.read_text(encoding="utf-8-sig")
+    except Exception as exc:  # 权限/编码等一律降级，不阻断
+        return "", f"候选清单读取失败：{type(exc).__name__}: {exc}"
+    if not text.strip():
+        return "", f"候选清单内容为空：{target}"
+    return text, ""
+    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 候选清单整份读取（失败降级）
+
+
+def _configured_candidates(deps) -> list[dict]:
+    """取本机已接入的候选（config ``bake_off.candidates`` 的 id / label / kind）。
+
+    未配置该段或字段缺失时返回空列表（prompt 里该节不渲染）。
+    """
+    cfg = getattr(deps, "bake_off_config", None)
+    items = cfg.get("candidates") if isinstance(cfg, dict) else None
+    result: list[dict] = []
+    for item in items or []:
+        if not isinstance(item, dict) or not item.get("id"):
+            continue
+        result.append(
+            {
+                "id": str(item.get("id", "")),
+                "label": str(item.get("label", "")),
+                "kind": str(item.get("kind", "")),
+            }
+        )
+    return result
+    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 已接入候选清单（config bake_off）
+
+
+def _configured_id_keys(deps) -> set[str]:
+    """把 config ``bake_off.candidates`` 的 id 归一化成可比集合。
+
+    配置用小写冒号（``deepseek:deepseek-chat``），候选池用 litellm 斜杠格式
+    （``deepseek/deepseek-chat``），两侧都归一到「小写 + 冒号转斜杠」，并额外收
+    模型名（斜杠后一段）与冒号后一段，避免因分隔符不同误判「需接入后验证」。
+    """
+    keys: set[str] = set()
+    for item in _configured_candidates(deps):
+        cid = item["id"].strip().lower()
+        if not cid:
+            continue
+        slashed = cid.replace(":", "/")
+        keys.add(cid)
+        keys.add(slashed)
+        keys.add(slashed.rsplit("/", 1)[-1])
+        keys.add(cid.rsplit(":", 1)[-1])
+    return keys
+    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 接入判定用 id 归一化
+
+
+def _is_configured(provider_id: str, deps) -> bool:
+    """候选是否命中本机已接入清单（config ``bake_off.candidates``）。"""
+    keys = _configured_id_keys(deps)
+    if not keys:
+        return False
+    return (
+        provider_id.strip().lower() in keys
+        or _split_provider_id(provider_id).lower() in keys
+    )
+    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 已接入判定
+
+
+def _fetch_candidate_prices(lookup_keys: list[str], price_script: str | None) -> dict:
+    """调价格脚本取实时单价，返回取数结果（任何失败都不抛异常，转成原因字段）。
+
+    调用形态：``sys.executable <price_script> price <取价键...> --json``，硬超时 30 秒。
+
+    Returns:
+        ``{"ok", "error", "source", "source_label", "fetched_at",
+           "stale_warning", "rows"}``
+        - ``rows``: ``{取价键: 该行 dict}``（键为传入的取价键，脚本按同序回行）；
+        - ``error`` 非空表示整次取数失败，此时 ``rows`` 为空、逐条记「未取到」。
+    """
+    meta: dict = {
+        "ok": False,
+        "error": "",
+        "source": "",
+        "source_label": "",
+        "fetched_at": "",
+        "stale_warning": "",
+        "rows": {},
+    }
+    if not lookup_keys:
+        return meta
+    if not price_script:
+        meta["error"] = "未配置价格脚本路径（config model_catalog.price_script 缺失）"
+        return meta
+
+    # 调用形态：sys.executable <price_script> price <取价键...> --json（price 是取价子命令）
+    cmd = [sys.executable, str(price_script), "price", *lookup_keys, "--json"]
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=PRICE_SCRIPT_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        meta["error"] = f"价格脚本执行超时（{PRICE_SCRIPT_TIMEOUT} 秒）"
+        return meta
+    except Exception as exc:  # 找不到解释器/脚本等
+        meta["error"] = f"价格脚本执行异常：{type(exc).__name__}: {exc}"
+        return meta
+
+    if proc.returncode != 0:
+        tail = (proc.stderr or "").strip().splitlines()
+        detail = tail[-1] if tail else ""
+        meta["error"] = f"价格脚本退出码 {proc.returncode}"
+        if detail:
+            meta["error"] = f"{meta['error']}：{detail[:200]}"
+        return meta
+
+    try:
+        data = json.loads(proc.stdout or "")
+    except (TypeError, ValueError) as exc:
+        meta["error"] = f"价格脚本输出不是合法 JSON：{exc}"
+        return meta
+    if not isinstance(data, dict):
+        meta["error"] = "价格脚本输出不是 JSON 对象"
+        return meta
+    rows = data.get("models")
+    if not isinstance(rows, list):
+        meta["error"] = "价格脚本输出缺少 models 列表"
+        return meta
+
+    meta["ok"] = True
+    meta["source"] = str(data.get("source", ""))
+    meta["source_label"] = (
+        _PRICE_SOURCE_REMOTE
+        if meta["source"] == "remote"
+        else _PRICE_SOURCE_BACKUP
+        if meta["source"] == "local_backup"
+        else ""
+    )
+    meta["fetched_at"] = str(data.get("fetched_at", "") or "")
+    meta["stale_warning"] = str(data.get("stale_warning", "") or "")
+    for row in rows:
+        if isinstance(row, dict) and row.get("model_id"):
+            meta["rows"][str(row["model_id"])] = row
+    return meta
+    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 价格脚本调用（超时/退出码/JSON 全降级）
+
+
+def _row_price_missing(row: dict) -> bool:
+    """价格行是否「表内收录但没给单价」（脚本缺价时字段值是 ``"-"``）。"""
+    for key in ("input_per_million", "output_per_million"):
+        value = row.get(key)
+        if value is None:
+            continue
+        if isinstance(value, str) and value.strip() in ("", "-"):
+            continue
+        return False
+    return True
+    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 缺价行判定（缺价≠免费，须另行核实）
+
+
+def _enrich_candidate(candidate: dict, price_meta: dict, configured: bool) -> dict:
+    """给一条候选补五个字段：price / price_source / price_fetched_at / price_note / access_status。
+
+    取价按两个键依次找：先拆名后的模型名（``deepseek-chat``），再完整的 provider_id
+    （``zai/glm-5.3-flash``）——litellm 表两种键形态并存，只用一个键会把有价的型号
+    误报成「表内未收录」。
+    """
+    enriched = dict(candidate)
+    provider_id = str(candidate.get("provider_id", "") or "").strip()
+    name = _split_provider_id(provider_id)
+    rows = price_meta.get("rows") or {}
+    row: dict | None = None
+    for key in (name, provider_id):
+        if not key:
+            continue
+        candidate_row = rows.get(key)
+        if isinstance(candidate_row, dict) and candidate_row.get("found"):
+            row = candidate_row
+            break
+        if row is None and isinstance(candidate_row, dict):
+            # 记下「表内未收录」那行，用于写价格说明
+            row = candidate_row
+    lookup_key = name or provider_id
+    error = str(price_meta.get("error", "") or "")
+    fetched_at = str(price_meta.get("fetched_at", "") or "")
+
+    if isinstance(row, dict) and row.get("found"):
+        enriched["price"] = {
+            "input_per_million": row.get("input_per_million"),
+            "output_per_million": row.get("output_per_million"),
+            "found": True,
+        }
+        enriched["price_source"] = str(price_meta.get("source_label", "") or "")
+        enriched["price_fetched_at"] = fetched_at
+        # 本地备份取数时把「可能已过期」原样带给下游，远端取数无提示；
+        # 表内收录但缺单价的（脚本给 "-"）另记一行，缺价不等于免费。
+        note = str(price_meta.get("stale_warning", "") or "")
+        if _row_price_missing(row):
+            missing = "表内无单价，需另行核实（不得用同类模型价格替估）"
+            note = f"{note}；{missing}" if note else missing
+        enriched["price_note"] = note
+    else:
+        enriched["price"] = {
+            "input_per_million": None,
+            "output_per_million": None,
+            "found": False,
+        }
+        enriched["price_source"] = _PRICE_SOURCE_MISSING
+        enriched["price_fetched_at"] = fetched_at or _now_text()
+        if error:
+            enriched["price_note"] = f"价格未取到：{error}"
+        elif isinstance(row, dict):
+            enriched["price_note"] = (
+                f"表内未收录 {lookup_key}，需另行核实（不得用同类模型价格替估）"
+            )
+        else:
+            enriched["price_note"] = f"价格脚本未返回 {lookup_key} 的取数结果"
+
+    enriched["access_status"] = _ACCESS_READY if configured else _ACCESS_PENDING
+    return enriched
+    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 候选逐条补字段
+
+
+def build_model_candidates(report: dict, deps) -> tuple[list[dict], str]:
+    """产 state["model_candidates"]：拆分 provider_id 取价 + 补接入状态。
+
+    取价键为每个候选的「拆名后的模型名」与「完整 provider_id」两种（去重、保序），
+    因为 litellm 表的键两种形态并存（``deepseek-chat`` 是裸键、``zai/glm-5.3-flash``
+    带 provider 前缀），只传一种会把有价的型号误报成未收录。
+
+    Returns:
+        ``(候选列表, 降级原因)``：原因为空串表示一切正常；非空表示候选池为空
+        （模型未产出或产出为空），由节点记进 ``feasibility_report["candidate_pool_note"]``。
+    """
+    raw = report.get("model_candidates") or []
+    candidates = [c for c in raw if isinstance(c, dict)]
+    if not candidates:
+        return [], "模型未产出候选池（或产出为空），本次无候选模型"
+
+    # 取价键：每个候选都试「拆名后的模型名」与「完整 provider_id」两种键（去重、保序）——
+    # litellm 表两种键形态并存（deepseek-chat 是裸键，zai/glm-5.3-flash 带 provider 前缀）
+    lookup_keys: list[str] = []
+    for cand in candidates:
+        provider_id = str(cand.get("provider_id", "") or "").strip()
+        for key in (_split_provider_id(provider_id), provider_id):
+            if key and key not in lookup_keys:
+                lookup_keys.append(key)
+
+    catalog_cfg = getattr(deps, "model_catalog", None)
+    price_meta = _fetch_candidate_prices(
+        lookup_keys,
+        catalog_cfg.get("price_script") if isinstance(catalog_cfg, dict) else None,
+    )
+    return [
+        _enrich_candidate(c, price_meta, _is_configured(str(c.get("provider_id", "")), deps))
+        for c in candidates
+    ], ""
+    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 候选池合并（取价 + 接入判定）
+
+
 def make_feasibility_check(deps):
     """可行性报告节点工厂：返回签名 (state: dict) -> dict 的节点函数。
 
-    阶段 1：调模型生成可行性报告（三方对照表+探针方案+风险+成本+结论），写入
+    阶段 1：调模型生成可行性报告（三方对照表+探针方案+风险+成本+候选池），写入
     state["feasibility_report"]。
     阶段 2：自动跑探针——进程内 function calling ReAct 循环执行 probe_plan，
     真调模型拿实际输出，让模型对照 expected 判定 pass/fail，采集 evidence 列表。
     阶段 3：证据回填报告——按 target_capability 匹配，绿能力点有对应探针但无证据
     时自动降级为黄，红能力点无证据保持红。
+    阶段 4：候选池前置——给报告的 model_candidates 补实时单价与接入状态，写
+    state["model_candidates"]（S048，第 3 段 PRD 与第 6 段对比选型引用）。
     """
 
     def feasibility_check(state: dict) -> dict:
         # [C 2026-09-14 by S043-b1] 注入工具能力清单供 prompt 渲染
         state = {**state, "tool_catalog": deps.tool_catalog or []}
+        # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048：注入候选清单整份文本 +
+        # 本机已接入候选（config bake_off.candidates），供模型产出候选池；清单读不到时
+        # 该节整块不渲染（空串），原因在后面写进 feasibility_report["candidate_pool_note"]
+        catalog_text, catalog_note = _read_model_catalog(deps)
+        state = {
+            **state,
+            "model_catalog": catalog_text,
+            "configured_candidates": _configured_candidates(deps),
+        }
         prompt = deps.registry.read_prompt("feasibility_check")
         schema = deps.registry.load_schema("feasibility")
         spec = NodeSpec(
@@ -700,11 +1033,20 @@ def make_feasibility_check(deps):
         # 阶段 3：证据回填 + 降级规则
         report = _backfill_evidence_to_report(report, evidence)
 
+        # 阶段 4（S048）：候选池前置——补实时单价与接入状态，写 state["model_candidates"]；
+        # 候选清单读不到 / 价格脚本失败 / 候选为空三条降级路径都只记原因，不阻断流程。
+        model_candidates, candidate_note = build_model_candidates(report, deps)
+        pool_notes = [n for n in (catalog_note, candidate_note) if n]
+        if pool_notes:
+            report = {**report, "candidate_pool_note": "；".join(pool_notes)}
+
         return {
             "feasibility_report": report,
             "feasibility_evidence": evidence,
+            "model_candidates": model_candidates,
         }
         # [C 2026-09-14 by S043-b3] 探针真跑：ReAct 循环 + 证据回填 + 绿色无证据降级
+        # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048：候选池前置（取价 + 接入状态 + 降级记原因）
 
     return feasibility_check
 

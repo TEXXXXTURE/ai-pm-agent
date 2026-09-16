@@ -186,6 +186,17 @@ def _build_graph_and_config(cfg: dict[str, Any]) -> tuple[Any, dict]:
         tool_catalog = load_tool_catalog(
             str(_resolve_path(tool_catalog_cfg["routing_md_path"]))
         )
+    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 候选池料件（model_catalog 段）：
+    # 两处路径都解析为绝对路径（样式参照 tool_catalog）；缺失则 field 为 None，
+    # feasibility_check 节点降级为空候选池并记原因（不报错）。
+    model_catalog_cfg = cfg.get("model_catalog", {}) or {}
+    model_catalog: dict = {}
+    if model_catalog_cfg.get("path"):
+        model_catalog["path"] = str(_resolve_path(model_catalog_cfg["path"]))
+    if model_catalog_cfg.get("price_script"):
+        model_catalog["price_script"] = str(
+            _resolve_path(model_catalog_cfg["price_script"])
+        )
     runner = NodeRunner(llm=llm)
     deps = NodeDeps(
         runner=runner,
@@ -196,6 +207,7 @@ def _build_graph_and_config(cfg: dict[str, Any]) -> tuple[Any, dict]:
         eval_tool=eval_tool or None,
         bake_off_config=bake_off_cfg or None,
         tool_catalog=tool_catalog or None,
+        model_catalog=model_catalog or None,
     )
 
     graph = build_graph(deps, db_path=str(db_path))

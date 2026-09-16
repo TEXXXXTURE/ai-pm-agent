@@ -103,6 +103,10 @@ class NodeDeps:
     # [C 2026-09-14 by S043-b1] 工具能力清单（config.yaml tool_catalog 段）；
     # None=未配置，feasibility_check 节点降级为空列表（不阻断流程）
     tool_catalog: list[dict] | None = None
+    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 候选池料件（config.yaml model_catalog 段，
+    # 两处装配均解析为绝对路径：{"path": 候选清单, "price_script": 实时取价脚本}）；
+    # None=未配置，feasibility_check 节点降级为空候选池并记 candidate_pool_note（不报错、不阻断）
+    model_catalog: dict | None = None
 
 
 def build_nodes(deps: NodeDeps) -> dict:

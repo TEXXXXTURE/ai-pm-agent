@@ -1567,6 +1567,685 @@ class TestEvidenceGapProtocol(unittest.TestCase):
         self.assertIn("证据不齐，经人工放行", out["feasibility_confirm"]["user_feedback"])
 
 
+# ────────────────────────── 12. S048 候选池前置 ──────────────────────────
+# [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 新增：
+# 候选池 schema（2–5 条）/ 候选清单读取降级 / 接入状态判定 / 价格脚本合并
+# （成功·本地备份·退出码·JSON 非法·超时·未配置六条）/ 节点级候选池写回 /
+# PRD 模板九项与模型要求节 / config+state+NodeDeps+两处装配接线。
+
+from jinja2 import Template  # noqa: E402
+
+from dataclasses import fields as dataclass_fields  # noqa: E402
+
+from kernel.config import PROJECT_ROOT, load_config  # noqa: E402
+from kernel.state import PMState, default_state  # noqa: E402
+from nodes.feasibility import (  # noqa: E402
+    PRICE_SCRIPT_TIMEOUT,
+    _configured_candidates,
+    _is_configured,
+    _read_model_catalog,
+    _split_provider_id,
+    build_model_candidates,
+)
+
+CANDIDATES_TWO = [
+    {
+        "provider_id": "deepseek/deepseek-chat",
+        "label": "DeepSeek-Chat",
+        "role": "主模型",
+        "why": "本需求核心是结构化抽取，该型号字段明确时稳定且成本低",
+        "access_hint": "本机已接入（DEEPSEEK_API_KEY 已在用）",
+        "notes": "输出上限 8,192，长文一次性成稿易被截断",
+    },
+    {
+        "provider_id": "deepseek/deepseek-reasoner",
+        "label": "DeepSeek-Reasoner",
+        "role": "备选",
+        "why": "歧义待办归属判断需要更强推理",
+        "access_hint": "需另配密钥后才能跑",
+        "notes": "表内标不支持函数调用，接工具调用前须实测",
+    },
+]
+
+# 只认 deepseek-chat 一个已接入候选：用于断言命中/未命中两条路径
+BAKE_OFF_ONE = {
+    "candidates": [
+        {"id": "deepseek:deepseek-chat", "label": "DeepSeek-Chat", "kind": "chat"},
+    ]
+}
+
+PRICE_JSON_REMOTE = {
+    "source": "remote",
+    "source_label": "远端 litellm 官方表（实时）",
+    "source_detail": "https://raw.githubusercontent.com/...",
+    "fetched_at": "2026-09-16 10:00:00 +0800",
+    "stale_warning": "",
+    "remote_error": "",
+    "models": [
+        {
+            "model_id": "deepseek-chat",
+            "found": True,
+            "input_per_million": "$0.2700",
+            "output_per_million": "$1.1000",
+        },
+        {
+            "model_id": "deepseek-reasoner",
+            "found": True,
+            "input_per_million": "$0.5500",
+            "output_per_million": "$2.1900",
+        },
+    ],
+}
+
+PRICE_JSON_BACKUP = {
+    **PRICE_JSON_REMOTE,
+    "source": "local_backup",
+    "source_label": "本地备份（可能已过期）",
+    "stale_warning": "用的是本地备份，可能已过期",
+    "remote_error": "URLError: 断网",
+}
+
+
+class _Proc:
+    """subprocess.run 替身：只带节点代码读的三个字段。"""
+
+    def __init__(self, returncode=0, stdout="", stderr=""):
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+
+
+def report_with_candidates(candidates=None):
+    """VALID_REPORT + 候选池（2 条），供节点级用例做模型报告回放。"""
+    return {
+        **VALID_REPORT,
+        "model_candidates": [
+            dict(c) for c in (CANDIDATES_TWO if candidates is None else candidates)
+        ],
+    }
+
+
+def make_deps_with_catalog(
+    tmp_dir: Path, fake_llm, model_catalog=None, bake_off_config=None
+) -> NodeDeps:
+    """带候选池料件的 NodeDeps（model_catalog / bake_off_config 可覆盖）。"""
+    registry = ComponentRegistry(str(COMPONENTS_DIR))
+    artifacts = ArtifactManager(
+        str(tmp_dir / "output"), str(TEMPLATE_DIR), str(ASSETS_DIR)
+    )
+    runner = NodeRunner(llm=fake_llm)
+    return NodeDeps(
+        runner=runner,
+        registry=registry,
+        artifacts=artifacts,
+        kb=StubKB(),
+        bake_off_config=bake_off_config,
+        model_catalog=model_catalog,
+    )
+
+
+# ── 12.1 schema：ModelCandidate 与 2–5 条约束 ──
+
+
+class TestModelCandidateSchema(unittest.TestCase):
+    def test_two_candidates_accepted(self):
+        obj = FeasibilitySchema(**report_with_candidates())
+        self.assertEqual(len(obj.model_candidates), 2)
+        self.assertEqual(obj.model_candidates[0].role, "主模型")
+        self.assertEqual(
+            obj.model_candidates[1].provider_id, "deepseek/deepseek-reasoner"
+        )
+
+    def test_five_candidates_accepted(self):
+        # 上界 5 条：合法
+        cands = [dict(CANDIDATES_TWO[0]) for _ in range(5)]
+        obj = FeasibilitySchema(**report_with_candidates(cands))
+        self.assertEqual(len(obj.model_candidates), 5)
+
+    def test_one_candidate_rejected(self):
+        # 下界 2 条：1 条必须硬拒
+        with self.assertRaises(ValidationError):
+            FeasibilitySchema(**report_with_candidates([dict(CANDIDATES_TWO[0])]))
+
+    def test_empty_list_rejected(self):
+        # 显式给空列表同样不合约束（缺省不校验，见下一条用例）
+        with self.assertRaises(ValidationError):
+            FeasibilitySchema(**report_with_candidates([]))
+
+    def test_six_candidates_rejected(self):
+        cands = [dict(CANDIDATES_TWO[0]) for _ in range(6)]
+        with self.assertRaises(ValidationError):
+            FeasibilitySchema(**report_with_candidates(cands))
+
+    def test_missing_field_in_candidate_rejected(self):
+        bad = {k: v for k, v in CANDIDATES_TWO[0].items() if k != "role"}
+        with self.assertRaises(ValidationError):
+            FeasibilitySchema(**report_with_candidates([bad, dict(CANDIDATES_TWO[1])]))
+
+    def test_absent_defaults_to_empty_list(self):
+        # 老检查点/降级路径：报告里没有 model_candidates 时默认空列表，不报错
+        obj = FeasibilitySchema(**VALID_REPORT)
+        self.assertEqual(obj.model_candidates, [])
+
+
+# ── 12.2 候选清单读取（缺失降级）──
+
+
+class TestModelCatalogRead(unittest.TestCase):
+    def test_unconfigured_degrades_with_reason(self):
+        deps = make_deps(Path(tempfile.mkdtemp()))
+        text, note = _read_model_catalog(deps)
+        self.assertEqual(text, "")
+        self.assertIn("未配置候选清单路径", note)
+
+    def test_missing_file_degrades_with_reason(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            missing = str(Path(tmp) / "no_such_catalog.md")
+            deps = make_deps_with_catalog(
+                Path(tmp), FakeLLM(), model_catalog={"path": missing}
+            )
+            text, note = _read_model_catalog(deps)
+            self.assertEqual(text, "")
+            self.assertIn("候选清单文件不存在", note)
+
+    def test_empty_file_degrades_with_reason(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "empty_catalog.md"
+            path.write_text("   \n", encoding="utf-8")
+            deps = make_deps_with_catalog(
+                Path(tmp), FakeLLM(), model_catalog={"path": str(path)}
+            )
+            text, note = _read_model_catalog(deps)
+            self.assertEqual(text, "")
+            self.assertIn("内容为空", note)
+
+    def test_reads_existing_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "catalog.md"
+            path.write_text("# 候选清单\n- 核对日期：2026-09-16\n", encoding="utf-8")
+            deps = make_deps_with_catalog(
+                Path(tmp), FakeLLM(), model_catalog={"path": str(path)}
+            )
+            text, note = _read_model_catalog(deps)
+            self.assertEqual(note, "")
+            self.assertIn("候选清单", text)
+
+    def test_reads_project_real_catalog(self):
+        # 项目真料件能被整份读出（不解析、不检索）
+        deps = make_deps_with_catalog(
+            Path(tempfile.mkdtemp()),
+            FakeLLM(),
+            model_catalog={"path": str(REPO_ROOT / "references" / "模型候选清单.md")},
+        )
+        text, note = _read_model_catalog(deps)
+        self.assertEqual(note, "")
+        self.assertIn("模型候选清单", text)
+        self.assertIn("deepseek/deepseek-chat", text)
+
+
+# ── 12.3 已接入 / 需接入判定 ──
+
+
+class TestAccessStatus(unittest.TestCase):
+    def test_no_config_no_candidates(self):
+        deps = make_deps(Path(tempfile.mkdtemp()))
+        self.assertEqual(_configured_candidates(deps), [])
+        self.assertFalse(_is_configured("deepseek/deepseek-chat", deps))
+
+    def test_configured_candidates_shape(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            deps = make_deps_with_catalog(
+                Path(tmp), FakeLLM(), bake_off_config=BAKE_OFF_ONE
+            )
+            self.assertEqual(
+                _configured_candidates(deps),
+                [{"id": "deepseek:deepseek-chat", "label": "DeepSeek-Chat", "kind": "chat"}],
+            )
+
+    def test_colon_vs_slash_id_matches(self):
+        # 配置用冒号、候选池用 litellm 斜杠：必须判为已接入（不因分隔符误判）
+        with tempfile.TemporaryDirectory() as tmp:
+            deps = make_deps_with_catalog(
+                Path(tmp), FakeLLM(), bake_off_config=BAKE_OFF_ONE
+            )
+            self.assertTrue(_is_configured("deepseek/deepseek-chat", deps))
+            self.assertTrue(_is_configured("deepseek-chat", deps))
+            self.assertFalse(_is_configured("deepseek/deepseek-reasoner", deps))
+
+    def test_merge_sets_access_status_both_ways(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            deps = make_deps_with_catalog(
+                Path(tmp), FakeLLM(), bake_off_config=BAKE_OFF_ONE
+            )
+            with patch("nodes.feasibility.subprocess.run",
+                       return_value=_Proc(0, json.dumps(PRICE_JSON_REMOTE))):
+                cands, note = build_model_candidates(
+                    report_with_candidates(), deps
+                )
+        self.assertEqual(note, "")
+        self.assertEqual(cands[0]["access_status"], "本机已接入")
+        self.assertEqual(cands[1]["access_status"], "需接入后验证")
+
+    def test_split_provider_id(self):
+        self.assertEqual(_split_provider_id("deepseek/deepseek-chat"), "deepseek-chat")
+        self.assertEqual(_split_provider_id("deepseek:deepseek-chat"), "deepseek-chat")
+        self.assertEqual(_split_provider_id("deepseek-chat"), "deepseek-chat")
+        self.assertEqual(_split_provider_id(""), "")
+
+
+# ── 12.4 价格脚本合并（成功 / 失败五条）──
+
+
+class TestCandidatePriceMerge(unittest.TestCase):
+    def _deps(self, tmp, price_script="fake_price.py", bake_off=None):
+        return make_deps_with_catalog(
+            Path(tmp),
+            FakeLLM(),
+            model_catalog={"path": "catalog.md", "price_script": price_script},
+            bake_off_config=bake_off,
+        )
+
+    def test_remote_success_fills_five_fields(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            deps = self._deps(tmp)
+            with patch("nodes.feasibility.subprocess.run",
+                       return_value=_Proc(0, json.dumps(PRICE_JSON_REMOTE))) as run:
+                cands, note = build_model_candidates(report_with_candidates(), deps)
+            self.assertEqual(note, "")
+            first = cands[0]
+            self.assertEqual(
+                first["price"],
+                {
+                    "input_per_million": "$0.2700",
+                    "output_per_million": "$1.1000",
+                    "found": True,
+                },
+            )
+            self.assertEqual(first["price_source"], "远端实时")
+            self.assertEqual(first["price_fetched_at"], "2026-09-16 10:00:00 +0800")
+            self.assertEqual(first["price_note"], "")
+            # 五个新字段齐全
+            for key in ("price", "price_source", "price_fetched_at", "price_note",
+                        "access_status"):
+                self.assertIn(key, first, msg=key)
+            # 调用形态：解释器 + 脚本 + price 子命令 + 两种取价键 + --json，硬超时 30 秒
+            cmd = run.call_args.args[0]
+            self.assertEqual(
+                cmd,
+                [
+                    sys.executable,
+                    "fake_price.py",
+                    "price",
+                    "deepseek-chat",
+                    "deepseek/deepseek-chat",
+                    "deepseek-reasoner",
+                    "deepseek/deepseek-reasoner",
+                    "--json",
+                ],
+            )
+            self.assertEqual(run.call_args.kwargs["timeout"], PRICE_SCRIPT_TIMEOUT)
+            self.assertEqual(PRICE_SCRIPT_TIMEOUT, 30)
+
+    def test_prefixed_table_key_also_matched(self):
+        # 真机口径：litellm 表某些型号的键带 provider 前缀（如 zai/glm-5.3-flash），
+        # 只按拆名后的 glm-5.3-flash 查会误报「表内未收录」；补完整 provider_id 后能取到价
+        payload = {
+            **PRICE_JSON_REMOTE,
+            "models": [
+                {"model_id": "deepseek-chat", "found": False},
+                {"model_id": "deepseek/deepseek-chat", "found": False},
+                {
+                    "model_id": "zai/glm-5.3-flash",
+                    "found": True,
+                    "input_per_million": "$0.1500",
+                    "output_per_million": "$0.5000",
+                },
+            ],
+        }
+        cands = [
+            dict(CANDIDATES_TWO[0]),
+            {
+                "provider_id": "zai/glm-5.3-flash",
+                "label": "GLM-5.3-Flash",
+                "role": "备选",
+                "why": "长上下文低成本组合",
+                "access_hint": "需接入后验证",
+                "notes": "质量是否够用未核实",
+            },
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            deps = self._deps(tmp)
+            with patch("nodes.feasibility.subprocess.run",
+                       return_value=_Proc(0, json.dumps(payload))) as run:
+                out, _ = build_model_candidates(report_with_candidates(cands), deps)
+            keys = run.call_args.args[0]
+            self.assertIn("zai/glm-5.3-flash", keys)
+            self.assertIn("glm-5.3-flash", keys)
+        self.assertTrue(out[1]["price"]["found"])
+        self.assertEqual(out[1]["price"]["input_per_million"], "$0.1500")
+        self.assertEqual(out[1]["price_source"], "远端实时")
+        # 两个键都查不到价的候选仍记未收录
+        self.assertEqual(out[0]["price_source"], "未取到")
+        self.assertIn("表内未收录 deepseek-chat", out[0]["price_note"])
+
+    def test_local_backup_marks_maybe_stale(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            deps = self._deps(tmp)
+            with patch("nodes.feasibility.subprocess.run",
+                       return_value=_Proc(0, json.dumps(PRICE_JSON_BACKUP))):
+                cands, _ = build_model_candidates(report_with_candidates(), deps)
+        self.assertEqual(cands[0]["price_source"], "本地备份并标注可能已过期")
+        self.assertIn("可能已过期", cands[0]["price_note"])
+        self.assertTrue(cands[0]["price"]["found"])
+
+    def test_script_nonzero_exit_marks_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            deps = self._deps(tmp)
+            with patch("nodes.feasibility.subprocess.run",
+                       return_value=_Proc(1, "", "配置错误：找不到表")):
+                cands, _ = build_model_candidates(report_with_candidates(), deps)
+        for cand in cands:
+            self.assertEqual(cand["price_source"], "未取到")
+            self.assertFalse(cand["price"]["found"])
+            self.assertIn("退出码 1", cand["price_note"])
+            self.assertIn("配置错误：找不到表", cand["price_note"])
+            self.assertEqual(cand["price_fetched_at"], cand["price_fetched_at"])  # 非空
+            self.assertTrue(cand["price_fetched_at"])
+
+    def test_invalid_json_marks_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            deps = self._deps(tmp)
+            with patch("nodes.feasibility.subprocess.run",
+                       return_value=_Proc(0, "{not json", "")):
+                cands, _ = build_model_candidates(report_with_candidates(), deps)
+        self.assertEqual(cands[0]["price_source"], "未取到")
+        self.assertIn("不是合法 JSON", cands[0]["price_note"])
+
+    def test_timeout_marks_missing(self):
+        import subprocess as _subprocess
+
+        with tempfile.TemporaryDirectory() as tmp:
+            deps = self._deps(tmp)
+            with patch(
+                "nodes.feasibility.subprocess.run",
+                side_effect=_subprocess.TimeoutExpired(cmd="price", timeout=30),
+            ):
+                cands, _ = build_model_candidates(report_with_candidates(), deps)
+        self.assertEqual(cands[0]["price_source"], "未取到")
+        self.assertIn("超时", cands[0]["price_note"])
+
+    def test_price_script_not_configured_skips_call(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            deps = make_deps_with_catalog(
+                Path(tmp), FakeLLM(), model_catalog={"path": "catalog.md"}
+            )
+            with patch("nodes.feasibility.subprocess.run") as run:
+                cands, _ = build_model_candidates(report_with_candidates(), deps)
+            run.assert_not_called()
+        self.assertEqual(cands[0]["price_source"], "未取到")
+        self.assertIn("未配置价格脚本路径", cands[0]["price_note"])
+
+    def test_model_not_in_table_marks_missing(self):
+        payload = {
+            **PRICE_JSON_REMOTE,
+            "models": [
+                {"model_id": "deepseek-chat", "found": False},
+                {"model_id": "deepseek-reasoner", "found": False},
+            ],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            deps = self._deps(tmp)
+            with patch("nodes.feasibility.subprocess.run",
+                       return_value=_Proc(0, json.dumps(payload))):
+                cands, _ = build_model_candidates(report_with_candidates(), deps)
+        self.assertEqual(cands[0]["price_source"], "未取到")
+        self.assertIn("表内未收录", cands[0]["price_note"])
+        self.assertIsNone(cands[0]["price"]["input_per_million"])
+
+    def test_row_without_price_gets_note_not_free(self):
+        # 表内收录但缺单价（脚本给 "-"，如 dashscope/qwen3-max）：found=True 但必须写明
+        # 需另行核实，不把缺价当免费（价格口径见 references/模型候选清单.md）
+        payload = {
+            **PRICE_JSON_REMOTE,
+            "models": [
+                {
+                    "model_id": "deepseek-chat",
+                    "found": True,
+                    "input_per_million": "-",
+                    "output_per_million": "-",
+                },
+                {
+                    "model_id": "deepseek-reasoner",
+                    "found": True,
+                    "input_per_million": "$0.2800",
+                    "output_per_million": "$0.4200",
+                },
+            ],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            deps = self._deps(tmp)
+            with patch("nodes.feasibility.subprocess.run",
+                       return_value=_Proc(0, json.dumps(payload))):
+                cands, _ = build_model_candidates(report_with_candidates(), deps)
+        self.assertTrue(cands[0]["price"]["found"])
+        self.assertIn("表内无单价，需另行核实", cands[0]["price_note"])
+        # 有价的候选不加这条说明
+        self.assertEqual(cands[1]["price_note"], "")
+
+    def test_empty_candidate_pool_returns_note(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            deps = self._deps(tmp)
+            with patch("nodes.feasibility.subprocess.run") as run:
+                cands, note = build_model_candidates(VALID_REPORT, deps)
+            run.assert_not_called()
+        self.assertEqual(cands, [])
+        self.assertIn("模型未产出候选池", note)
+
+
+# ── 12.5 节点级：候选池写回 state ──
+
+
+class TestFeasibilityNodeCandidatePool(unittest.TestCase):
+    def test_node_writes_model_candidates(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            catalog = tmp_path / "模型候选清单.md"
+            catalog.write_text("# 测试候选清单\n- 核对日期：2026-09-16\n", encoding="utf-8")
+            fake = FakeLLM(json_queue=[report_with_candidates()])
+            deps = make_deps_with_catalog(
+                tmp_path,
+                fake,
+                model_catalog={
+                    "path": str(catalog),
+                    "price_script": str(tmp_path / "model_catalog.py"),
+                },
+                bake_off_config=BAKE_OFF_ONE,
+            )
+            with patch("nodes.feasibility.build_chat", return_value=_noop_chat()), \
+                 patch("nodes.feasibility.build_llm", return_value=_noop_llm()), \
+                 patch("nodes.feasibility.subprocess.run",
+                       return_value=_Proc(0, json.dumps(PRICE_JSON_REMOTE))):
+                out = make_feasibility_check(deps)(feasibility_state())
+
+            cands = out["model_candidates"]
+            self.assertEqual(len(cands), 2)
+            self.assertEqual(cands[0]["provider_id"], "deepseek/deepseek-chat")
+            self.assertEqual(cands[0]["price_source"], "远端实时")
+            self.assertEqual(cands[0]["access_status"], "本机已接入")
+            self.assertEqual(cands[1]["access_status"], "需接入后验证")
+            # 一切正常时不记降级原因
+            self.assertNotIn("candidate_pool_note", out["feasibility_report"])
+            # prompt 里注入了候选清单整份文本与本机已接入候选
+            prompt = fake.calls[0]["prompt"]
+            self.assertIn("测试候选清单", prompt)
+            self.assertIn("deepseek:deepseek-chat", prompt)
+
+    def test_node_records_catalog_missing_reason(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            fake = FakeLLM(json_queue=[report_with_candidates()])
+            deps = make_deps_with_catalog(
+                tmp_path,
+                fake,
+                model_catalog={
+                    "path": str(tmp_path / "缺失的清单.md"),
+                    "price_script": str(tmp_path / "model_catalog.py"),
+                },
+            )
+            with patch("nodes.feasibility.build_chat", return_value=_noop_chat()), \
+                 patch("nodes.feasibility.build_llm", return_value=_noop_llm()), \
+                 patch("nodes.feasibility.subprocess.run",
+                       return_value=_Proc(0, json.dumps(PRICE_JSON_REMOTE))):
+                out = make_feasibility_check(deps)(feasibility_state())
+
+            # 清单缺失不阻断：候选池照旧产出（单价走价格脚本），报告记一行原因
+            self.assertEqual(len(out["model_candidates"]), 2)
+            note = out["feasibility_report"]["candidate_pool_note"]
+            self.assertIn("候选清单文件不存在", note)
+            # 清单该节整块不渲染（无清单正文，也没有接入名单小节）
+            self.assertNotIn("## 模型候选清单", fake.calls[0]["prompt"])
+
+    def test_node_empty_pool_records_reason(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            fake = FakeLLM(json_queue=[VALID_REPORT])
+            deps = make_deps_with_catalog(
+                tmp_path,
+                fake,
+                model_catalog={"path": str(tmp_path / "model_catalog.py")},
+            )
+            with patch("nodes.feasibility.build_chat", return_value=_noop_chat()), \
+                 patch("nodes.feasibility.build_llm", return_value=_noop_llm()), \
+                 patch("nodes.feasibility.subprocess.run") as run:
+                out = make_feasibility_check(deps)(feasibility_state())
+            run.assert_not_called()
+            self.assertEqual(out["model_candidates"], [])
+            self.assertIn(
+                "模型未产出候选池",
+                out["feasibility_report"]["candidate_pool_note"],
+            )
+
+
+# ── 12.6 PRD 模板：九项 + 模型要求与切换条件 ──
+
+
+class TestPrdAiNativeModelSection(unittest.TestCase):
+    BASE_RENDER = {
+        "confirmed_requirement": "做 AI 客服",
+        "section_plan": {},
+        "user_insights": {},
+        "ai_triage": {"suggestion": "ai_core"},
+        "red_team_review": {},
+        "prd_rewrite_feedback": "",
+    }
+
+    @staticmethod
+    def _raw_template() -> str:
+        with tempfile.TemporaryDirectory() as tmp:
+            registry = make_deps(Path(tmp)).registry
+            return registry.read_prompt("prd_generation_ai_native")
+
+    def test_nine_items_and_sixth_section(self):
+        rendered = Template(self._raw_template()).render(**self.BASE_RENDER)
+        self.assertIn("必含九项内容", rendered)
+        self.assertNotIn("必含八项内容", rendered)
+        self.assertIn("背景→边界→流程→功能逻辑→上下文→模型→负向→风险→评测/kill", rendered)
+        self.assertIn("6. **模型要求与切换条件**", rendered)
+        # 原 6/7/8 顺延为 7/8/9
+        self.assertIn("7. **负向验收标准**", rendered)
+        self.assertIn("8. **AI 风险登记册**", rendered)
+        self.assertIn("9. **评测计划与可接受通过率**", rendered)
+
+    def test_section_covers_four_things(self):
+        rendered = Template(self._raw_template()).render(**self.BASE_RENDER)
+        for anchor in ("**主模型**", "**备选模型与切换条件**", "**能力要求**", "**成本口径**"):
+            self.assertIn(anchor, rendered, msg=anchor)
+        # 空池兜底措辞
+        self.assertIn("本次未产出候选池，模型待定", rendered)
+        # 写法约束：不得推荐候选池里没有的模型
+        self.assertIn("不得推荐候选池里没有的模型", rendered)
+        # 自检清单加第 6 条
+        self.assertIn("6. 模型要求与切换条件是否写明了主模型、备选、切换条件", rendered)
+
+    def test_render_with_candidate_pool(self):
+        rendered = Template(self._raw_template()).render(
+            **self.BASE_RENDER, model_candidates=report_with_candidates()["model_candidates"]
+        )
+        self.assertIn("模型候选池", rendered)
+        self.assertIn("deepseek/deepseek-chat", rendered)
+        self.assertIn("DeepSeek-Chat", rendered)
+        self.assertIn("结构化抽取", rendered)
+        # 空池分支那行不出现（第 6 项正文里的兜底说明文字不算）
+        self.assertNotIn("- 模型候选池：本次未产出候选池", rendered)
+
+    def test_render_without_candidate_pool(self):
+        rendered = Template(self._raw_template()).render(**self.BASE_RENDER)
+        self.assertIn("- 模型候选池：本次未产出候选池，模型待定", rendered)
+        self.assertNotIn("deepseek/deepseek-chat", rendered)
+
+    def test_render_handles_candidate_without_price(self):
+        # 节点补字段前的候选（无 price/access_status）也要能渲染，不抛异常
+        bare = [
+            {
+                "provider_id": "zai/glm-5.3-flash",
+                "label": "GLM-5.3-Flash",
+                "role": "备选",
+                "why": "长上下文 + 低成本组合",
+                "access_hint": "需接入后验证",
+                "notes": "质量是否够用未核实",
+            }
+        ]
+        rendered = Template(self._raw_template()).render(
+            **self.BASE_RENDER, model_candidates=bare
+        )
+        self.assertIn("zai/glm-5.3-flash", rendered)
+
+
+# ── 12.7 接线：config / state / NodeDeps / 两处装配 ──
+
+
+class TestS048Wiring(unittest.TestCase):
+    def test_config_has_model_catalog_section(self):
+        cfg = load_config()
+        self.assertIn("model_catalog", cfg)
+        self.assertEqual(
+            cfg["model_catalog"]["path"], "./references/模型候选清单.md"
+        )
+        self.assertEqual(
+            cfg["model_catalog"]["price_script"], "./scripts/model_catalog.py"
+        )
+
+    def test_configured_paths_exist(self):
+        self.assertTrue((PROJECT_ROOT / "references" / "模型候选清单.md").is_file())
+        self.assertTrue((PROJECT_ROOT / "scripts" / "model_catalog.py").is_file())
+
+    def test_node_deps_has_model_catalog_default_none(self):
+        names = {f.name for f in dataclass_fields(NodeDeps)}
+        self.assertIn("model_catalog", names)
+        deps = make_deps(Path(tempfile.mkdtemp()))
+        self.assertIsNone(deps.model_catalog)
+
+    def test_state_has_model_candidates_default_empty(self):
+        self.assertIn("model_candidates", PMState.__annotations__)
+        self.assertEqual(default_state()["model_candidates"], [])
+
+    def test_both_assemblies_wire_model_catalog(self):
+        # 静态接线检查（不真建 graph：避免依赖密钥/图构建）：两处装配都必须解析并传入
+        for rel in ("scripts/run_prd_workflow.py", "src/cli/main.py"):
+            text = (REPO_ROOT / rel).read_text(encoding="utf-8")
+            self.assertIn('cfg.get("model_catalog"', text, msg=rel)
+            self.assertIn("model_catalog=model_catalog or None", text, msg=rel)
+
+    def test_both_assemblies_resolve_absolute_paths(self):
+        # 两处都用 _resolve_path 解析（不许把相对路径原样塞进 deps）
+        for rel in ("scripts/run_prd_workflow.py", "src/cli/main.py"):
+            text = (REPO_ROOT / rel).read_text(encoding="utf-8")
+            self.assertIn('_resolve_path(model_catalog_cfg["path"])', text, msg=rel)
+            self.assertIn(
+                '_resolve_path(model_catalog_cfg["price_script"])', text, msg=rel
+            )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
 
@@ -1580,3 +2259,6 @@ if __name__ == "__main__":
 #     新增 target_capability 必填校验与 tool_supplement 默认值校验
 # [C 2026-09-15 by codebuddy-glm-5.2 r2] S045 块4 r2：闸门放宽后测试同步
 #     （test_failed_probe_guidance_suggests_reshape 改断言、新增 2 例验证放宽行为）
+# [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048：新增第 12 节候选池前置用例
+#     （schema 2–5 条约束 / 候选清单读取降级 / 已接入判定 / 价格脚本六条失败与成功
+#      / 节点级候选池写回 / PRD 九项与模型要求节渲染 / config+state+NodeDeps+两处装配接线）

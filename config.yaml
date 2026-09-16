@@ -89,6 +89,14 @@ bake_off:
 tool_catalog:
   routing_md_path: ./references/外置工具路由.md
 
+# [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 候选池前置（第 2 段产出、第 3 段引用）：
+# path = 候选清单整份文本（注入 feasibility_check prompt，模型据此挑 2–5 个候选）；读不到 → 空串、该节不渲染；
+# price_script = 实时取价脚本（节点调 sys.executable <脚本> <模型名...> --json，超时 30 秒）；取不到价 → 逐条记「未取到」。
+# 相对路径以项目根为基准解析（与 tool_catalog 同口径）。
+model_catalog:
+  path: ./references/模型候选清单.md
+  price_script: ./scripts/model_catalog.py
+
 # [C 2026-09-12] RAG 领域知识库（AI 领域知识库，与业务档案库 kb 段独立）
 domain_kb:
   chroma_path: ./domain_kb/chroma

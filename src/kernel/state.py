@@ -49,6 +49,9 @@ class PMState(TypedDict, total=False):
     feasibility_reshape_count: int    # 重塑次数（全程限 1 次，第 2 次自动升级暂停）
     # [C 2026-09-14 by S043-b3] 探针真跑证据列表（ReAct 循环采集，回填 capability_matrix）
     feasibility_evidence: list        # [{probe_name, prompt, actual_output, expected, passed, reason}]
+    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 候选池前置：
+    # 第 2 段写（feasibility_check 补实时单价与接入状态），第 3 段 prd_generation / 第 6 段 bake_off 读
+    model_candidates: list[dict]      # [{provider_id,label,role,why,access_hint,notes,price,price_source,price_fetched_at,price_note,access_status}]
 
     # ─── 评测集（G2）───
     eval_cases: list                  # G2: 需求确认门后建立的评测用例
@@ -149,6 +152,8 @@ def default_state() -> dict[str, Any]:
         "feasibility_confirm": {},
         "feasibility_reshape_count": 0,
         "feasibility_evidence": [],  # [C 2026-09-14 by S043-b3] 探针真跑证据
+        # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 候选池（第 2 段写，第 3/6 段读）
+        "model_candidates": [],
         # 评测集
         "eval_cases": [],
         # 设计评测体系 [C 2026-09-12 by codebuddy-ds41flash]
