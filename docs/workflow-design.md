@@ -1,12 +1,12 @@
 # AI PM Agent — AI PM 融合工作流设计
 
-> 版本：v3.2
+> 版本：v3.3
 > 日期：2026-09-15
 > 状态：已获用户拍板（S031，2026-09-12）；S034 命名修订（去"门"字、段名改动宾短语）
 > 决策依据：S030 方向校准——已建三个判定节点是通用 PM 交付链，AI 差异化职能完成度约 10%，主线切换为 AI PM 融合工作流
 > 替代：本文替代 v2.0（2026-09-08，规划中的 22 节点/HTML 产物/红队审查，已被实际建设推翻）；v2.0 的 G1-G9 有效设计吸收进第六节，其余失效内容不保留
 > 技术机制（状态图/NodeRunner/HITL 实现）仍以 [technical-design.md](technical-design.md) 为准；本文规定"做什么、什么条件下做"
-> 变更：v2.0→v3.0，HTML→Markdown 原生；规划 22 节点→实际建成 11 节点三个判定节点；新增 AI 双轨道分流、两个新判定节点（确认AI可行性、判定评测是否达标）、模型选型对比、构建期内循环、运营飞轮。v3.1：全文去掉"门"字，段名统一用动宾短语。v3.2：修正事实漂移——第 2 段探针由"人工执行、HITL 录结论"改为"节点内自动真跑"，第 4/5/7/8/9 段与判定节点 2/4/6 的"待建/待加"状态更新为已建 <!-- [MA 2026-09-12] -->
+> 变更：v2.0→v3.0，HTML→Markdown 原生；规划 22 节点→实际建成 11 节点三个判定节点；新增 AI 双轨道分流、两个新判定节点（确认AI可行性、判定评测是否达标）、模型选型对比、构建期内循环、运营飞轮。v3.1：全文去掉"门"字，段名统一用动宾短语。v3.2：修正事实漂移——第 2 段探针由"人工执行、HITL 录结论"改为"节点内自动真跑"，第 4/5/7/8/9 段与判定节点 2/4/6 的"待建/待加"状态更新为已建。v3.3（S048，2026-09-16）：按现实工作顺序修正——第 2 段增加候选池产出（模型选型第一次出现在 PRD 之前），第 3 段 AI 原生模板八项改九项并新增「模型要求与切换条件」，第 6 段改为读候选池、由用户拍板跑哪几个、只对已接入候选实跑；第七节连线图补全第 2/5/6/8 段（原图漏画，会看错顺序） <!-- [MA 2026-09-12] -->
 
 ---
 
@@ -88,11 +88,12 @@
 
 回答"该不该用 AI、能不能做、成本能否承受"，发生在 PRD 之前。
 
-- **活动（四项）**：
+- **活动（五项）**：
   1. **能力三色判断**：逐关键能力点标注——模型当前可稳定做到（绿）/ 需配合兜底或人工（黄）/ 做不到（红）；
   2. **PoL 探针**：流水线生成探针方案（5 个以内 prompt 链：核心任务样例、边界样例、失败诱导样例，含调用模型与步骤），**节点内自动真跑**——进程内 bind_tools 调 `run_probe` 真实调模型（全程 ≤8 轮），实测结论回填为证据；探针未执行或无有效证据的绿点自动降黄（S043/S044 落地，取代 S031 的「人工执行、HITL 录结论」）；
   3. **风险扫描**：幻觉、提示注入、数据泄露、监管合规四类逐项给风险等级；
-  4. **成本粗估**：按预估调用量、上下文长度、候选模型单价算月度成本区间。
+  4. **成本粗估**：按预估调用量、上下文长度、候选池里已给单价的候选算月度成本区间（assumption 必须写明按哪个候选的单价）；
+  5. **候选池（S048 起）**：从候选清单（`references/模型候选清单.md`）里挑 2–5 个候选，逐个写清角色（主模型/备选/专用档）、为什么适合本需求、接入代价、已知限制；节点代码随后补实时单价（`scripts/model_catalog.py price`）与「本机已接入 / 需接入后验证」，写 `state["model_candidates"]`，供第 3 段 PRD 与第 6 段比模型引用。清单缺失、价格取数失败、候选为空三条降级只记原因、不阻断流程。
 - **入口条件**：AI 核心需求完成第 1 段需求挖掘之后进入本段。
 - **确认AI可行性出口（四态，代码硬判辅助 + 人工拍板；S045 起证据必填——门前用纯函数逐条审计探针证据是否齐全，缺口随载荷提示、二次确认，空答复不放行）**：
   - **通过**：无红色能力点、风险有缓解方案、成本可接受 → 进第 3 段 ai-native PRD；
@@ -113,6 +114,8 @@ AI 轨使用 ai-native 模板，来源为参考库 `apm/skills/prd-architect/ref
 6. **AI 风险登记册**：幻觉/注入/泄露/监管四类风险逐条登记触发条件与缓解措施；
 7. **评测计划与可接受通过率**：引用第 5 段将定稿的评测集，写明可接受通过率是产品决策（非 100%）；
 8. 量化 **kill 阈值**占位：在线阶段触发停用/回滚的指标数值（第 9 段发布计划细化）。
+
+**S048 起**：必含内容由八项改九项——在「上下文与记忆」之后插入第 6 项「**模型要求与切换条件**」（主模型与选择理由、备选模型与切换条件、能力要求、成本口径；候选一律来自第 2 段候选池，未接入的候选写清但标注「需接入后验证」、不得编造实测数据），原第 6/7/8 项顺延为 7/8/9。
 
 普通轨沿用现有 Markdown PRD prompt，行为不变。
 
@@ -141,7 +144,7 @@ AI 轨使用 ai-native 模板，来源为参考库 `apm/skills/prd-architect/ref
 
 - **触发条件**：评测档案中无该类需求的有效选型记录，或记录超过月度复评周期，或需求方指定多模型对比。档案有效时直接引用结论，跳过本段。
 - **活动**：用第 5 段同一批评测题，经 Promptfoo 对多个候选模型 provider 横跑；产出质量（通过率）、成本（千次调用单价）、延迟（P50/P95）三维对比；写回评测档案。
-- **出口产物**：选型结论（推荐模型 + 三维数据 + 适用条件），供 PRD/工单引用。
+- **出口产物**：选型结论（推荐模型 + 三维数据 + 适用条件 + 未实跑的候选与原因），供第 7 段拆工单与第 9 段发布计划引用；**PRD 引用的是第 2 段产出的候选池**（S048 起，见第 3 段「模型要求与切换条件」）。
 - **渠道边界**：产品自身的模型调用固定走项目自有 DeepSeek；横跑的候选 provider 清单在开工前单独报批。
 
 ### 第 7 段：拆研发工单（已建）
@@ -216,17 +219,33 @@ AI 轨使用 ai-native 模板，来源为参考库 `apm/skills/prd-architect/ref
 实际建成 18 节点、6 个 HITL 确认节点（`src/kernel/graph.py`）：
 
 ```
-kb_lookup → intake → requirement_confirm(HITL)
-→（条件边：pending=True）requirement_refine(HITL 整合节点)
+kb_lookup → intake → requirement_confirm(HITL 确认需求)
+→（条件边：pending=True）requirement_refine(HITL 需求修订整合)
 →（条件边：confirm/reclassify → needs_discovery / feedback → 自环 / abandon → END）
-→（条件边：pending=False）needs_discovery → prd_generation → prd_review
-→（reject 回 prd_generation，最多 3 轮）
-→ issue_splitting → issue_confirm(HITL)
-→（确认 / 重拆 2 轮 / 回 PRD 限 1 次，第 3 版升级暂停）
-→ launch_plan → launch_confirm(HITL)
-→（确认 / 重调 2 轮 / 回工单限 1 次，第 3 版升级暂停）
+→（条件边：pending=False 直连）needs_discovery（第 1 段：挖需求 + 判是否 AI 核心）
+→（条件边：ai_core=True → feasibility_check / False、None → prd_generation）
+→ feasibility_check（第 2 段：三方对照报告 + 自动真跑探针 + 风险扫描 + 成本区间 + **候选池**）
+→ feasibility_confirm(HITL 确认可行性)
+→（四态：pass/reclassify → prd_generation / reshape → requirement_confirm 限 1 次 / abandon → END）
+→ prd_generation（第 3 段：AI 原生九项模板 / 普通模板）
+→ prd_review（第 4 段：五维 + AI 维度，代码判三档）
+→（reject 回 prd_generation 重写，最多 3 轮）
+→（非 reject 且 ai_core=True）eval_design（第 5 段：四层考题 + 评分方式 + 及格线）
+→ eval_confirm(HITL 确认评测体系)
+→（pass → bake_off / redraft → eval_design，前 2 轮自动）
+→ bake_off（第 6 段：读第 2 段候选池 → 用户点序号/点名/全部/跳过 → 只对已接入候选实跑 → 三维对比 → 代码判推荐）
+→（条件边：issue_splitting；工具错误、缺被测 prompt 在节点内停等重跑）
+→ issue_splitting（第 7 段：纵切拆单 + 覆盖矩阵 + judge 校验）
+→ issue_confirm(HITL 确认工单)
+→（确认且 ai_core=True → eval_run / 确认且普通轨 → launch_plan / 意见 → issue_splitting 重拆 / 回PRD → prd_generation 限 1 次）
+→ eval_run（第 8 段：Promptfoo 真跑 + 双及格线代码判；未达标在节点内停等，不自动放行）
+→ launch_plan（第 9 段：7 步骨架 + kill 阈值 + cohort 灰度）
+→ launch_confirm(HITL 确认发布计划)
+→（确认 → artifact_persist / 意见 → launch_plan 重调 / 回工单 → issue_splitting 限 1 次）
 → artifact_persist → END
 ```
+
+普通轨（`ai_core=False/None`）在第 1 段后直达 `prd_generation`，跳过第 2、5、6、8 段。
 
 | 段 | 现状节点 | 差距 |
 |---|---|---|
