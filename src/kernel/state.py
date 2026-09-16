@@ -64,6 +64,9 @@ class PMState(TypedDict, total=False):
     eval_revision_feedback: str       # 评测体系上轮修改意见（注入 eval_design prompt，消费即清零）
     eval_yaml_draft: str              # 确认落盘时渲染的 Promptfoo YAML 草案文本（写 state 不落文件）
     eval_archive: dict                # 评测档案（预留第 11 段接口，本任务只构造 dict 写 state）
+    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 出题质量机械检查结果
+    # （guards/eval_quality.audit_exam_quality 产出，只提示不阻断；并入 eval_archive、进确认门停等材料）
+    eval_quality: dict                # {errors: [], warnings: [], notes: []}
 
     # ─── 构建期跑评测（eval_run 节点）───
     # [C 2026-09-12 by codebuddy-ds41flash] 第 8 段：仅 AI 核心需求经过；普通轨字段恒空/恒 0
@@ -163,6 +166,8 @@ def default_state() -> dict[str, Any]:
         "eval_revision_feedback": "",
         "eval_yaml_draft": "",
         "eval_archive": {},
+        # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 出题质量机械检查结果
+        "eval_quality": {},
         # 构建期跑评测 [C 2026-09-12 by codebuddy-ds41flash]
         "eval_report": {},
         "eval_run_count": 0,

@@ -62,6 +62,9 @@ PAYLOAD_RECAP_FIELDS: tuple[str, ...] = (
     "evidence_audit_hint",
     # [C 2026-09-12 by codebuddy-ds41flash] 确认评测体系门中断载荷携带评测体系草案
     "eval_system",
+    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 出题质量：确认门载荷携带
+    # 机械检查结果（哪道题的材料或评分方式可能有问题），只提示不阻断
+    "eval_quality",
     "issue_plan",  # [C 2026-09-11] 块2 工单确认门中断载荷携带工单草案
     "launch_plan",  # [C 2026-09-11] 块2 发布计划确认门中断载荷携带计划草案
     # [C 2026-09-12 by codebuddy-ds41flash] 第 8 段评测执行门中断载荷携带评测报告

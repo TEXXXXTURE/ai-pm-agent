@@ -10,6 +10,8 @@
 
 eval_design（make_eval_design）：
 - 调模型起草四层考题集 + 每题评分方式 + 及格线建议值，写入 state["eval_system"]；
+- 生成后调 guards/eval_quality.audit_exam_quality 做一次机械检查（材料是否可投喂、
+  评分方式是否可核对），结果写 state["eval_quality"]（**只提示不阻断**，不改 verdict/路由/及格线）；
 - 轮次>0 时 state["eval_revision_feedback"] 由 prompt 模板读取注入，节点返回时**消费即清零**
   （对齐 prd_generation 的复审反馈注入/清零方式）。
 
@@ -33,6 +35,7 @@ from datetime import datetime
 import yaml
 from langgraph.types import interrupt
 
+from components.guards.eval_quality import audit_exam_quality
 from kernel.spec import NodeSpec
 
 # 评测体系自动重起草保险丝（初版 + 2 轮重起草 = 共 3 版；
@@ -287,10 +290,40 @@ def _build_eval_archive(state: dict) -> dict:
         "created_at": datetime.now().strftime("%Y-%m-%d"),
         "exam_summary": exam_summary,
         "pass_lines": eval_system.get("pass_lines") or {},
+        # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 出题质量机械检查结果并入评测档案
+        "eval_quality": state.get("eval_quality") or {},
         "archive_version": 1,
         "replay_badcases": [],
         "regression_trigger": {"enabled": False, "note": "二期第 11 段接入"},
     }
+
+
+def _audit_eval_quality(eval_system: dict) -> dict:
+    """调机械检查并把结果规整成 ``{errors, warnings, notes}``（异常不崩节点）。
+
+    检查口径见 guards/eval_quality：**只提示、不阻断、不改及格线、不替模型改题**；
+    检查函数自身异常时记一条「检查未执行」，节点照常返回考题。
+    """
+    try:
+        result = audit_exam_quality(eval_system)
+    except Exception as exc:  # 双保险：检查异常绝不影响出题节点的主流程
+        return {
+            "errors": [],
+            "warnings": [],
+            "notes": [f"检查未执行：{type(exc).__name__}: {exc}"],
+        }
+    if not isinstance(result, dict):
+        return {
+            "errors": [],
+            "warnings": [],
+            "notes": ["检查未执行：检查函数返回值不是 dict"],
+        }
+    return {
+        "errors": result.get("errors") or [],
+        "warnings": result.get("warnings") or [],
+        "notes": result.get("notes") or [],
+    }
+    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 出题质量检查接线（不阻断）
 
 
 def make_eval_design(deps):
@@ -310,9 +343,17 @@ def make_eval_design(deps):
             output_schema=schema,
         )
         result = deps.runner.run_raw(spec, state)
+        # S048 出题质量机械检查：生成后立即查「材料是否可投喂、评分方式是否可核对」，
+        # 结果写 state["eval_quality"] 随确认门停等材料展示；**只提示，不影响 verdict/路由/及格线**。
+        eval_quality = _audit_eval_quality(result)
         # 消费即清零：确认门写入的重起草意见只注入本轮一次，避免陈旧意见被反复注入
-        return {"eval_system": result, "eval_revision_feedback": ""}
+        return {
+            "eval_system": result,
+            "eval_revision_feedback": "",
+            "eval_quality": eval_quality,
+        }
         # [C 2026-09-12 by codebuddy-ds41flash] 起草即清零意见，确认门条件边据此正确路由
+        # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 起草后追加出题质量检查写回
 
     return eval_design
 
@@ -383,6 +424,8 @@ def make_eval_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节点保持
                     "reason": reason,
                     "requirement_name": requirement_name,
                     "eval_system": eval_system,
+                    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 出题质量检查结果随载荷展示
+                    "eval_quality": state.get("eval_quality") or {},
                     "prior_feedbacks": _prior_eval_feedbacks(state),
                 }
             )
@@ -424,6 +467,9 @@ def make_eval_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节点保持
                 "status": "draft",
                 "requirement_name": requirement_name,
                 "eval_system": eval_system,
+                # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 出题质量检查结果随载荷展示
+                # （用户在确认评测体系时即可看到哪道题的材料或评分方式可能有问题；只提示不阻断）
+                "eval_quality": state.get("eval_quality") or {},
                 "eval_revision_count": count,
             }
         )
