@@ -1013,13 +1013,15 @@ class TestGraphWiring(unittest.TestCase):
                 # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 第 8 段拆两步新增判定门
                 "eval_gate",
                 "launch_plan",
+                # [C 2026-09-16] R11 就绪度打分
+                "readiness_assessment",
                 "launch_confirm",
                 "artifact_persist",
             ):
                 self.assertIn(name, names, msg=name)
-            # 真实业务节点数 = 19（剔除 langgraph 内置 __start__/__end__）
+            # 真实业务节点数 = 20（剔除 langgraph 内置 __start__/__end__）
             real_nodes = names - {"__start__", "__end__"}
-            self.assertEqual(len(real_nodes), 19)
+            self.assertEqual(len(real_nodes), 20)
 
     def test_graph_edges_requirement_confirm_conditional(self):
         # 确认门出口改条件边：到 needs_discovery 和 requirement_refine 两条

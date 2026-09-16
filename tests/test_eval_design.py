@@ -639,9 +639,10 @@ class TestGraphWiring(unittest.TestCase):
             # [C 2026-09-13 by codebuddy-ds41flash] 第 6 段新增 bake_off 后为 17 个真实节点
             # [C 2026-09-14 by codebuddy-ds41flash] S041 新增 requirement_refine 后为 18 个真实节点
             # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 新增 eval_gate 后为 19 个真实节点
+            # [C 2026-09-16] R11 新增 readiness_assessment 后为 20 个真实节点
             # （另加 langgraph 内置 __start__/__end__）
             real_nodes = names - {"__start__", "__end__"}
-            self.assertEqual(len(real_nodes), 19)
+            self.assertEqual(len(real_nodes), 20)
 
     def test_mermaid_wiring(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:

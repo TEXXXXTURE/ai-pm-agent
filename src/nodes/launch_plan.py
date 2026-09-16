@@ -554,6 +554,8 @@ def make_launch_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节点保�
 
         def escalation_interrupt(reason: str):
             """升级暂停：抛出第二个 interrupt 请人主动决策（不自动空转）。"""
+            # [C 2026-09-16] R11：载荷携带就绪度打分
+            readiness = state.get("readiness_assessment") or {}
             return interrupt(
                 {
                     "node": "launch_confirm",
@@ -561,6 +563,7 @@ def make_launch_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节点保�
                     "reason": reason,
                     "requirement_name": requirement_name,
                     "launch_plan": plan,
+                    "readiness_assessment": readiness,
                     "prior_feedbacks": _prior_launch_feedbacks(state),
                 }
             )
@@ -649,12 +652,15 @@ def make_launch_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节点保�
             }
 
         # ── 首次中断：请用户审阅发布计划草案 ──
+        # [C 2026-09-16] R11：载荷携带就绪度打分（launch_plan 之后由 readiness_assessment 节点产出）
+        readiness = state.get("readiness_assessment") or {}
         first_answer = interrupt(
             {
                 "node": "launch_confirm",
                 "status": "draft",
                 "requirement_name": requirement_name,
                 "launch_plan": plan,
+                "readiness_assessment": readiness,
             }
         )
         kind, text = _normalize_answer(first_answer)

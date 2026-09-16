@@ -1,0 +1,95 @@
+{# [C 2026-09-16] 就绪度打分报告模板（.md 产物，doc_type=readiness_assessment）：
+   容错渲染——11 维度字段缺失/为空自动跳过；加权均分、6 档结论、三级阻断条件
+   来自 nodes/readiness_assessment.py 代码硬判（score_readiness 纯函数）。
+   模型只给分数与证据，判定由代码算。 #}
+# 发布前就绪度打分 — {{ requirement_name }}，{{ generated_at }}
+
+{%- set avg = assessment.get("weighted_avg") %}
+{%- set level = assessment.get("level", "") %}
+{%- set level_label = assessment.get("level_label", "") %}
+{%- set blockers = assessment.get("blockers", []) %}
+{%- set low_dims = assessment.get("low_dimensions", []) %}
+{%- set scores = assessment.get("dimension_scores", {}) %}
+
+## 总体结论
+
+- **加权均分**：{{ avg if avg is not none else "未算出" }} / 5.00
+- **就绪档位**：{{ level_label or "未定" }}
+{%- if blockers %}
+
+> **【阻断项 {{ blockers | length }} 条】以下条件不满足，不应面向客户生产发布：**
+{% for b in blockers -%}
+>
+> {{ loop.index }}. {{ b }}
+{% endfor %}
+{%- else %}
+
+- 阻断项：无——未命中三级阻断条件中的任何一条。
+{%- endif %}
+
+## 11 维度打分
+
+| 维度 | 分数 | 加权 | 证据 | 风险 | 责任人 | 下一步 |
+|---|---|---|---|---|---|---|
+{%- set dim_meta = [
+  ("problem_fit", "问题契合度", 1.1),
+  ("workflow_fit", "工作流契合度", 1.1),
+  ("ai_job_definition", "AI 工作定义", 1.2),
+  ("data_readiness", "数据就绪度", 1.2),
+  ("eval_readiness", "评测就绪度", 1.5),
+  ("system_behavior", "系统行为", 1.0),
+  ("risk_and_safety", "风险与安全", 1.4),
+  ("regulatory_readiness", "监管就绪", 1.3),
+  ("cost_and_business_case", "成本与商业价值", 1.0),
+  ("observability", "可观测性", 1.3),
+  ("launch_and_operations", "发布与运营", 1.2)
+] %}
+{%- for key, label, weight in dim_meta %}
+{%- set d = assessment.get(key) or {} %}
+| {{ label }} | {{ d.get("score", "—") }}/5 | {{ weight }} | {{ d.get("evidence", "—") }} | {{ d.get("risk", "—") }} | {{ d.get("owner", "—") }} | {{ d.get("next_action", "—") }} |
+{%- endfor %}
+
+## 评分量表说明
+
+| 分数 | 含义 |
+|---|---|
+| 0 | 缺失——该维度完全没做 |
+| 1 | 提及未定义——提了但没有具体定义 |
+| 2 | 已起草未验证——有文档/设计，但没跑过 |
+| 3 | 有部分证据——定义了且有部分验证数据 |
+| 4 | 可发布强证据——有实测数据支撑，可安全发布 |
+| 5 | 上线且有人在改进——已上线、有监控、有人持续改进 |
+
+## 档位对照
+
+| 加权均分 | 档位 |
+|---|---|
+| 低于 2.0 | 未就绪：不应构建或发布 |
+| 2.0 - 2.69 | 仅原型：只做内部探索 |
+| 2.7 - 3.29 | 试点候选：值得准备试点，但先消除阻断项 |
+| 3.3 - 3.69 | 试点就绪（有条件）：限量开放并密切观察 |
+| 3.7 - 4.49 | 限量生产就绪：受控的面向客户发布 |
+| 4.5 - 5.0 | 可规模化：可在监控下扩大 |
+
+## 三级阻断条件（代码硬判）
+
+**阻断面向客户生产**：评测就绪 < 3、高风险动作无人审核或风险无责任人、可观测性 < 3、监管分类或合规路径未定、无分阶段放量计划。
+
+**阻断试点**：AI 工作未定义、无最小考题集或评分标准、无法识别不可接受输出、无试点成功指标、无试点失败复核人。
+
+**阻断扩量**：试点质量未复盘、成本超计划未经商业决策、用户大量绕过或改写输出、回归检查缺失、事故响应未演练。
+
+{%- if low_dims %}
+
+## 低分维度（< 3 分，优先修复）
+
+{% for item in low_dims -%}
+- {{ item.get("dimension", "?") }}：{{ item.get("score", "?") }}/5
+{% endfor %}
+{%- endif %}
+
+---
+
+> 本打分由代码按 11 维度加权计算（eval readiness 权重最高 1.5，其后风险与安全 1.4、监管就绪 1.3、可观测 1.3）；档位与阻断条件均由代码硬判，模型只提供各维度的分数与证据。
+
+<!-- [C 2026-09-16] templates/readiness_assessment.md.j2 新增：11 维度打分表 + 档位对照 + 三级阻断 -->

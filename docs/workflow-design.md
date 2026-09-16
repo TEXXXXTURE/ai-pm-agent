@@ -37,7 +37,7 @@
 | 6 | 对比选型模型 | 外置工具执行 + 流水线组织与写档 | ✅ 已建（条件触发） | `bake_off`（调 Promptfoo） |
 | 7 | 拆研发工单 | 流水线 + HITL | ✅ 已建（含 AI 工单特殊项） | `issue_splitting` `issue_confirm`(HITL) |
 | 8 | 构建期跑评测 | 外置工具执行 + 工程师 + 代码硬判 | ✅ 已建 | `eval_run`（调 Promptfoo） |
-| 9 | 写发布计划 | 流水线 + HITL | ✅ 已建（含 kill 阈值/cohort） | `launch_plan` `launch_confirm`(HITL) |
+| 9 | 写发布计划 | 流水线 + HITL | ✅ 已建（含 kill 阈值/cohort + R11 就绪度打分） | `launch_plan` `readiness_assessment` `launch_confirm`(HITL) |
 | 10 | 灰度发布与监控 | 人工运营 + 外置工具（二期 Langfuse） | ⬜ 二期 | 本期只产监控计划 |
 | 11 | 运营数据回流 | 人工 + 流水线（回归评测组织） | ⬜ 二期接口预留 | 本期留接口 |
 
@@ -165,6 +165,7 @@ AI 轨使用 ai-native 模板，来源为参考库 `apm/skills/prd-architect/ref
 ### 第 9 段：写发布计划（已建）
 
 - **现状**：7 步骨架产发布计划，judge 硬校验 9 错误 4 警告，确认发布计划三选一，真机已验收。
+- **发布前就绪度打分（R11，2026-09-16 新增 `readiness_assessment` 节点）**：发布计划产出后、确认门之前，模型读 PRD / 评测报告 / 选型报告 / 发布计划 / 评审报告 / 工单清单，对 **11 个维度**各打 0-5 分（缺失 / 提及未定义 / 已起草未验证 / 有部分证据 / 可发布强证据 / 上线且有人在改进）并给证据（标 [T1]-[T5] 等级）/ 风险 / 责任人 / 下一步；**加权均分、6 档结论（未就绪→可规模化）、三级阻断条件全部由代码硬判**（`score_readiness` 纯函数，模型只给分不算结论）。权重：评测就绪 1.5（最高）、风险与安全 1.4、监管就绪 1.3、可观测 1.3、AI 工作定义 1.2、数据就绪 1.2、发布与运营 1.2、问题契合 1.1、工作流契合 1.1、系统行为 1.0、成本与商业价值 1.0。阻断面向客户生产的条件：评测就绪 < 3、高风险动作无人审或风险无责任人、可观测 < 3、监管分类或合规路径未定、无分阶段放量计划。打分结果在发布计划确认门展示，并落 `readiness_assessment.md`。
 - **AI 轨增补**：
   - **量化 kill 阈值**：在线准确率、人工接管率、延迟、成本等指标的停用/回滚触发数值，来自 PRD 占位并在此细化到可执行；
   - **cohort 晋级规则**：灰度分批比例与每批晋级的观测指标、观察时长；
@@ -240,7 +241,8 @@ kb_lookup → intake → requirement_confirm(HITL 确认需求)
 →（确认且 ai_core=True → eval_run / 确认且普通轨 → launch_plan / 意见 → issue_splitting 重拆 / 回PRD → prd_generation 限 1 次）
 → eval_run（第 8 段：Promptfoo 真跑 + 双及格线代码判；未达标在节点内停等，不自动放行）
 → launch_plan（第 9 段：7 步骨架 + kill 阈值 + cohort 灰度）
-→ launch_confirm(HITL 确认发布计划)
+→ readiness_assessment（R11：11 维度 0-5 分 + 加权均分 + 6 档结论 + 三级阻断，代码硬判）
+→ launch_confirm(HITL 确认发布计划 + 就绪度打分)
 →（确认 → artifact_persist / 意见 → launch_plan 重调 / 回工单 → issue_splitting 限 1 次）
 → artifact_persist → END
 ```

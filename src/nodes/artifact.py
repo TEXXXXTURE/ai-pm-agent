@@ -90,6 +90,20 @@ def make_artifact_persist(deps):
             launch_path = deps.artifacts.save(launch_md, name, "launch_plan", ext=".md")
             artifacts_dict["launch_plan"] = str(launch_path)
 
+        # 5b. 就绪度打分报告（R11）：readiness_assessment 非空时渲染并落 .md； [C 2026-09-16]
+        readiness = state.get("readiness_assessment") or {}
+        if readiness:
+            readiness_md = deps.artifacts.render(
+                "readiness_assessment.md.j2",
+                {
+                    "requirement_name": name,
+                    "generated_at": generated_at,
+                    "assessment": readiness,
+                },
+            ).strip()
+            readiness_path = deps.artifacts.save(readiness_md, name, "readiness_assessment", ext=".md")
+            artifacts_dict["readiness_assessment"] = str(readiness_path)
+
         # 6. 评测产物（第 8 段 eval_run 已自行落盘）：把三个路径并入 artifacts 清单；
         #    本节点不重复落盘，仅为最终产物清单汇总三路径。 [C 2026-09-12 by codebuddy-ds41flash]
         eval_artifacts = state.get("eval_artifacts") or {}

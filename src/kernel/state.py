@@ -103,6 +103,10 @@ class PMState(TypedDict, total=False):
     # [C 2026-09-12 by pi-deepseek-flash] 第⑥项修复：升级暂停后再给意见的硬深度上限计数
     launch_escalation_depth: int       # 已批准的升级后重调轮数（达上限后保持 escalated 暂停不自动空转）
 
+    # ─── 就绪度打分（readiness_assessment 节点，R11）───
+    # [C 2026-09-16] R11：11 维度 0-5 分 + 加权均分 + 6 档结论 + 三级阻断条件
+    readiness_assessment: dict         # 就绪度评估记录（11 维度分数/证据/风险/责任人/下一步 + weighted_avg/level/blockers）
+
 
     # ─── AI 专项 ───
     model_selection: dict             # G1: 模型选型；第 6 段对比选型写 {status, recommended, candidates...}
@@ -196,6 +200,8 @@ def default_state() -> dict[str, Any]:
         "launch_issue_redo_count": 0,
         # [C 2026-09-12 by pi-deepseek-flash] 第⑥项修复：升级深度上限计数
         "launch_escalation_depth": 0,
+        # 就绪度打分 [C 2026-09-16] R11
+        "readiness_assessment": {},
         # AI 专项
         # [C 2026-09-13 by codebuddy-ds41flash] 第 6 段对比选型：model_selection 默认 {}（已预留），
         # 新增 bakeoff_artifacts 产物路径

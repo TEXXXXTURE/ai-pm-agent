@@ -88,6 +88,7 @@ from nodes.eval_run import (  # [C 2026-09-12 by codebuddy-ds41flash] 第 8 段�
 from nodes.bake_off import (  # [C 2026-09-13 by codebuddy-ds41flash] 第 6 段：对比选型模型
     make_bake_off,
 )
+from nodes.readiness_assessment import make_readiness_assessment  # [C 2026-09-16] R11 就绪度打分
 
 
 @dataclass
@@ -115,7 +116,7 @@ class NodeDeps:
 
 
 def build_nodes(deps: NodeDeps) -> dict:
-    """构建 19 个节点函数的有序 dict（key 顺序与图执行顺序一致）。"""
+    """构建 20 个节点函数的有序 dict（key 顺序与图执行顺序一致）。"""
     return {
         "kb_lookup": make_kb_lookup(deps),
         "intake": make_intake(deps),
@@ -153,6 +154,9 @@ def build_nodes(deps: NodeDeps) -> dict:
         "eval_gate": eval_gate,
         # [C 2026-09-11] 块1 发布计划节点（工单确认门通过后产计划）
         "launch_plan": make_launch_plan(deps),
+        # [C 2026-09-16] R11 就绪度打分：launch_plan 产出后、launch_confirm 前，
+        # 模型对 11 维度各打 0-5 分，代码硬算加权均分与三级阻断
+        "readiness_assessment": make_readiness_assessment(deps),
         # [C 2026-09-11] 块2 发布计划确认门（HITL，不调模型），三分支条件边由 graph.py 装配：
         # 确认落盘 launch_plan.md / 意见回 launch_plan 重调 / 回工单回 issue_splitting 重拆
         "launch_confirm": make_launch_confirm(deps),

@@ -41,7 +41,7 @@
 #     eval_run 改为普通边到 eval_gate（只跑与记录，达标与否都 return 三状态字段）；
 #     eval_gate 条件边两态（passed is True → launch_plan；其余 → eval_run 重跑）。
 #     未达标的停等从 eval_run 内部移到 eval_gate；普通轨仍由 issue_confirm 直达 launch_plan，逐字不变。
-"""LangGraph 图装配：纵切 19 节点真实接线 + requirement_confirm / requirement_refine /
+"""LangGraph 图装配：纵切 20 节点真实接线 + requirement_confirm / requirement_refine /
 feasibility_confirm / eval_confirm / issue_confirm / launch_confirm 六扇 HITL 门。
 
 节点函数由 nodes.build_nodes(deps) 构建（依赖通过 NodeDeps 注入）。
@@ -72,7 +72,8 @@ feasibility_confirm / eval_confirm / issue_confirm / launch_confirm 六扇 HITL 
         → 普通边 eval_gate（第 8 段后半：判定 + 停等，纯函数）
             → 条件边两态：launch_plan（达标放行）／eval_run（未达标/记录缺失回重跑；
               未达标在 eval_gate 内 interrupt，恢复后经条件边回 eval_run 重跑，不设自动放行）
-    → launch_plan → launch_confirm(HITL 发布计划确认门) → 条件边三分支：
+    → launch_plan（第 9 段：写发布计划）→ readiness_assessment（R11 就绪度打分：11 维度 0-5 分 + 加权均分 + 三级阻断）
+    → launch_confirm(HITL 发布计划确认门) → 条件边三分支：
         artifact_persist（确认：落盘 launch_plan.md 及前序四产物）
         launch_plan（修改意见打回重调；前 2 轮自动，第 3 版起升级暂停）
         issue_splitting（"回工单"重拆工单，全程限 1 次；重拆后自动重生成计划→重回确认门）
@@ -258,8 +259,10 @@ def build_graph(deps: Any, db_path: str | None = None) -> Any:
             "eval_run": "eval_run",
         },
     )
-    # [C 2026-09-11] 块2：launch_plan 产出后不再直连落盘，先进发布计划确认门（HITL）
-    graph.add_edge("launch_plan", "launch_confirm")
+    # [C 2026-09-11] 块2：launch_plan 产出后先进就绪度打分，再进发布计划确认门（HITL）
+    # [C 2026-09-16] R11：launch_plan -> readiness_assessment -> launch_confirm
+    graph.add_edge("launch_plan", "readiness_assessment")
+    graph.add_edge("readiness_assessment", "launch_confirm")
     graph.add_conditional_edges(
         "launch_confirm",
         route_after_launch_confirm,

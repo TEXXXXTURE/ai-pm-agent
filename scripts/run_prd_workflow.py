@@ -455,9 +455,11 @@ def _build_question(node_name: str, payload: dict, state: dict) -> str:
                 "（回工单额度用尽时不再承诺可以回 issue_splitting 重拆）。"
             )
         # [C 2026-09-11] 块2 发布计划确认门 draft 原文案（status 缺省也按 draft 处理）
+        # [C 2026-09-16] R11：材料含就绪度打分（11 维度分数 + 加权均分 + 阻断项）
         return (
-            "节点「launch_confirm」发布计划确认门。请审阅发布计划草案："
-            "回复「确认」落盘 launch_plan.md；回复「回工单」回 issue_splitting 重拆（限1次）；"
+            "节点「launch_confirm」发布计划确认门。请审阅发布计划草案"
+            "与发布前就绪度打分（11 个维度各 0-5 分、加权均分、档位、阻断项）："
+            "回复「确认」落盘 launch_plan.md 与就绪度打分报告；回复「回工单」回 issue_splitting 重拆（限1次）；"
             "其他文本作为修改意见打回重调（最多2轮，之后进入升级暂停，"
             "可让 Pi 协助调查后带新决策再调）。"
         )

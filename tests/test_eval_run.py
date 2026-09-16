@@ -696,10 +696,11 @@ class TestGraphWiring(unittest.TestCase):
             # [C 2026-09-14 by codebuddy-ds41flash] S041 新增 requirement_refine 后为 18 个真实节点
             # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 第 8 段拆两步，新增 eval_gate
             # 后为 19 个真实节点（本测试仅随图节点数增长同步计数断言，eval_run 节点自身行为断言未改动）
+            # [C 2026-09-16] R11 新增 readiness_assessment 后为 20 个真实节点
             self.assertIn("bake_off", names)
             self.assertIn("eval_gate", names)
             real = names - {"__start__", "__end__"}
-            self.assertEqual(len(real), 19)
+            self.assertEqual(len(real), 20)
 
     def test_eval_run_plain_edge_to_gate_and_two_way_conditional(self):
         # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048：eval_run 普通边到 eval_gate，
