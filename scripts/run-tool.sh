@@ -36,8 +36,21 @@ fi
 # 1) 让 hermes venv 的 python 优先
 export PATH="$HERMES_BIN:$PATH"
 
-# 2) PYTHONPATH=src（相对项目根；脚本运行时 cwd 即为项目根）
-export PYTHONPATH="$PROJECT_ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
+# 2) PYTHONPATH：项目 src 目录
+#    有两个坑，缺一不可，勿改回去：
+#    (a) 路径形式：PROJECT_ROOT 由 pwd 得到，在 Git Bash 里是 MSYS 风格
+#        （如 /d/ai-pm-agent），直接拼出 /d/ai-pm-agent/src；而这里 exec 的 python
+#        是原生 Windows 程序，不认 MSYS 路径形式 → src 不在搜索路径里 →
+#        import kb/kernel 等项目模块全部 ModuleNotFoundError。
+#        MSYS 的路径自动转换只对「命令行参数」生效，对「环境变量」不生效。
+#        故用 cygpath -m 转成原生 Windows 形式（D:/ai-pm-agent，正斜杠 Python 认），
+#        与 cwd 无关，比相对路径更稳。
+#    (b) 分隔符：Windows 上 PYTHONPATH 的条目分隔符是「;」不是「:」。
+#        若写成 "${PYTHONPATH:+:$PYTHONPATH}"，调用方已有 PYTHONPATH 时（Pi 启动
+#        脚本会设）会拼成 "src:src" 这种单条无效路径，同样 ModuleNotFoundError。
+#    [C 2026-09-17] S053：修路径形式 + 分隔符，两处都勿改回。
+PROJECT_ROOT_WIN="$(cygpath -m "$PROJECT_ROOT")"
+export PYTHONPATH="$PROJECT_ROOT_WIN/src${PYTHONPATH:+;$PYTHONPATH}"
 
 # 3) 清空代理环境变量（DeepSeek / 联网抓取都需直连，代理会掐断）
 unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy

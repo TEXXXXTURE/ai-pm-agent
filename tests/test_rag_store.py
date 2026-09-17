@@ -320,4 +320,99 @@ def test_empty_query_and_empty_collection(tmp_path):
     assert empty_store.search("alpha") == []
 
 
+# ── 7. 检索条例（S053/R03）：同源去重 + 相关性阈值 ────────────────
+
+
+def _add_chunk_with_source(
+    ingest: RAGIngest,
+    embedder: DirectionalEmbedder,
+    chunk_id: str,
+    content: str,
+    source: str,
+    title: str = "",
+    chunk_index: int = 0,
+) -> None:
+    """写一条 chunk，source 与 chunk_id 分离（用于构造「同一文档多个片段」）。"""
+    metadata = {
+        "layer": "concept",
+        "category": "concepts",
+        "source": source,
+        "title": title,
+        "curated": False,
+        "chunk_index": chunk_index,
+        "section_title": "",
+        "chunking_version": "v1",
+        "source_category": "test",
+    }
+    ingest.collection.add(
+        ids=[chunk_id],
+        embeddings=embedder.embed([content]),
+        documents=[content],
+        metadatas=[metadata],
+    )
+
+
+def test_same_source_dedup_keeps_one(tmp_path):
+    """同源去重（默认 max_per_source=1）：同一文档的多个片段只保留最高分一条。"""
+    ingest, store, embedder = _setup(tmp_path)
+    # 同一份文档 doc-A 的 3 个片段，都命中 alpha
+    for index in range(3):
+        _add_chunk_with_source(
+            ingest, embedder, f"a-{index}", f"alpha 片段 {index}", source="doc-A", chunk_index=index
+        )
+    # 另一份文档 doc-B 的 1 个片段，也命中 alpha
+    _add_chunk_with_source(ingest, embedder, "b-0", "alpha 片段 B", source="doc-B")
+
+    results = store.search("alpha", top_k=5)
+
+    sources = [item["source"] for item in results]
+    assert sources.count("doc-A") == 1, f"doc-A 应只保留一条，实际 {sources}"
+    assert "doc-B" in sources
+    # 同分下顺序按召回序，不固定：真正的契约是「来源不重复」
+    assert len(sources) == len(set(sources)) == 2, f"每个来源最多一条，实际 {sources}"
+
+
+def test_max_per_source_configurable(tmp_path):
+    """同源上限可配：max_per_source=2 时同一文档允许留两条。"""
+    ingest, store, embedder = _setup(tmp_path)
+    config = _config(tmp_path)
+    config["domain_kb"]["retrieval"]["max_per_source"] = 2
+    store2 = RAGStore(config, embedder=embedder)
+    for index in range(3):
+        _add_chunk_with_source(
+            ingest, embedder, f"c-{index}", f"alpha 片段 {index}", source="doc-C", chunk_index=index
+        )
+
+    results = store2.search("alpha", top_k=5)
+
+    assert [item["source"] for item in results].count("doc-C") == 2
+
+
+def test_min_vector_sim_filters_weak(tmp_path):
+    """相关性阈值：vector_sim 低于阈值的结果被过滤掉。"""
+    ingest, store, embedder = _setup(tmp_path)
+    _add_chunk(ingest, embedder, "strong", "alpha 正文", title="Alpha")  # vector_sim = 1.0
+    _add_chunk(ingest, embedder, "weak", "正文不含任何关键词", title="无关")  # vector_sim = 0.0
+
+    # 默认阈值 0 = 不过滤，两条都在
+    assert len(store.search("alpha", top_k=5)) == 2
+
+    config = _config(tmp_path)
+    config["domain_kb"]["retrieval"]["min_vector_sim"] = 0.5
+    store2 = RAGStore(config, embedder=embedder)
+    filtered = store2.search("alpha", top_k=5)
+
+    assert [item["id"] for item in filtered] == ["strong"]
+
+
+def test_search_reads_new_params_defaults(tmp_path):
+    """未配置新参数时用默认值（0.0 不过滤 / 1 去重），不报错。"""
+    ingest, store, embedder = _setup(tmp_path)
+    _add_chunk(ingest, embedder, "x-1", "beta 正文")
+
+    assert store.min_vector_sim == 0.0
+    assert store.max_per_source == 1
+    assert len(store.search("beta")) == 1
+
+
 # [C 2026-09-12 by pi-deepseek-v4-flash]

@@ -101,6 +101,7 @@ model_catalog:
 # 数据只读复用信源库（source_db）；产物落 output/行业追踪/；
 # 模型走 llm.providers 统一层（判类/提炼用便宜模型，写总结用大模型）；
 # 生产在用的方案与缺口清单为两个用户维护输入件（见 docs/S052-R13知识结构草案.md）。
+# 出刊节奏（S053 用户拍板）：以周为单位（days=7），每期篇数由模型按内容自定（只挑最突出的写），无料不出刊。
 industry_digest:
   source_db: D:\信源库\data\articles.db
   output_root: ./output/行业追踪
@@ -132,5 +133,11 @@ domain_kb:
       tracked-paper: 1.0
     curated_bonus: 1.2
     feishu_ref_bonus: 1.3
+    # [MA 2026-09-17] S053/R03 检索条例参数：
+    # min_vector_sim = 相关性阈值（vector_sim 低于此值过滤掉；0 = 不过滤，默认宽容）
+    # max_per_source = 同一 source 文档最多保留几条（1 = 去重，保证 top_k 覆盖不同来源；
+    #                  治 S047 实测「5 条里 4 条同一文档」）
+    min_vector_sim: 0.0
+    max_per_source: 1
 
 # [MA 2026-09-08]
