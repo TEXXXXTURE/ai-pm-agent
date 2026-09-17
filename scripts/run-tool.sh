@@ -42,6 +42,11 @@ export PYTHONPATH="$PROJECT_ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
 # 3) 清空代理环境变量（DeepSeek / 联网抓取都需直连，代理会掐断）
 unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy
 
+# 3.5) LiteLLM 用本地模型价格表，不拉远程（远程握手失败会阻塞 400 秒）
+#     [MA 2026-09-17] R13 真机发现：ChatLiteLLM 初始化会尝试拉取远程价格表，
+#     握手超时阻塞；本地表足够，禁远程后每个脚本启动省 ~400 秒。
+export LITELLM_LOCAL_MODEL_COST_MAP=True
+
 # 4) 切换 cwd 到项目根
 cd "$PROJECT_ROOT"
 

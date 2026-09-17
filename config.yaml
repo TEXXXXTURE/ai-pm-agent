@@ -97,6 +97,18 @@ model_catalog:
   path: ./references/模型候选清单.md
   price_script: ./scripts/model_catalog.py
 
+# [MA 2026-09-17] R13 行业追踪（scripts/industry_digest.py）：
+# 数据只读复用信源库（source_db）；产物落 output/行业追踪/；
+# 模型走 llm.providers 统一层（判类/提炼用便宜模型，写总结用大模型）；
+# 生产在用的方案与缺口清单为两个用户维护输入件（见 docs/S052-R13知识结构草案.md）。
+industry_digest:
+  source_db: D:\信源库\data\articles.db
+  output_root: ./output/行业追踪
+  prompt_path: ./src/components/prompts/industry_digest.md
+  provider_classify: deepseek
+  provider_write: deepseek
+  days: 7
+
 # [C 2026-09-12] RAG 领域知识库（AI 领域知识库，与业务档案库 kb 段独立）
 domain_kb:
   chroma_path: ./domain_kb/chroma
