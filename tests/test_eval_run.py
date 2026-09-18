@@ -23,8 +23,10 @@
      eval_report（passed=False）/ eval_run_count / eval_artifacts 三字段；
    - eval_run_count 每次执行 +1；await_prompt 阶段不 +1；
 5. eval_gate（S048 第 8 段后半，纯函数）：达标返回空、不中断；未达标 interrupt 载荷六字段
-   与原一致（仅 node 改名 eval_gate）、report 只含判定字段；eval_report 缺失/畸形保守返回
-   空且路由回 eval_run；节点函数无 deps 闭包（不可能调模型）；
+   与原一致（仅 node 改名 eval_gate）、report 只含判定字段；未达标答复按放行/重跑/追问三态
+   分流（[MA 2026-09-19] S056：放行写 forced_pass 并进 launch_plan、空答复继续等、
+   读不出意图追问一句）；eval_report 缺失/畸形保守返回空且路由回 eval_run；
+   节点函数无 deps 闭包（不可能调模型）；
 6. 路由：route_after_eval_gate 两态（passed -> launch_plan；否则 -> eval_run）；
    route_after_issue_confirm：确认且 ai_core=True -> eval_run；确认且普通轨 -> artifact_persist；
    重拆/回炉分支逐字不变；
@@ -574,10 +576,19 @@ def _fake_eval_report(passed: bool) -> dict:
 class TestEvalGate(unittest.TestCase):
     """S048：判定 + 停等独立成节点（纯函数，不调模型）。"""
 
-    def _run(self, report):
-        """调 eval_gate，返回 (返回值, interrupt 载荷列表)。"""
+    def _run(self, report, answers=("再跑",)):
+        """调 eval_gate，返回 (返回值, interrupt 载荷列表)。
+
+        answers 按次序回放 resume 值（默认「再跑」：一次答复即结束循环）。
+        """
         payloads: list[dict] = []
-        with patch("nodes.eval_run.interrupt", side_effect=lambda v: payloads.append(v)):
+        queue = list(answers)
+
+        def fake_interrupt(value):
+            payloads.append(value)
+            return queue.pop(0)
+
+        with patch("nodes.eval_run.interrupt", side_effect=fake_interrupt):
             out = eval_gate({"ai_core": True, "requirement_name": "eval-smoke",
                              "eval_report": report})
         return out, payloads
@@ -607,14 +618,51 @@ class TestEvalGate(unittest.TestCase):
         self.assertNotIn("per_exam", payload["report"])
         self.assertNotIn("run_count", payload["report"])
 
-    def test_fail_then_answer_routes_back_to_eval_run(self):
-        # 用户答复任意内容后节点返回 {}，条件边据 passed 非 True 回 eval_run 重跑（不自动放行）
+    def test_fail_then_rerun_answer_routes_back_to_eval_run(self):
+        # [MA 2026-09-19] S056 用例 e：答复「再跑」-> 节点返回 {}，条件边据 passed 非 True
+        # 回 eval_run 重跑（不自动放行，也不写判定）
         report = _fake_eval_report(False)
         state = {"ai_core": True, "requirement_name": "eval-smoke", "eval_report": report}
-        with patch("nodes.eval_run.interrupt", side_effect=lambda v: "rerun"):
-            out = eval_gate(state)
+        out, payloads = self._run(report, answers=("再跑",))
         self.assertEqual(out, {})
+        self.assertEqual(len(payloads), 1)
         self.assertEqual(route_after_eval_gate(state), "eval_run")
+
+    def test_fail_then_forced_pass_lands_and_goes_launch_plan(self):
+        # [MA 2026-09-19] S056 用例 e：放行类答复 -> passed=True + forced_pass=True +
+        # forced_note 带原文；human_feedback 留痕；条件边去 launch_plan
+        report = _fake_eval_report(False)
+        out, payloads = self._run(report, answers=("我知道未达标，仍进发布计划",))
+        self.assertEqual(len(payloads), 1)
+        self.assertTrue(out["eval_report"]["passed"])
+        self.assertTrue(out["eval_report"]["forced_pass"])
+        self.assertIn("仍进发布计划", out["eval_report"]["forced_note"])
+        self.assertIn("评测未达标，用户明确放行", out["eval_report"]["forced_note"])
+        self.assertEqual(out["human_feedback"][-1]["kind"], "forced_pass")
+        # 原判定字段保留（不改数、只加放行标记）
+        self.assertEqual(out["eval_report"]["overall_rate"], 0.667)
+        merged = {"ai_core": True, "requirement_name": "eval-smoke",
+                  "eval_report": out["eval_report"]}
+        self.assertEqual(route_after_eval_gate(merged), "launch_plan")
+
+    def test_fail_then_empty_answer_keeps_waiting(self):
+        # [MA 2026-09-19] S056 用例 a：空答复再抛 interrupt、不放行；
+        # 下一句「再跑」才回 eval_run
+        report = _fake_eval_report(False)
+        out, payloads = self._run(report, answers=("", "再跑"))
+        self.assertEqual(len(payloads), 2)
+        self.assertEqual(payloads[0]["status"], "eval_failed")
+        self.assertEqual(payloads[1]["status"], "eval_failed")
+        self.assertEqual(out, {})
+        self.assertEqual(route_after_eval_gate({"eval_report": report}), "eval_run")
+
+    def test_fail_then_unreadable_answer_asks_again(self):
+        # [MA 2026-09-19] S056：非空但读不出意图 -> 追问一句，不替用户判成放行或重跑
+        report = _fake_eval_report(False)
+        out, payloads = self._run(report, answers=("嗯……这个我看看", "再跑"))
+        self.assertEqual(len(payloads), 2)
+        self.assertIn("没读出你的意思", payloads[1]["reason"])
+        self.assertEqual(out, {})
 
     def test_missing_or_malformed_report_conservative_rerun(self):
         for bad in (None, "", {}, [], "passed", {"passed": "yes"}, {"passed": None}):

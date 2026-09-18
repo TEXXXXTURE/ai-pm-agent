@@ -14,7 +14,7 @@
 # 模式 2：断点恢复（用上一步返回的 THREAD_ID + 用户答案恢复执行）
 #   bash scripts/run-tool.sh scripts/run_prd_workflow.py \
 #       --resume <thread_id> --answer "confirmed"
-#   --answer 缺省时按 "confirmed" 处理。
+#   --answer 为空串或未传时不放行：打印一行提示后重新输出当前节点的 STATUS: HITL，停在该节点等答复。
 #
 # 输出（stdout，Pi 可解析的纯文本块；argparse 参数错误走 stderr 退出 2）
 #   STATUS: HITL / DONE / ERROR 三种块，详见 _emit_hitl / _emit_done / _emit_error。
@@ -93,7 +93,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--answer",
         type=str,
         default=None,
-        help="恢复时的用户答案（仅 --resume 模式有效；缺省为 confirmed）",
+        help="恢复时的用户答案（仅 --resume 模式有效；为空串或未传时不放行，重新输出当前节点 HITL）",
     )
     parser.add_argument(
         "--config",
@@ -537,8 +537,11 @@ def _run_resume(
     2. values 非空且 next 空 -> 已到结尾，幂等输出 DONE；
     3. values 非空且 next 非空 -> 节点执行中途崩溃留下的中间态，从待执行节点续跑
        （graph.stream(None, config)），再按有无中断输出 HITL/DONE。
+
+    有待处理中断时空答复（answer 为 None / 空串）不放行：打印提示后重新输出当前节点的
+    STATUS: HITL 块，退出码 0，等用户给出明确答复再恢复。
     """
-    answer_text = answer if answer else "confirmed"
+    # [C 2026-09-19 by codebuddy-ds41flash] S056：原 answer 兜底 confirmed 已删，空答复不放行
 
     # 先检查是否有待处理的中断
     interrupts = collect_interrupts(graph, config)
@@ -571,9 +574,16 @@ def _run_resume(
         )
         return 1
 
+    # 有待处理中断：空答复不放行，重新输出同一节点等你决定
+    # [C 2026-09-19 by codebuddy-ds41flash] S056：原 answer_text 兜底 confirmed 等于空答复照样放行
+    if not answer or not answer.strip():
+        print("未收到答复，仍停在本节点等你决定")
+        _emit_hitl(graph, config, thread_id, interrupts[0])
+        return 0
+
     # 有待处理中断：用 Command(resume=answer) 恢复执行
     for _chunk in graph.stream(
-        Command(resume=answer_text), config, stream_mode="updates"
+        Command(resume=answer), config, stream_mode="updates"
     ):
         pass
 

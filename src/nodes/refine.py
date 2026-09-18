@@ -146,6 +146,9 @@ def classify_refine_answer(text: str) -> str:
     4. **再做确认词精确集合判定**：归一化后恰好属于 _REQUIREMENT_CONFIRM_WORDS 才 confirm；
     5. 其余文本 -> feedback（带新意见重整合，正常路径下自环）。
 
+    [MA 2026-09-19] S056：空串不属于确认词集合，本函数对空串返回 feedback；
+    空答复由节点在调用本函数之前拦下（不当作确认、不当作意见），继续停等下一句。
+
     Returns:
         ``confirm`` / ``reclassify`` / ``abandon`` / ``feedback``
     """
@@ -248,18 +251,21 @@ def make_requirement_refine(deps):
             str(state.get("requirement_refine_feedback") or ""),
         )
 
-        answer = interrupt(
-            {
-                "node": "requirement_refine",
-                "status": "draft",
-                "requirement_name": req_name,
-                "requirement_draft": refined,
-                "change_summary": changes,
-                "requirement_refine_count": new_count,
-                "draft_progress": draft_progress,
-            }
-        )
+        payload = {
+            "node": "requirement_refine",
+            "status": "draft",
+            "requirement_name": req_name,
+            "requirement_draft": refined,
+            "change_summary": changes,
+            "requirement_refine_count": new_count,
+            "draft_progress": draft_progress,
+        }
+        answer = interrupt(payload)
         text = answer.strip() if isinstance(answer, str) else str(answer).strip()
+        # [MA 2026-09-19] S056：空答复不当作确认、不当作意见，继续停在本节点等下一句
+        while not text:
+            answer = interrupt({**payload, "note": "没收到答复，仍在这里等你的决定"})
+            text = answer.strip() if isinstance(answer, str) else str(answer).strip()
         kind = classify_refine_answer(text)
 
         if kind == "confirm":

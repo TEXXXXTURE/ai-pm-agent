@@ -5,7 +5,7 @@
 覆盖：
 1. EvalDesignSchema 结构校验：四层齐全各一条；题量下限（典型≥3/边界≥3/对抗≥2）；
    assertion 题必填 assertion；llm_judge 题必填 judge_rubric + 抽检比例>0；layer 一致性；
-2. classify_eval_answer 纯函数：确认词表精确命中 pass / 空串 pass / 其余任意文本 feedback
+2. classify_eval_answer 纯函数：确认词表精确命中 pass / 空串不算 pass / 其余任意文本 feedback
    （含否定式「不确认」「先放一放」）；
 3. eval_design 节点（假 LLM）：产出 eval_system；轮次>0 时意见注入 prompt 且消费即清零；
 4. eval_confirm 节点（假 interrupt）：
@@ -13,12 +13,12 @@
    - 第 1 轮意见 -> 计数 1、redraft；第 2 轮意见 -> 计数 2；
    - 第 3 版仍意见 -> escalated 升级暂停；escalated 中确认 -> 落盘放行；
    - 升级后带新决策意见 -> 计数 3 再起草一轮；
-   - 达人事上限后保持 escalated、不自动空转（只「确认」跳出循环）；
+   - 达人事上限后：空答复继续等、给具体意见按其再起草一轮、确认落盘；
    - 中断载荷 status=draft 携带 eval_system；
 5. render_promptfoo_yaml：yaml.safe_load 可解析、含 prompts/providers/tests 顶层键、
    assertion 题与 llm-rubric 题各自映射正确、replay 占位层不产生 test 条目、provider 可覆盖；
 6. 路由：route_after_review 三态（reject / pass+ai_core=True / pass+普通轨 / forced 同 pass）；
-   route_after_eval_confirm 两态；
+   route_after_eval_confirm 三态（pass/redraft/缺 verdict 回本节点）；
 7. 图编译：17 节点齐（新增 eval_design/eval_confirm/bake_off）；mermaid 连线含
    eval_design→eval_confirm→bake_off→issue_splitting；
 8. QUESTION 文案：确认门 draft 载荷含「确认」「修改意见」与四层考题概要；escalated 文案；
@@ -278,8 +278,6 @@ class TestEvalDesignSchema(unittest.TestCase):
 class TestClassifyEvalAnswer(unittest.TestCase):
     def test_confirm_words_pass(self):
         for word in (
-            "",
-            "   ",
             "confirmed",
             "confirm",
             "ok",
@@ -292,11 +290,20 @@ class TestClassifyEvalAnswer(unittest.TestCase):
             "可以",
             "就这样",
             "落盘",
+            # [MA 2026-09-19] S056：补的日常肯定说法
+            "行吧",
+            "按这个来",
+            "好的",
+            "听你的",
+            "没意见",
+            "通过吧",
         ):
             self.assertEqual(classify_eval_answer(word), "pass", msg=repr(word))
 
-    def test_none_is_pass(self):
-        self.assertEqual(classify_eval_answer(None), "pass")
+    def test_empty_and_none_are_not_pass(self):
+        # [MA 2026-09-19] S056：空串/None 不再算确认（节点在分类前拦空、继续停等）
+        for word in ("", "   ", None):
+            self.assertEqual(classify_eval_answer(word), "feedback", msg=repr(word))
 
     def test_other_text_is_feedback(self):
         for word in (
@@ -372,7 +379,7 @@ class TestEvalDesignNode(unittest.TestCase):
 
 class TestEvalConfirmNode(unittest.TestCase):
     def test_first_confirm_passes_and_lands(self):
-        for answer in ("", "确认", "confirmed", "同意"):
+        for answer in ("确认", "confirmed", "同意", "行吧", "按这个来"):
             out, payloads = run_confirm_node(eval_confirm_state(), [answer])
             self.assertEqual(payloads[0]["node"], "eval_confirm")
             self.assertEqual(payloads[0]["status"], "draft")
@@ -432,7 +439,7 @@ class TestEvalConfirmNode(unittest.TestCase):
         esc = payloads[1]
         self.assertEqual(esc["status"], "escalated")
         self.assertEqual(esc["node"], "eval_confirm")
-        self.assertIn("升级", esc["reason"])
+        self.assertIn("第 3 版", esc["reason"])
         self.assertIn("eval_system", esc)
         self.assertIn("prior_feedbacks", esc)
         # 二次确认 -> pass 落盘
@@ -457,28 +464,52 @@ class TestEvalConfirmNode(unittest.TestCase):
             route_after_eval_confirm({**eval_confirm_state(), **out}), "eval_design"
         )
 
-    def test_escalation_limit_keeps_escalated_until_confirm(self):
-        # 升级后重起草额度已用尽（count=总上限）：再喂意见一律停在 escalated，不自动重起草；
-        # 只有「确认」才跳出循环落盘。
-        state = eval_confirm_state(eval_revision_count=MAX_EVAL_TOTAL_REVISIONS)
-        out, payloads = run_confirm_node(
-            state, ["第四版还不满意-EEE", "再改一轮-FFF", "确认"]
-        )
-        self.assertEqual(len(payloads), 3)
-        for payload in payloads[1:]:
-            self.assertEqual(payload["status"], "escalated")
-            self.assertIn("人工介入上限", payload["reason"])
-        # 非确认答复不写计数/意见字段
-        self.assertNotIn("eval_revision_count", out)
-        self.assertNotIn("eval_revision_feedback", out)
+    def test_empty_answer_keeps_waiting_not_confirmed(self):
+        # [MA 2026-09-19] S056 用例 a：空答复再抛 interrupt、不放行（载荷仍是 draft）；
+        # 下一句「确认」才落盘
+        state = eval_confirm_state()
+        out, payloads = run_confirm_node(state, ["", "确认"])
+        self.assertEqual(len(payloads), 2)
+        self.assertEqual(payloads[0]["status"], "draft")
+        self.assertEqual(payloads[1]["status"], "draft")
+        self.assertIn("eval_system", payloads[1])
         self.assertEqual(out["eval_confirm"]["verdict"], "pass")
         self.assertIn("eval_yaml_draft", out)
-        self.assertEqual(
-            [item["kind"] for item in out["human_feedback"]],
-            ["feedback", "feedback", "pass"],
+
+    def test_escalation_limit_empty_answer_keeps_waiting(self):
+        # [MA 2026-09-19] S056 用例 a（上限暂停处）：空答复再抛 interrupt、不放行；
+        # 下一句「确认」才落盘
+        state = eval_confirm_state(eval_revision_count=MAX_EVAL_TOTAL_REVISIONS)
+        out, payloads = run_confirm_node(
+            state, ["第四版意见-EEE", "", "确认"]
         )
+        self.assertEqual(len(payloads), 3)
+        self.assertEqual(payloads[0]["status"], "draft")
+        self.assertEqual(payloads[1]["status"], "escalated")
+        self.assertEqual(payloads[2]["status"], "escalated")
+        self.assertIn("人工介入上限", payloads[2]["reason"])
+        self.assertEqual(out["eval_confirm"]["verdict"], "pass")
+        self.assertIn("eval_yaml_draft", out)
+
+    def test_escalation_limit_opinion_redrafts(self):
+        # [MA 2026-09-19] S056 用例 b：超轮数后给具体意见 -> 按其意见再起草一轮
+        # （计数 +1、意见写进 eval_revision_feedback、留痕）
+        state = eval_confirm_state(eval_revision_count=MAX_EVAL_TOTAL_REVISIONS)
+        out, payloads = run_confirm_node(
+            state, ["第四版意见-EEE", "第五版再加两条对抗题-FFF"]
+        )
+        self.assertEqual(len(payloads), 2)
+        self.assertEqual(payloads[1]["status"], "escalated")
+        self.assertIn("人工介入上限", payloads[1]["reason"])
+        self.assertEqual(out["eval_confirm"]["verdict"], "redraft")
         self.assertEqual(
-            route_after_eval_confirm({**state, **out}), "issue_splitting"
+            out["eval_revision_count"], MAX_EVAL_TOTAL_REVISIONS + 1
+        )
+        self.assertIn("FFF", out["eval_revision_feedback"])
+        self.assertNotIn("EEE", out["eval_revision_feedback"])
+        self.assertEqual(out["human_feedback"][-1]["kind"], "feedback")
+        self.assertEqual(
+            route_after_eval_confirm({**state, **out}), "eval_design"
         )
 
 
@@ -593,10 +624,10 @@ class TestRoutes(unittest.TestCase):
             route_after_eval_confirm({"eval_confirm": {"verdict": "pass"}}),
             "issue_splitting",
         )
-        # 缺失/空 -> 保守放行去 issue_splitting
-        self.assertEqual(route_after_eval_confirm({}), "issue_splitting")
+        # [MA 2026-09-19] S056：缺 verdict（没有答复）不再兜底放行，回本节点继续停等
+        self.assertEqual(route_after_eval_confirm({}), "eval_confirm")
         self.assertEqual(
-            route_after_eval_confirm({"eval_confirm": {}}), "issue_splitting"
+            route_after_eval_confirm({"eval_confirm": {}}), "eval_confirm"
         )
 
 

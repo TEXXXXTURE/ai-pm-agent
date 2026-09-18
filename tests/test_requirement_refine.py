@@ -196,8 +196,27 @@ def run_refine_node(state, answers, fake_llm=None):
 
 class TestClassifyRefineAnswer(unittest.TestCase):
     def test_confirm_exact_words(self):
-        for word in ("", "   ", None, "confirmed", "confirm", "ok", "确认", "通过", "同意"):
+        for word in (
+            "confirmed",
+            "confirm",
+            "ok",
+            "确认",
+            "通过",
+            "同意",
+            # [MA 2026-09-19] S056：补的日常肯定说法
+            "行吧",
+            "按这个来",
+            "好的",
+            "听你的",
+            "没意见",
+            "通过吧",
+        ):
             self.assertEqual(classify_refine_answer(word), "confirm", msg=repr(word))
+
+    def test_empty_and_none_are_not_confirm(self):
+        # [MA 2026-09-19] S056：空串/None 不再算确认（节点在分类前拦空、继续停等）
+        for word in ("", "   ", None):
+            self.assertEqual(classify_refine_answer(word), "feedback", msg=repr(word))
 
     def test_reclassify_non_ai_keywords(self):
         for word in ("非AI", "非ai", "非AI轨", "改判普通轨", "普通轨", "非核心需求"):
@@ -334,7 +353,7 @@ class TestRequirementConfirmNodePending(unittest.TestCase):
                 {"suggestion": "ai_core", "reason": "AI", "signals": ["x"]}
             ]
         )
-        out, _ = run_confirm_node(confirm_state(), [""], fake)
+        out, _ = run_confirm_node(confirm_state(), ["确认"], fake)
         self.assertEqual(
             out["confirmed_requirement"], "帮产品经理做会议纪要总结"
         )
@@ -389,7 +408,7 @@ class TestRequirementConfirmNodePending(unittest.TestCase):
                 {"suggestion": "ai_core", "reason": "AI", "signals": ["x"]}
             ]
         )
-        _, payloads = run_confirm_node(confirm_state(), [""], fake)
+        _, payloads = run_confirm_node(confirm_state(), ["确认"], fake)
         self.assertEqual(payloads[0]["node"], "requirement_confirm")
         self.assertIn("ai_triage", payloads[0])
         self.assertEqual(payloads[0]["ai_triage"]["suggestion"], "ai_core")
@@ -409,7 +428,7 @@ class TestRequirementRefineNode(unittest.TestCase):
                 }
             ]
         )
-        out, payloads, fake_used = run_refine_node(refine_state(), [""], fake)
+        out, payloads, fake_used = run_refine_node(refine_state(), ["确认"], fake)
         # 调一次模型，JSON 通道
         self.assertEqual(len(fake_used.calls), 1)
         self.assertFalse(fake_used.calls[0]["as_text"])
@@ -420,6 +439,25 @@ class TestRequirementRefineNode(unittest.TestCase):
         self.assertEqual(payloads[0]["requirement_draft"], "整合后的新需求文本-AAA")
         self.assertEqual(payloads[0]["change_summary"], ["新增维度1", "调整范围2"])
         self.assertEqual(payloads[0]["requirement_refine_count"], 1)
+
+    def test_empty_answer_keeps_waiting_not_confirmed(self):
+        # [MA 2026-09-19] S056 用例 a：空答复再抛 interrupt、不放行（草案载荷重复出现）；
+        # 下一句「确认」才写回确认稿
+        fake = FakeLLM(
+            json_queue=[
+                {
+                    "refined_requirement": "整合后的新需求-EEE",
+                    "change_summary": ["调整"],
+                }
+            ]
+        )
+        out, payloads, fake_used = run_refine_node(refine_state(), ["", "确认"], fake)
+        self.assertEqual(len(payloads), 2)
+        self.assertEqual(payloads[0]["status"], "draft")
+        self.assertEqual(payloads[1]["status"], "draft")
+        self.assertEqual(len(fake_used.calls), 1)  # 空答复不重调模型
+        self.assertEqual(out["requirement_refine_result"]["verdict"], "confirm")
+        self.assertEqual(out["confirmed_requirement"], "整合后的新需求-EEE")
 
     def test_prompt_current_requirement_prefers_previous_draft(self):
         # R18（S047 主回归）：已有上一版草案时，「当前需求」段用上一版草案，不用原始需求
@@ -436,7 +474,7 @@ class TestRequirementRefineNode(unittest.TestCase):
             confirmed_requirement="原始需求-帮产品经理做会议纪要总结",
             requirement_refine_count=1,
         )
-        out, _, fake_used = run_refine_node(state, [""], fake)
+        out, _, fake_used = run_refine_node(state, ["确认"], fake)
         prompt = fake_used.calls[0]["prompt"]
         # 「当前需求」段含上一版草案全文本
         self.assertIn("- 当前需求：上一版草案-含使用场景与痛点整段", prompt)
@@ -468,7 +506,7 @@ class TestRequirementRefineNode(unittest.TestCase):
         merged = {**base, **first_out}
         merged["requirement_refine_feedback"] = "再把目标用户收窄"
         merged["requirement_refine_count"] = first_out["requirement_refine_count"]
-        _, _, fake_used = run_refine_node(merged, [""], fake)
+        _, _, fake_used = run_refine_node(merged, ["确认"], fake)
         second_prompt = fake_used.calls[1]["prompt"]
         # 第二轮 prompt 的「当前需求」段是第一版草案，而非最初的需求原文
         self.assertIn("- 当前需求：第一版草案-含使用场景痛点现有方案", second_prompt)
@@ -487,7 +525,7 @@ class TestRequirementRefineNode(unittest.TestCase):
             requirement_draft="",
             confirmed_requirement="原始需求-帮产品经理做会议纪要总结",
         )
-        _, _, fake_used = run_refine_node(state, [""], fake)
+        _, _, fake_used = run_refine_node(state, ["确认"], fake)
         prompt = fake_used.calls[0]["prompt"]
         self.assertIn("- 当前需求：原始需求-帮产品经理做会议纪要总结", prompt)
 
@@ -755,9 +793,10 @@ class TestNormalTrackUnchanged(unittest.TestCase):
             )
             deps = make_deps(Path(tmp), fake)
             base = confirm_state()
-            # 1) 需求确认门答复空（confirm）-> pending=False, ai_core 沿用模型建议=False
+            # 1) 需求确认门答复「确认」-> pending=False, ai_core 沿用模型建议=False
+            # （[MA 2026-09-19] S056：空答复不再算确认，故这里用明确确认词）
             confirm_node = make_requirement_confirm(deps)
-            with patch("nodes.hitl.interrupt", return_value=""):
+            with patch("nodes.hitl.interrupt", return_value="确认"):
                 confirm_out = confirm_node(base)
             self.assertFalse(confirm_out["requirement_refine_pending"])
             self.assertIs(confirm_out["ai_core"], False)

@@ -182,7 +182,7 @@ def feasibility_state(**overrides):
 
     [C 2026-09-15 by codebuddy-glm-5.2] S045 块4：默认带完整证据（一条 passed=True
     且 actual_output 非空），让 audit_probe_evidence 判 complete=True 且无 failed，
-    使原四态测试（test_pass_empty_answer 等）行为不变——证据齐全+空答复→直接 pass。
+    使四态测试走「证据齐全直接 pass」路径（需答明确通过词，空答复不再放行）。
     新测试可通过 feasibility_evidence=... 覆盖默认值构造不齐证据。
     """
     state = {
@@ -515,8 +515,28 @@ class TestCapabilityThreeWayLogic(unittest.TestCase):
 
 class TestClassifyFeasibilityAnswer(unittest.TestCase):
     def test_pass_words(self):
-        for word in ("", "   ", None, "confirmed", "通过", "可行", "确认", "放行"):
+        for word in (
+            "confirmed",
+            "通过",
+            "可行",
+            "确认",
+            "放行",
+            # [MA 2026-09-19] S056：补的日常肯定说法
+            "行吧",
+            "按这个来",
+            "好的",
+            "听你的",
+            "没意见",
+            "通过吧",
+        ):
             self.assertEqual(classify_feasibility_answer(word), "pass", msg=repr(word))
+
+    def test_empty_and_none_are_not_pass(self):
+        # [MA 2026-09-19] S056：空串/None 不再算通过（节点在分类前拦空、继续停等）
+        for word in ("", "   ", None):
+            self.assertEqual(
+                classify_feasibility_answer(word), "feedback", msg=repr(word)
+            )
 
     def test_reclassify_keywords(self):
         for word in ("改判普通", "改判普通轨", "普通轨", "非AI", "转普通轨"):
@@ -645,19 +665,39 @@ class TestFeasibilityCheckNode(unittest.TestCase):
 
 
 class TestFeasibilityConfirmNode(unittest.TestCase):
-    def test_pass_empty_answer(self):
-        out, payloads = run_confirm_node(feasibility_state(), [""])
-        self.assertEqual(out["feasibility_confirm"]["verdict"], "pass")
+    def test_empty_answer_keeps_waiting_not_pass(self):
+        # [MA 2026-09-19] S056 用例 a：空答复不当作通过、不当作意见，再抛 interrupt；
+        # 下一句「通过」才放行
+        out, payloads = run_confirm_node(feasibility_state(), ["", "通过"])
+        self.assertEqual(len(payloads), 2)
         self.assertEqual(payloads[0]["node"], "feasibility_confirm")
         self.assertEqual(payloads[0]["status"], "draft")
+        self.assertEqual(payloads[1]["status"], "draft")
         self.assertIn("feasibility_report", payloads[0])
+        self.assertEqual(out["feasibility_confirm"]["verdict"], "pass")
         # 不写 ai_core / reshape_count
         self.assertNotIn("ai_core", out)
         self.assertNotIn("feasibility_reshape_count", out)
 
+    def test_pass_explicit_word_only(self):
+        # 空串不再算通过：单独一个空答复不会让节点返回（节点停在原地等）
+        out, payloads = run_confirm_collect_payloads(feasibility_state(), [""])
+        self.assertIsNone(out)
+        self.assertEqual(len(payloads), 2)
+        self.assertTrue(all(p["status"] == "draft" for p in payloads))
+
     def test_pass_explicit_keyword(self):
         out, _ = run_confirm_node(feasibility_state(), ["通过"])
         self.assertEqual(out["feasibility_confirm"]["verdict"], "pass")
+
+    def test_colloquial_confirm_words_pass(self):
+        # [MA 2026-09-19] S056 用例 f：措辞「行吧」「按这个来」在边界门也按通过处理
+        for word in ("行吧", "按这个来"):
+            out, payloads = run_confirm_node(feasibility_state(), [word])
+            self.assertEqual(len(payloads), 1, msg=word)
+            self.assertEqual(
+                out["feasibility_confirm"]["verdict"], "pass", msg=word
+            )
 
     def test_reclassify_sets_ai_core_false(self):
         out, _ = run_confirm_node(feasibility_state(), ["改判普通轨"])
@@ -681,16 +721,20 @@ class TestFeasibilityConfirmNode(unittest.TestCase):
             out["feasibility_confirm"]["user_feedback"], "注意延迟，先小流量"
         )
 
-    def test_reshape_limit_escalates_and_second_reshape_becomes_pass(self):
-        # 已重塑过 1 次（count=1），再次要求重塑 -> 升级暂停，再要求重塑按通过处理
+    def test_reshape_limit_insist_keeps_reshape(self):
+        # [MA 2026-09-19] S056 用例 c：已重塑过 1 次（count=1），再次要求重塑 ->
+        # 暂停问一次；二次答复仍坚持重塑 -> 按其意思回第 1 段调范围（verdict=reshape），
+        # 不再改判为通过
         state = feasibility_state(feasibility_reshape_count=1)
         out, payloads = run_confirm_node(state, ["重塑", "重塑"])
         self.assertEqual(len(payloads), 2)
         self.assertEqual(payloads[1]["status"], "escalated")
-        self.assertIn("重塑额度已用尽", payloads[1]["reason"])
-        self.assertEqual(out["feasibility_confirm"]["verdict"], "pass")
-        # 计数不再增加
-        self.assertNotIn("feasibility_reshape_count", out)
+        self.assertIn("重塑", payloads[1]["reason"])
+        self.assertEqual(out["feasibility_confirm"]["verdict"], "reshape")
+        self.assertEqual(out["feasibility_reshape_count"], 2)
+        self.assertEqual(
+            route_after_feasibility_confirm(out), "requirement_confirm"
+        )
 
     def test_reshape_limit_escalation_can_reclassify(self):
         state = feasibility_state(feasibility_reshape_count=1)
@@ -1432,12 +1476,11 @@ class TestEvidenceGapProtocol(unittest.TestCase):
             {"probe_name": "p2", "actual_output": "out2", "passed": False, "reason": "失败"},
         ]
 
-    def test_empty_answer_triggers_second_interrupt(self):
-        # 路径 1：空答复 → 不放行，进二次 interrupt（status=evidence_gap）
-        # queue=[""]：首次答 ""（feedback）→ 证据不齐 → 二次 interrupt
+    def test_pass_then_incomplete_evidence_triggers_second_interrupt(self):
+        # 路径 1：「通过」→ 证据不齐 → 不放行，进二次 interrupt（status=evidence_gap）；
         # 二次 interrupt 时 queue 空 → IndexError（节点未返回）
         state = feasibility_state(feasibility_evidence=self._incomplete_evidence())
-        out, payloads = run_confirm_collect_payloads(state, [""])
+        out, payloads = run_confirm_collect_payloads(state, ["通过"])
         # out=None 表示节点未返回，仍在 evidence_gap 循环等下一轮 interrupt
         self.assertIsNone(out)
         self.assertEqual(len(payloads), 2)
@@ -1449,8 +1492,8 @@ class TestEvidenceGapProtocol(unittest.TestCase):
     def test_force_pass_with_explicit_word(self):
         # 路径 2：「仍进PRD」→ pass 且留痕"证据不齐，经人工放行"
         state = feasibility_state(feasibility_evidence=self._incomplete_evidence())
-        out, payloads = run_confirm_node(state, ["", "仍进PRD"])
-        # 首次空答复触发二次 interrupt，二次答复「仍进PRD」放行
+        out, payloads = run_confirm_node(state, ["通过", "仍进PRD"])
+        # 首次「通过」触发二次 interrupt，二次答复「仍进PRD」放行
         self.assertEqual(len(payloads), 2)
         self.assertEqual(payloads[0]["status"], "draft")
         self.assertEqual(payloads[1]["status"], "evidence_gap")
@@ -1460,7 +1503,7 @@ class TestEvidenceGapProtocol(unittest.TestCase):
     def test_reclassify_in_evidence_gap(self):
         # 路径 3：二次答复「改判普通」→ reclassify
         state = feasibility_state(feasibility_evidence=self._incomplete_evidence())
-        out, payloads = run_confirm_node(state, ["", "改判普通轨"])
+        out, payloads = run_confirm_node(state, ["通过", "改判普通轨"])
         self.assertEqual(payloads[1]["status"], "evidence_gap")
         self.assertEqual(out["feasibility_confirm"]["verdict"], "reclassify")
         self.assertIs(out["ai_core"], False)
@@ -1468,42 +1511,44 @@ class TestEvidenceGapProtocol(unittest.TestCase):
     def test_reshape_in_evidence_gap(self):
         # 路径 4：二次答复「重塑」→ reshape（count+1）
         state = feasibility_state(feasibility_evidence=self._incomplete_evidence())
-        out, payloads = run_confirm_node(state, ["", "重塑：缩小范围"])
+        out, payloads = run_confirm_node(state, ["通过", "重塑：缩小范围"])
         self.assertEqual(payloads[1]["status"], "evidence_gap")
         self.assertEqual(out["feasibility_confirm"]["verdict"], "reshape")
         self.assertEqual(out["feasibility_reshape_count"], 1)
 
     def test_reshape_over_limit_in_evidence_gap(self):
-        # 路径 5：reshape 超额度 → escalation_stop（status=escalated）
-        # reshape_count=1（已用 1 次），二次答「重塑」→ 进 escalation_stop 三次 interrupt
+        # 路径 5：reshape 超建议额度 → 暂停（status=escalated）
+        # reshape_count=1（已用 1 次），二次答「重塑」→ 进 escalation 暂停
         state = feasibility_state(
             feasibility_evidence=self._incomplete_evidence(),
             feasibility_reshape_count=1,
         )
-        # queue：首次 ""、二次「重塑」、三次「放弃」退出 escalation
-        out, payloads = run_confirm_node(state, ["", "重塑", "放弃"])
+        # queue：首次「通过」、二次「重塑」、三次「放弃」退出暂停
+        out, payloads = run_confirm_node(state, ["通过", "重塑", "放弃"])
         self.assertEqual(len(payloads), 3)
         self.assertEqual(payloads[0]["status"], "draft")
         self.assertEqual(payloads[1]["status"], "evidence_gap")
         self.assertEqual(payloads[2]["status"], "escalated")
-        self.assertIn("重塑额度已用尽", payloads[2]["reason"])
+        self.assertIn("重塑", payloads[2]["reason"])
         # 三次答复「放弃」→ abandon
         self.assertEqual(out["feasibility_confirm"]["verdict"], "abandon")
 
     def test_abandon_in_evidence_gap(self):
         # 路径 6：二次答复「放弃」→ abandon
         state = feasibility_state(feasibility_evidence=self._incomplete_evidence())
-        out, payloads = run_confirm_node(state, ["", "放弃"])
+        out, payloads = run_confirm_node(state, ["通过", "放弃"])
         self.assertEqual(payloads[1]["status"], "evidence_gap")
         self.assertEqual(out["feasibility_confirm"]["verdict"], "abandon")
 
-    def test_complete_evidence_empty_answer_passes_directly(self):
-        # 回归保护：证据齐全 + 空答复 → 直接 pass（行为不变，不进二次确认）
+    def test_complete_evidence_empty_answer_keeps_waiting(self):
+        # [MA 2026-09-19] S056 用例 a：证据齐全 + 空答复也不再直接放行，
+        # 节点停在原地等下一句；下一句「通过」才放行（不进二次确认）
         state = feasibility_state(feasibility_evidence=self._complete_evidence())
-        out, payloads = run_confirm_node(state, [""])
-        self.assertEqual(len(payloads), 1)
+        out, payloads = run_confirm_node(state, ["", "通过"])
+        self.assertEqual(len(payloads), 2)
         self.assertEqual(payloads[0]["status"], "draft")
-        self.assertTrue(payloads[0]["evidence_audit"]["complete"])
+        self.assertEqual(payloads[1]["status"], "draft")
+        self.assertTrue(payloads[1]["evidence_audit"]["complete"])
         self.assertEqual(out["feasibility_confirm"]["verdict"], "pass")
         # 不进二次确认
         self.assertNotIn("evidence_gap", [p["status"] for p in payloads])
@@ -1527,30 +1572,31 @@ class TestEvidenceGapProtocol(unittest.TestCase):
 
     def test_three_empty_answers_keep_interrupting(self):
         # 空答复 3 轮仍不明确 → 保持中断等待，不调模型、不空转升级
-        # 给 3 个空答复，第 4 次 interrupt 时 queue 空 → out=None
+        # 给 1 个「通过」+ 3 个空答复，第 5 次 interrupt 时 queue 空 → out=None
         # 验证节点不会在第 3 轮后自动放行或升级
         state = feasibility_state(feasibility_evidence=self._incomplete_evidence())
-        out, payloads = run_confirm_collect_payloads(state, ["", "", ""])
+        out, payloads = run_confirm_collect_payloads(state, ["通过", "", "", ""])
         self.assertIsNone(out)
-        # 1 次 draft + 3 次 evidence_gap（每次空答都再问一轮）
-        self.assertEqual(len(payloads), 4)
+        # 1 次 draft + 4 次 evidence_gap（首次「通过」进二次确认，其后每次空答都再问一轮）
+        self.assertEqual(len(payloads), 5)
         self.assertEqual(payloads[0]["status"], "draft")
-        for i in range(1, 4):
+        for i in range(1, 5):
             self.assertEqual(payloads[i]["status"], "evidence_gap")
-        # 第 4 次 interrupt 时 queue 空 → 节点仍在等用户明确答复
+        # 第 5 次 interrupt 时 queue 空 → 节点仍在等用户明确答复
 
-    def test_failed_probe_empty_answer_passes_directly(self):
-        # [r2] 新增例 ①：证据齐全但有 failed 探针 + 答复空 → 直接 pass（不进二次确认）
-        # complete=True（即使有 failed）→ 直接 pass，failed 只在 guidance/hint 提示
+    def test_failed_probe_empty_answer_keeps_waiting(self):
+        # [MA 2026-09-19] S056 用例 a：证据齐全但有 failed 探针 + 空答复 -> 不再直接 pass，
+        # 节点停在原地等下一句；「通过」才放行（complete=True 即不进二次确认）
         state = feasibility_state(feasibility_evidence=self._failed_evidence())
-        out, payloads = run_confirm_node(state, [""])
-        self.assertEqual(len(payloads), 1)
+        out, payloads = run_confirm_node(state, ["", "通过"])
+        self.assertEqual(len(payloads), 2)
         self.assertEqual(payloads[0]["status"], "draft")
-        audit = payloads[0]["evidence_audit"]
+        self.assertEqual(payloads[1]["status"], "draft")
+        audit = payloads[1]["evidence_audit"]
         self.assertEqual(audit["failed"], ["p2"])
         self.assertTrue(audit["complete"])
         self.assertIn("重塑", audit["guidance"])
-        self.assertIn("证据不齐", payloads[0]["evidence_audit_hint"])
+        self.assertIn("证据不齐", payloads[1]["evidence_audit_hint"])
         self.assertEqual(out["feasibility_confirm"]["verdict"], "pass")
         # 不进二次确认
         self.assertNotIn("evidence_gap", [p["status"] for p in payloads])
@@ -1559,7 +1605,7 @@ class TestEvidenceGapProtocol(unittest.TestCase):
         # [r2] 新增例 ②：证据不齐 + 二次确认答「通过」→ 放行且留痕
         # 改动 2 后：_PASS_WORDS（非空）在二次确认也放行
         state = feasibility_state(feasibility_evidence=self._incomplete_evidence())
-        out, payloads = run_confirm_node(state, ["", "通过"])
+        out, payloads = run_confirm_node(state, ["通过", "通过"])
         self.assertEqual(len(payloads), 2)
         self.assertEqual(payloads[0]["status"], "draft")
         self.assertEqual(payloads[1]["status"], "evidence_gap")

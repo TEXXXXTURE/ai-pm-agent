@@ -2,18 +2,20 @@
 """launch_confirm 节点零成本自测：patch 掉 nodes.launch_plan.interrupt，不发起任何真实模型调用。
 
 覆盖（同构 tests/test_issue_confirm.py）：
-1. classify_launch_answer 纯函数：确认精确集合（含空串、"发布""发布吧"）/回工单关键词
-   包含判定/"可以，但要改"判 feedback/"回工单重拆，确认"判 redo_issues/英文大小写；
+1. classify_launch_answer 纯函数：确认精确集合（不含空串；含"发布""发布吧"与日常肯定说法）/
+   回工单关键词包含判定/"可以，但要改"判 feedback/"回工单重拆，确认"判 redo_issues/英文大小写；
 2. 节点级（假 interrupt 依次返回预置答复）：
-   - confirm（confirmed/空/确认/发布）只留痕、不写意见字段、plan 原样保留；
+   - confirm（confirmed/确认/行吧/按这个来/发布）只留痕、不写意见字段、plan 原样保留；
+     空答复不当作确认：再抛 interrupt、不放行；
    - feedback 计数 0->1、1->2，意见按固定中文格式包装；
    - 第 3 版（count=2）feedback 触发 escalated 第二次 interrupt，
-     二次答复 confirm 落盘 / 带新决策意见继续调（count=3）；
+     二次答复 confirm 落盘 / 带具体意见继续调（count=3）；
    - 首次回工单（redo=0）清空 plan、redo=1、count=0、issue_revision_feedback 含原话；
-   - redo=1 再回工单触发 escalated：二次 confirm 落盘 / 普通意见重调 /
-     仍要求回工单转"仍需回工单："前缀意见；
+   - redo=1 再回工单触发暂停：二次 confirm 落盘 / 普通意见重调 /
+     仍要求回工单按其意思再回工单重拆（留痕，不再降级成前缀意见）；
    - 修订升级暂停时二次答复改选回工单（redo=0）正常发起回工单；
-3. route_after_launch_confirm 三分支 + 缺字段安全默认；
+   - 已超建议轮数：空答复继续等 / 具体意见按其再调一轮 / 确认落盘；
+3. route_after_launch_confirm 三分支 + 缺字段回本节点（不再兜底落盘）；
 4. make_launch_plan 返回 launch_revision_feedback=""（块2 补丁：消费即清零）；
    issue_splitting 消费 launch_confirm 回工单写入的 issue_revision_feedback 后清零；
 5. build_graph 编译通过且 11 节点含 launch_confirm；
@@ -228,13 +230,20 @@ class TestClassifyLaunchAnswer(unittest.TestCase):
             "发布",
             "发布吧",
             "可以发布",
+            # [MA 2026-09-19] S056：补的日常肯定说法
+            "行吧",
+            "按这个来",
+            "好的",
+            "听你的",
+            "没意见",
+            "通过吧",
         ):
             self.assertEqual(classify_launch_answer(word), "confirm", msg=word)
 
-    def test_empty_string_is_confirm(self):
-        # 空串=确认，与 requirement_confirm / issue_confirm 空答复放行一致
-        self.assertEqual(classify_launch_answer(""), "confirm")
-        self.assertEqual(classify_launch_answer("   "), "confirm")
+    def test_empty_string_is_not_confirm(self):
+        # [MA 2026-09-19] S056：空串不再算确认（节点在分类前拦空、继续停等）
+        self.assertEqual(classify_launch_answer(""), "feedback")
+        self.assertEqual(classify_launch_answer("   "), "feedback")
 
     def test_redo_issues_keywords(self):
         for word in (
@@ -267,7 +276,8 @@ class TestClassifyLaunchAnswer(unittest.TestCase):
         self.assertEqual(
             classify_launch_answer("T-3 的灰度比例从 10% 调到 5%"), "feedback"
         )
-        self.assertEqual(classify_launch_answer(None), "confirm")  # None 安全归一为空=确认
+        # [MA 2026-09-19] S056：None 归一为空串，空串不再算确认
+        self.assertEqual(classify_launch_answer(None), "feedback")
 
     def test_negated_redo_issues_is_feedback(self):
         # [C 2026-09-11] 紧邻否定语的"回工单/重拆工单"是"不回工单"，不得判 redo_issues
@@ -317,9 +327,9 @@ class TestClassifyLaunchAnswer(unittest.TestCase):
 
 class TestLaunchConfirmNode(unittest.TestCase):
     def test_confirm_variants_keep_plan_and_only_log(self):
-        # confirmed / 空 / 确认 / 发布 四种确认：首次载荷是 draft；输出只含 human_feedback，
-        # 不写任何意见/计数字段（plan 原样保留在 state），合并后路由落盘
-        for answer in ("confirmed", "", "确认", "发布"):
+        # confirmed / 确认 / 行吧 / 按这个来 / 发布 五种确认：首次载荷是 draft；
+        # 输出只含 human_feedback，不写任何意见/计数字段（plan 原样保留在 state），合并后路由落盘
+        for answer in ("confirmed", "确认", "行吧", "按这个来", "发布"):
             out, payloads = run_confirm_node(confirm_state(), [answer])
             self.assertEqual(payloads[0]["node"], "launch_confirm")
             self.assertEqual(payloads[0]["status"], "draft")
@@ -332,6 +342,21 @@ class TestLaunchConfirmNode(unittest.TestCase):
             self.assertEqual(
                 route_after_launch_confirm(merged), "artifact_persist", msg=answer
             )
+
+    def test_empty_answer_keeps_waiting_not_confirmed(self):
+        # [MA 2026-09-19] S056 用例 a：draft 阶段空答复再抛 interrupt、不放行；
+        # 下一句「确认」才只留痕、路由落盘
+        out, payloads = run_confirm_node(confirm_state(), ["", "确认"])
+        self.assertEqual(len(payloads), 2)
+        self.assertEqual(payloads[0]["status"], "draft")
+        self.assertEqual(payloads[1]["status"], "draft")
+        self.assertIn("launch_plan", payloads[1])
+        self.assertEqual(set(out.keys()), {"human_feedback"})
+        self.assertEqual(out["human_feedback"][-1]["kind"], "confirm")
+        self.assertEqual(
+            route_after_launch_confirm({**confirm_state(), **out}),
+            "artifact_persist",
+        )
 
     def test_feedback_first_round(self):
         out, payloads = run_confirm_node(
@@ -358,7 +383,7 @@ class TestLaunchConfirmNode(unittest.TestCase):
 
     def test_third_version_escalation_then_confirm(self):
         # count=2（第 3 版）仍提意见 -> 第二次 interrupt，载荷 status=escalated、
-        # reason 含"升级"与三选项；二次答复确认 -> 落盘
+        # reason 含"第 3 版"与三个选项；二次答复确认 -> 落盘
         out, payloads = run_confirm_node(
             confirm_state(launch_revision_count=MAX_LAUNCH_REVISIONS),
             ["第三版还不满意-AAA", "确认"],
@@ -367,7 +392,7 @@ class TestLaunchConfirmNode(unittest.TestCase):
         esc = payloads[1]
         self.assertEqual(esc["status"], "escalated")
         self.assertEqual(esc["node"], "launch_confirm")
-        self.assertIn("升级", esc["reason"])
+        self.assertIn("第 3 版", esc["reason"])
         self.assertIn("workstreams", esc["launch_plan"])
         self.assertIn("prior_feedbacks", esc)
         self.assertEqual(set(out.keys()), {"human_feedback"})
@@ -445,17 +470,25 @@ class TestLaunchConfirmNode(unittest.TestCase):
         self.assertIn("DDD", out["launch_revision_feedback"])
         self.assertNotIn("issue_revision_feedback", out)
 
-    def test_redo_issues_insist_twice_becomes_prefixed_feedback(self):
-        # redo=1 升级后二次仍要求回工单 -> 不再次回 issue_splitting，
-        # 转"仍需回工单："前缀的发布计划意见
+    def test_redo_issues_insist_twice_goes_upstream(self):
+        # [MA 2026-09-19] S056 用例 d：redo=1 暂停后二次仍要求回工单
+        # -> 按其意思再回重拆工单（留痕 redo_issues），不再降级成"仍需回工单："前缀意见
         out, payloads = run_confirm_node(
             confirm_state(launch_issue_redo_count=1),
             ["回工单", "回工单重拆"],
         )
         self.assertEqual(payloads[1]["status"], "escalated")
-        self.assertEqual(out["launch_revision_count"], 1)
-        self.assertIn("仍需回工单：回工单重拆", out["launch_revision_feedback"])
-        self.assertNotIn("issue_revision_feedback", out)
+        self.assertEqual(out["launch_plan"], {})
+        self.assertTrue(out["issue_revision_feedback"])
+        self.assertIn("回工单重拆", out["issue_revision_feedback"])
+        self.assertEqual(out["human_feedback"][-1]["kind"], "redo_issues")
+        self.assertEqual(out["launch_revision_feedback"], "")
+        self.assertEqual(
+            route_after_launch_confirm(
+                {**confirm_state(launch_issue_redo_count=1), **out}
+            ),
+            "issue_splitting",
+        )
 
     def test_revision_escalation_second_answer_redo_issues_redo_zero(self):
         # 第 3 版升级暂停时，二次答复改选回工单，且 redo=0 -> 正常发起唯一一次回工单
@@ -478,84 +511,65 @@ class TestLaunchConfirmNode(unittest.TestCase):
 
     # ── [C 2026-09-12 by pi-deepseek-flash] 第⑥项修复：升级深度硬上限 ──
 
-    def test_escalation_depth_cap_stops_auto_rework(self):
-        # 已达升级深度上限仍继续喂意见：暂停循环反复抛同一 escalated 中断等真人输入，
-        # 前几次意见都停在 escalated、不自动重调；只有最后一次「确认」才跳出循环落盘。
-        # [C 2026-09-12 by pi-deepseek-flash-r2] 第⑥项返工：非确认不得静默落盘。
+    def test_escalation_limit_opinion_redrafts(self):
+        # [MA 2026-09-19] S056 用例 b：已超建议轮数后给具体意见
+        # -> 按其意见再调一轮（计数 +1、意见写进 launch_revision_feedback、留痕）
         state = confirm_state(
             launch_revision_count=MAX_LAUNCH_REVISIONS,
             launch_escalation_depth=MAX_ESCALATION_DEPTH,
         )
         out, payloads = run_confirm_node(
-            state,
-            [
-                "第四版还不满意-AAA",
-                "再来一轮-BBB",
-                "第三次意见-CCC",
-                "确认",
-            ],
+            state, ["第四版还要调 T-3 灰度-EEE", "第五版按新决策再调-FFF"]
         )
-        # draft -> 上限暂停 3 次；前两次意见各停一轮，最后一次确认才结束
-        self.assertEqual(len(payloads), 4)
-        for payload in payloads[1:]:
-            self.assertEqual(payload["status"], "escalated")
-            self.assertIn("人工介入上限", payload["reason"])
-            self.assertIn("线下核实", payload["reason"])
-        self.assertNotIn("launch_revision_feedback", out)
-        self.assertNotIn("launch_revision_count", out)
-        self.assertNotIn("launch_escalation_depth", out)
-        # 四次喂入答复恰好各留痕一条，末条才是确认
-        self.assertEqual(set(out.keys()), {"human_feedback"})
-        self.assertEqual(len(out["human_feedback"]), 4)
+        self.assertEqual(len(payloads), 2)  # draft + 上限暂停
+        self.assertEqual(payloads[1]["status"], "escalated")
+        self.assertIn("人工介入上限", payloads[1]["reason"])
+        self.assertEqual(out["launch_revision_count"], MAX_LAUNCH_REVISIONS + 1)
+        self.assertIn("FFF", out["launch_revision_feedback"])
+        self.assertNotIn("EEE", out["launch_revision_feedback"])
+        self.assertEqual(out["human_feedback"][-1]["kind"], "feedback")
         self.assertEqual(
-            [item["kind"] for item in out["human_feedback"]],
-            ["feedback", "feedback", "feedback", "confirm"],
-        )
-        self.assertEqual(
-            route_after_launch_confirm(
-                {**confirm_state(launch_revision_count=2), **out}
-            ),
-            "artifact_persist",
+            route_after_launch_confirm({**state, **out}), "launch_plan"
         )
 
-    def test_escalation_depth_cap_confirm_lands(self):
-        # 上限暂停后回「确认」仍可按当前版落盘
+    def test_escalation_limit_empty_answer_keeps_waiting(self):
+        # [MA 2026-09-19] S056 用例 a：上限暂停时空答复再抛 interrupt、不放行；
+        # 下一句「确认」才按当前版落盘
         state = confirm_state(
             launch_revision_count=MAX_LAUNCH_REVISIONS,
             launch_escalation_depth=MAX_ESCALATION_DEPTH,
         )
-        out, payloads = run_confirm_node(state, ["还有意见-AAA", "确认"])
+        out, payloads = run_confirm_node(state, ["还有意见-EEE", "", "确认"])
+        self.assertEqual(len(payloads), 3)
+        self.assertEqual(payloads[0]["status"], "draft")
         self.assertEqual(payloads[1]["status"], "escalated")
+        self.assertEqual(payloads[2]["status"], "escalated")
+        self.assertIn("人工介入上限", payloads[2]["reason"])
         self.assertEqual(set(out.keys()), {"human_feedback"})
         self.assertEqual(out["human_feedback"][-1]["kind"], "confirm")
 
-    def test_escalation_recursion_bounded_by_depth_cap(self):
-        # 回工单额度用尽 + 3 版保险丝：连续喂意见时升级深度递增，
-        # 达上限后不再自动重调，而是反复停在 escalated 等真人决策；
-        # 只有最后的「确认」才落盘。
-        # [C 2026-09-12 by pi-deepseek-flash-r2] 第⑥项返工：末端改停 escalated。
+    def test_redo_limit_insist_goes_upstream(self):
+        # [MA 2026-09-19] S056 用例 d：回工单额度用尽 + 3 版建议线，
+        # 二次答复换意见后又坚持回工单 -> 按其意思回 issue_splitting（留痕）
         state = confirm_state(
             launch_issue_redo_count=1,
             launch_revision_count=MAX_LAUNCH_REVISIONS,
             launch_escalation_depth=0,
         )
         out, payloads = run_confirm_node(
-            state, ["回工单", "新决策意见-A", "仍然不同意-B", "确认"]
+            state, ["回工单", "新决策意见-A", "回工单重拆"]
         )
-        self.assertEqual(len(payloads), 4)  # draft -> redo升级 -> 上限暂停 x2
+        self.assertEqual(len(payloads), 3)
         self.assertEqual(payloads[1]["status"], "escalated")
         self.assertIn("回工单重拆 1 次", payloads[1]["reason"])
-        # 达上限后的两次喂入意见都停在 escalated，不自动递归重调
         self.assertEqual(payloads[2]["status"], "escalated")
         self.assertIn("人工介入上限", payloads[2]["reason"])
-        self.assertEqual(payloads[3]["status"], "escalated")
-        self.assertIn("人工介入上限", payloads[3]["reason"])
-        # 未产出重调意见 -> 只写 human_feedback，确认后才落盘
-        self.assertNotIn("launch_revision_feedback", out)
-        self.assertEqual(set(out.keys()), {"human_feedback"})
-        self.assertEqual(out["human_feedback"][-1]["kind"], "confirm")
+        self.assertEqual(out["launch_plan"], {})
+        self.assertTrue(out["issue_revision_feedback"])
+        self.assertIn("回工单重拆", out["issue_revision_feedback"])
+        self.assertEqual(out["human_feedback"][-1]["kind"], "redo_issues")
         self.assertEqual(
-            route_after_launch_confirm({**state, **out}), "artifact_persist"
+            route_after_launch_confirm({**state, **out}), "issue_splitting"
         )
 
 
@@ -589,12 +603,12 @@ class TestRouteAfterLaunchConfirm(unittest.TestCase):
             "artifact_persist",
         )
 
-    def test_empty_state_safe_defaults_to_persist(self):
-        # 缺字段（None/缺键）不应炸，默认落盘
-        self.assertEqual(route_after_launch_confirm({}), "artifact_persist")
+    def test_empty_state_goes_back_to_confirm(self):
+        # [MA 2026-09-19] S056：缺字段（None/缺键）不炸，也不再兜底落盘——回本节点继续停等
+        self.assertEqual(route_after_launch_confirm({}), "launch_confirm")
         self.assertEqual(
             route_after_launch_confirm({"launch_plan": None, "issue_revision_feedback": None}),
-            "artifact_persist",
+            "launch_confirm",
         )
 
 

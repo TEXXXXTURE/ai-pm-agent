@@ -409,6 +409,57 @@ _JUDGE_REPORT_FIELDS = (
 )
 
 
+# [MA 2026-09-19] S056：第 8 段未达标门的答复口径
+# 放行意思（仍进发布计划/继续/放行/强制放行/我知道未达标…）-> 用户明确放行，记 forced_pass；
+# 重跑意思（再跑/我改好了…）-> 不改判定，回 eval_run 重跑；
+# 空答复 -> 继续停等；其余非空读不出意图 -> 追问一句。
+_EVAL_GATE_PASS_KEYWORDS: tuple[str, ...] = (
+    "仍进发布计划",
+    "进发布计划",
+    "放行",
+    "强制放行",
+    "我知道未达标",
+    "知道未达标",
+    "继续",
+)
+_EVAL_GATE_RERUN_KEYWORDS: tuple[str, ...] = (
+    "再跑",
+    "重跑",
+    "重新跑",
+    "再测",
+    "重测",
+    "我改好了",
+    "改好了",
+    "已修复",
+    "修好了",
+)
+_UNREADABLE_ANSWER_REASON = (
+    "评测未达及格线，但没读出你的意思。要放行进发布计划，请回「仍进发布计划」或「强制放行」；"
+    "要改好后重跑，请回「再跑」；不答复我就停在这里等。"
+)
+
+
+def classify_eval_gate_answer(text: str) -> str:
+    """纯函数：把评测未达标门的用户答复归一化为 forced_pass / rerun / unclear。
+
+    判定顺序（顺序不可换）：
+    1. strip；英文小写化；
+    2. 含放行意思（``_EVAL_GATE_PASS_KEYWORDS``，如「仍进发布计划」「强制放行」「继续」）
+       -> forced_pass；
+    3. 含重跑意思（``_EVAL_GATE_RERUN_KEYWORDS``，如「再跑」「我改好了」）-> rerun；
+    4. 其余非空文本 -> unclear（节点追问一句，不替用户判成放行或重跑）。
+
+    [MA 2026-09-19] S056：空串不由本函数表达（节点在分类前拦空，继续停等）。
+    """
+    stripped = str(text if text is not None else "").strip()
+    compact = stripped.lower().replace(" ", "").replace("\u3000", "")
+    if any(kw in compact for kw in _EVAL_GATE_PASS_KEYWORDS):
+        return "forced_pass"
+    if any(kw in compact for kw in _EVAL_GATE_RERUN_KEYWORDS):
+        return "rerun"
+    return "unclear"
+
+
 def eval_gate(state: dict) -> dict:
     """第 8 段后半：评测判定 + 未达标停等（纯函数节点，不调模型、不落盘）。
 
@@ -416,11 +467,17 @@ def eval_gate(state: dict) -> dict:
     及格线 / 未过关键题）：
     - 达标（``passed is True``）-> 返回 ``{}``，条件边去 ``launch_plan``；
     - 未达标 -> ``interrupt``（载荷字段与拆分前 eval_run 未达标分支逐字一致，仅 ``node`` 改为
-      ``eval_gate``），用户答复任意内容后返回 ``{}``，条件边回 ``eval_run`` 重跑——不设自动放行；
+      ``eval_gate``），按答复分流：
+        放行意思 -> 返回 ``{"eval_report": {**report, "passed": True, "forced_pass": True,
+        "forced_note": "评测未达标，用户明确放行；答复：<原文>"}}`` 并在 human_feedback 留痕，
+        条件边据此进 ``launch_plan``；
+        重跑意思 -> 返回 ``{}``，条件边回 ``eval_run`` 重跑（按现在的方式）；
+        空答复 -> 不当作放行也不当作重跑，继续停等；读不出意图 -> 追问一句；
     - ``eval_report`` 缺失或畸形（非 dict、或 ``passed`` 不是布尔）-> 返回 ``{}``，条件边据此
       保守回 ``eval_run`` 重跑，不静默放行。
 
-    判定规则与及格线数值均在 ``judge_eval_report`` 内，本函数不改判定、不代为放行。
+    判定规则与及格线数值均在 ``judge_eval_report`` 内，本函数不改判定；放行只记用户明确的
+    放行表态（forced_pass 留痕），不代替用户放行。
     """
     report = state.get("eval_report")
     if not isinstance(report, dict) or not isinstance(report.get("passed"), bool):
@@ -430,17 +487,53 @@ def eval_gate(state: dict) -> dict:
     if report["passed"]:
         return {}
 
-    interrupt(
-        {
-            "node": "eval_gate",
-            "status": "eval_failed",
-            "reason": "评测未达及格线",
-            "requirement_name": state.get("requirement_name") or "未命名需求",
-            "report": {key: report.get(key) for key in _JUDGE_REPORT_FIELDS},
-            "eval_report": report,
-        }
-    )
-    return {}
+    payload = {
+        "node": "eval_gate",
+        "status": "eval_failed",
+        "reason": "评测未达及格线",
+        "requirement_name": state.get("requirement_name") or "未命名需求",
+        "report": {key: report.get(key) for key in _JUDGE_REPORT_FIELDS},
+        "eval_report": report,
+    }
+    feedback_log = [
+        dict(item)
+        for item in (state.get("human_feedback") or [])
+        if isinstance(item, dict)
+    ]
+    while True:
+        answer = interrupt(payload)
+        text = (
+            answer.strip()
+            if isinstance(answer, str)
+            else ("" if answer is None else str(answer).strip())
+        )
+        if not text:
+            # 空答复：不当作放行、不当作重跑，继续等下一句
+            payload = {**payload, "note": "没收到答复，仍在这里等你的决定"}
+            continue
+        kind = classify_eval_gate_answer(text)
+        if kind == "forced_pass":
+            feedback_log.append(
+                {
+                    "node": "eval_gate",
+                    "kind": "forced_pass",
+                    "feedback": text,
+                }
+            )
+            return {
+                "eval_report": {
+                    **report,
+                    "passed": True,
+                    "forced_pass": True,
+                    "forced_note": f"评测未达标，用户明确放行；答复：{text}",
+                },
+                "human_feedback": feedback_log,
+            }
+        if kind == "rerun":
+            # 用户要改好后重跑：不改判定，交给条件边回 eval_run（按现在的方式）
+            return {}
+        # 非空但读不出意图：追问一句，不替用户判成放行或重跑
+        payload = {**payload, "reason": _UNREADABLE_ANSWER_REASON}
     # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 第 8 段拆两步：判定与停等独立成节点
 
 

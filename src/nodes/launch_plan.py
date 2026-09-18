@@ -311,12 +311,11 @@ _REDO_ISSUES_KEYWORDS: tuple[str, ...] = (
 )
 
 # 确认精确集合：归一化（strip + lower）后恰好属于其中才算确认。
-# 空串=确认（与 requirement_confirm / issue_confirm 空答复放行一致）；
-# "可以，但要改"不是精确匹配，不判确认。
+# [MA 2026-09-19] S056：去空串（空答复不算确认，节点在分类前拦空并继续停等），
+# 补日常肯定说法；"可以，但要改"不是精确匹配，不判确认。
 # 在 issue_confirm 确认词基础上追加"发布""发布吧"（发布计划语境的天然确认语）。
 _LAUNCH_CONFIRM_WORDS: frozenset[str] = frozenset(
     {
-        "",
         "confirmed",
         "confirm",
         "ok",
@@ -324,14 +323,29 @@ _LAUNCH_CONFIRM_WORDS: frozenset[str] = frozenset(
         "yes",
         "确认",
         "通过",
+        "通过吧",
         "同意",
+        "同意了",
+        "认可",
         "没问题",
+        "没意见",
         "可以",
+        "可以吧",
+        "可以了",
         "行",
+        "行吧",
+        "行了",
+        "好",
+        "好的",
         "就这样",
+        "就这样吧",
         "就这版",
+        "按这个来",
+        "听你的",
+        "继续",
         "落盘",
         "放行",
+        "放行吧",
         "同意发布",
         "发布",
         "发布吧",
@@ -348,24 +362,27 @@ MAX_LAUNCH_REVISIONS = 2
 MAX_ESCALATION_DEPTH = 1
 
 # [C 2026-09-12 by pi-deepseek-flash] 第⑥项修复：已达升级深度硬上限的暂停说明。
+# [MA 2026-09-19] S056：不再写「只认确认」——给意见照跑、坚持回工单照回、空答复继续等。
 _ESCALATION_LIMIT_REASON = (
-    "已达人工介入上限（升级暂停后再给意见最多 1 轮），流水线保持升级暂停、不再自动重调；"
-    "请与 Pi 线下核实后重新发起流水线，或回复「确认」按当前版落盘。"
+    "已超过建议的人工介入上限（初版 + 2 轮重调 + 升级后 1 轮）。"
+    "你可以继续给具体意见，我按意见再调一轮；也可以坚持回工单，我按你的意思回重拆工单；"
+    "或回复「确认」按当前版落盘；不答复我就停在这里等。"
 )
 
-# 回工单额度用尽后仍要求回工单的升级暂停说明 [C 2026-09-11]
+# 回工单额度用尽后仍要求回工单的暂停说明 [C 2026-09-11]
+# [MA 2026-09-19] S056：用户坚持回工单就按他的意思回，文案不再写「不再自动空转」当挡箭牌
 _REDO_ESCALATION_REASON = (
-    "已回工单重拆 1 次仍无法产出满意的发布计划，流水线升级暂停，不再自动空转。"
-    "可与 Pi 重新讨论工单拆解后重新发起流水线；也可现在回复「确认」按当前版落盘，"
-    "或给出新的具体决策意见再调一轮发布计划。"
+    "已回工单重拆 1 次，你仍要求回工单。你可以继续给具体发布计划意见，我按意见再调一轮；"
+    "也可以坚持回工单，我按你的意思回重拆工单；"
+    "或回复「确认」按当前版落盘。"
 )
 
-# 第 3 版仍提修改意见的升级暂停说明（三个选项） [C 2026-09-11]
+# 第 3 版仍提修改意见的暂停说明（三个选项） [C 2026-09-11]
+# [MA 2026-09-19] S056：轮数是建议不是闸门
 _REVISION_ESCALATION_REASON = (
-    "发布计划已出到第 3 版（初版 + 2 轮重调），你仍有修改意见，"
-    "流水线升级暂停，不自动空转。请三选一："
-    "① 带着新决策给出具体意见，由你主动发起再调一轮；"
-    "② 回复「回工单」回 issue_splitting 重拆（全程限 1 次）；"
+    "发布计划已出到第 3 版（初版 + 2 轮重调），你仍有修改意见。请三选一："
+    "① 给出具体意见（如「把 T-3 的灰度比例从 10% 调到 5%」），我按意见再调一轮；"
+    "② 回复「回工单」回重拆工单，我按你的意思回工单拆解；"
     "③ 回复「确认」按当前版落盘。"
 )
 
@@ -414,10 +431,12 @@ def classify_launch_answer(text: str) -> str:
        含任一 ``_REDO_ISSUES_KEYWORDS`` 且命中位置前 3 字内无否定语
        （不/别/勿/不用/不要/不必/不需要 等，如"不用回工单，直接改计划""不要重拆工单"）
        即 redo_issues（故"回工单重拆，确认"仍判回工单，不被确认词截胡）；
-    3. **再做确认精确集合判定**：归一化后恰好属于 ``_LAUNCH_CONFIRM_WORDS`` 才 confirm，
-       空串=确认（与 requirement_confirm / issue_confirm 空答复放行一致）；
+    3. **再做确认精确集合判定**：归一化后恰好属于 ``_LAUNCH_CONFIRM_WORDS`` 才 confirm；
        "可以，但要改"不是精确匹配，落 feedback；
     4. 其余一律 feedback（打回重调 launch_plan）。
+
+    [MA 2026-09-19] S056：空串不属于确认词集合，本函数对空串返回 feedback；
+    空答复由节点在调用本函数之前拦下（不当作确认、不当作意见），继续停等下一句。
     """
     stripped = str(text if text is not None else "").strip()
     lowered = stripped.lower()
@@ -437,7 +456,8 @@ def route_after_launch_confirm(state: dict) -> str:
     - launch_plan 为空且 issue_revision_feedback 非空 -> ``issue_splitting``
       （确认门发起回工单：plan 已清空、回工单意见待 issue_splitting 消费）；
     - launch_revision_feedback 非空 -> ``launch_plan``（带人工意见重调）；
-    - 其余 -> ``artifact_persist``（确认落盘；确认分支不写意见字段，plan 原样保留）。
+    - launch_plan 非空 -> ``artifact_persist``（确认落盘；确认分支不写意见字段，plan 原样保留）；
+    - 其余/缺失（没有发布计划可落盘）-> ``launch_confirm``（回本节点再停，不再兜底放行）。
     """
     plan = state.get("launch_plan") or {}
     issue_revision_feedback = str(state.get("issue_revision_feedback") or "")
@@ -446,6 +466,9 @@ def route_after_launch_confirm(state: dict) -> str:
         return "issue_splitting"
     if launch_revision_feedback:
         return "launch_plan"
+    # [MA 2026-09-19] S056：没有发布计划草案就不往下走（原兜底放行会让空的计划落盘）
+    if not plan:
+        return "launch_confirm"
     return "artifact_persist"
     # [C 2026-09-11] 发布计划确认门三分支条件边路由纯函数
 
@@ -500,13 +523,14 @@ def make_launch_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节点保�
     - feedback（前 2 版）-> launch_revision_count+1、写 launch_revision_feedback
       -> 条件边回 launch_plan 重调 -> 重回本确认门；
     - feedback（第 3 版起）-> 先 interrupt 升级暂停（status="escalated"），
-      二次答复：确认落盘 / 回工单走重拆判定 / 带新决策的具体意见再调一轮；
-    - redo_issues（redo=0）-> 清空 launch_plan、redo 置 1、修订计数归零、
+      二次答复：确认落盘 / 回工单走重拆判定 / 带具体意见再调一轮；
+    - redo_issues（redo=0）-> 清空 launch_plan、redo +1、修订计数归零、
       写 issue_revision_feedback（注入 issue_splitting）-> 条件边回 issue_splitting；
-      redo_issues（redo>=1）-> 升级暂停，二次答复不再回工单
-      （再次要求回工单按"仍需回工单："前缀的发布计划意见处理）。
-    - [C 2026-09-12 by pi-deepseek-flash] 第⑥项：升级深度硬上限（最多 1 轮），
-      超限保持 escalated 暂停、不再自动重调，防理论无限递归。
+      redo_issues（redo>=1）-> 暂停问一次，二次答复坚持回工单就按用户意思回重拆（留痕），
+      不再降级成发布计划意见。
+    - [C 2026-09-12 by pi-deepseek-flash] 第⑥项：升级深度上限（建议 1 轮），
+      超限进上限暂停循环；[MA 2026-09-19] S056：该循环对非空答复一律按字面意思执行，
+      空答复继续等（轮数上限只是建议，不是闸门）。
     """
 
     def launch_confirm(state: dict) -> dict:
@@ -568,18 +592,35 @@ def make_launch_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节点保�
                 }
             )
 
-        def escalation_limit_stop(round_label: str) -> dict:
-            """已达人工介入上限：暂停循环，反复抛同一 escalated 中断等真人答复。
+        def redo_issues_update(text: str, round_label: str) -> dict:
+            """按用户意思回 issue_splitting 重拆工单：清空发布计划、写回工单意见、留痕。
 
-            只有「确认」才跳出循环、走 confirm_update 按当前版落盘；
-            非确认答复（feedback / redo_issues 一律）不写任何意见、计数、深度字段，
-            恰好留痕一条后继续抛中断等下一轮真人输入。
+            首次回工单与额度用尽后坚持回工单共用此函数，保证两条路径产出同形状态，
+            条件边据「plan 空 + issue_revision_feedback 非空」回 issue_splitting。
+            """
+            append_log("redo_issues", text, round_label)
+            return {
+                "launch_plan": {},
+                "launch_issue_redo_count": int(
+                    state.get("launch_issue_redo_count") or 0
+                )
+                + 1,
+                "launch_revision_count": 0,
+                "launch_revision_feedback": "",
+                "issue_revision_feedback": _build_issue_redo_feedback(text),
+                "launch_escalation_depth": 0,
+                "human_feedback": feedback_log,
+            }
+
+        def escalation_limit_stop(round_label: str) -> dict:
+            """已超过建议轮数：确认落盘 / 具体意见按其再调一轮 / 坚持回工单就回工单 / 空答复继续等。
+
             人工驱动的反复暂停不是空转：空转指无人值守自动调模型重调，
             本循环每轮都在等真人输入、不调模型。
 
             [C 2026-09-12 by pi-deepseek-flash] 第⑥项修复：硬深度上限落点。
-            [C 2026-09-12 by pi-deepseek-flash-r2] 第⑥项返工：非确认答复由
-            「返回留痕 dict」改为「继续暂停」，杜绝被条件边当确认而静默落盘。
+            [MA 2026-09-19] S056：轮数上限改建议——非空答复一律按字面意思执行，
+            空答复不当作确认也不当作意见，继续停在本节点等下一句。
             """
             seq = 0
             while True:
@@ -588,82 +629,97 @@ def make_launch_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节点保�
                 kind2, text2 = _normalize_answer(answer)
                 # round 标签带序号区分：首轮沿用原标签，其后追加 -2/-3…
                 label = round_label if seq == 1 else f"{round_label}-{seq}"
+                if not text2.strip():
+                    continue
                 if kind2 == "confirm":
-                    # 仅确认跳出循环落盘：confirm_update 恰好为该答复留痕一条
+                    # 确认跳出循环落盘：confirm_update 恰好为该答复留痕一条
                     return confirm_update(kind2, text2, f"{label}-confirm")
-                # 非确认答复：不写任何意见/计数/深度字段，仅留痕一条后继续暂停
+                if kind2 == "redo_issues":
+                    # 用户坚持回工单：按其意思回重拆工单（留痕）
+                    return redo_issues_update(text2, f"{label}-redo")
+                # 具体意见：按其意思再调一轮（留痕、计数 +1）
                 append_log(kind2, text2, label)
+                return feedback_update(
+                    text2,
+                    int(state.get("launch_revision_count") or 0),
+                    int(state.get("launch_escalation_depth") or 0) + 1,
+                )
 
         def ask_then_route(
             text: str, count: int, round_label: str, depth: int = 0
         ) -> dict:
-            """第 3 版仍有意见：升级暂停，按二次答复分流。"""
+            """第 3 版仍有意见：暂停问一次，按二次答复分流。"""
             if depth >= MAX_ESCALATION_DEPTH:
-                # [C 2026-09-12 by pi-deepseek-flash] 第⑥项：超限保持 escalated，不自动重调
+                # [C 2026-09-12 by pi-deepseek-flash] 第⑥项：超限进上限暂停循环
                 return escalation_limit_stop(f"{round_label}-escalation-limit")
-            second_answer = escalation_interrupt(_REVISION_ESCALATION_REASON)
-            kind2, text2 = _normalize_answer(second_answer)
-            if kind2 == "confirm":
-                return confirm_update(kind2, text2, "escalation-confirm")
-            if kind2 == "redo_issues":
-                # 二次答复改选回工单：交回工单判定（redo=0 正常回工单 / redo=1 再升级）；
-                # 留痕由 handle_redo_issues 按最终动作统一记录，避免重复
-                return handle_redo_issues(text2, depth + 1)
-            # 人带来新决策的具体意见：主动发起再调一轮（计数照常 +1，升级深度 +1）
-            append_log(kind2, text2, "escalation-feedback")
-            return feedback_update(text2, count, depth + 1)
+            while True:
+                second_answer = escalation_interrupt(_REVISION_ESCALATION_REASON)
+                kind2, text2 = _normalize_answer(second_answer)
+                # [MA 2026-09-19] S056：空答复不当作确认也不当作意见，继续等下一句
+                if not text2.strip():
+                    continue
+                if kind2 == "confirm":
+                    return confirm_update(kind2, text2, "escalation-confirm")
+                if kind2 == "redo_issues":
+                    # 二次答复改选回工单：交回工单判定（redo=0 正常回工单 / redo=1 再暂停）；
+                    # 留痕由 handle_redo_issues 按最终动作统一记录，避免重复
+                    return handle_redo_issues(text2, depth + 1)
+                # 具体意见：按意见再调一轮（计数照常 +1，升级深度 +1）
+                append_log(kind2, text2, "escalation-feedback")
+                return feedback_update(text2, count, depth + 1)
 
         def handle_redo_issues(text: str, depth: int = 0) -> dict:
             redo = int(state.get("launch_issue_redo_count") or 0)
             if redo >= 1:
                 if depth >= MAX_ESCALATION_DEPTH:
-                    # [C 2026-09-12 by pi-deepseek-flash] 第⑥项：超限保持 escalated，不再递归
+                    # [C 2026-09-12 by pi-deepseek-flash] 第⑥项：超限进上限暂停循环
                     return escalation_limit_stop("redo-escalation-limit")
-                # 回工单额度已用尽：升级暂停。二次答复只有确认/带意见再调，不再回工单。
-                second_answer = escalation_interrupt(_REDO_ESCALATION_REASON)
-                kind2, text2 = _normalize_answer(second_answer)
-                if kind2 == "confirm":
-                    return confirm_update(kind2, text2, "redo-escalation-confirm")
-                count = int(state.get("launch_revision_count") or 0)
-                if kind2 == "redo_issues":
-                    # 仍坚持回工单：不再次回 issue_splitting，转为带"仍需回工单："前缀的发布计划意见
-                    text2 = f"仍需回工单：{text2}"
-                append_log("feedback", text2, "redo-escalation-feedback")
-                if count >= MAX_LAUNCH_REVISIONS:
-                    # 同时触达 3 版保险丝：再给一次升级选择，不自动空转
-                    return ask_then_route(
-                        text2, count, "redo-escalation-feedback", depth + 1
-                    )
-                return feedback_update(text2, count, depth + 1)
+                # 回工单额度已用尽：暂停问一次，按答复分流
+                while True:
+                    second_answer = escalation_interrupt(_REDO_ESCALATION_REASON)
+                    kind2, text2 = _normalize_answer(second_answer)
+                    # [MA 2026-09-19] S056：空答复不当作确认也不当作意见，继续等下一句
+                    if not text2.strip():
+                        continue
+                    if kind2 == "confirm":
+                        return confirm_update(kind2, text2, "redo-escalation-confirm")
+                    if kind2 == "redo_issues":
+                        # 用户坚持回工单：按其意思再回重拆工单（留痕）
+                        return redo_issues_update(
+                            text2, f"redo-{redo + 1}-insist"
+                        )
+                    count = int(state.get("launch_revision_count") or 0)
+                    append_log("feedback", text2, "redo-escalation-feedback")
+                    if count >= MAX_LAUNCH_REVISIONS:
+                        # 同时触达 3 版建议线：再给一次选择
+                        return ask_then_route(
+                            text2, count, "redo-escalation-feedback", depth + 1
+                        )
+                    return feedback_update(text2, count, depth + 1)
 
-            # redo=0：发起全程唯一一次回工单——清空发布计划、回工单计数置 1、
+            # redo=0：发起回工单——清空发布计划、回工单计数 +1、
             # 发布计划修订计数归零、写 issue_revision_feedback 注入 issue_splitting。
             # issue_revision_feedback 由 issue_splitting 返回时消费即清零。
-            append_log("redo_issues", text, "redo-1")
-            return {
-                "launch_plan": {},
-                "launch_issue_redo_count": 1,
-                "launch_revision_count": 0,
-                "launch_revision_feedback": "",
-                "issue_revision_feedback": _build_issue_redo_feedback(text),
-                # [C 2026-09-12 by pi-deepseek-flash] 第⑥项：回工单后重新计升级深度
-                "launch_escalation_depth": 0,
-                "human_feedback": feedback_log,
-            }
+            return redo_issues_update(text, "redo-1")
 
         # ── 首次中断：请用户审阅发布计划草案 ──
         # [C 2026-09-16] R11：载荷携带就绪度打分（launch_plan 之后由 readiness_assessment 节点产出）
         readiness = state.get("readiness_assessment") or {}
-        first_answer = interrupt(
-            {
-                "node": "launch_confirm",
-                "status": "draft",
-                "requirement_name": requirement_name,
-                "launch_plan": plan,
-                "readiness_assessment": readiness,
-            }
-        )
+        draft_payload = {
+            "node": "launch_confirm",
+            "status": "draft",
+            "requirement_name": requirement_name,
+            "launch_plan": plan,
+            "readiness_assessment": readiness,
+        }
+        first_answer = interrupt(draft_payload)
         kind, text = _normalize_answer(first_answer)
+        # [MA 2026-09-19] S056：空答复不当作确认、不当作意见，继续停在本节点等下一句
+        while not text.strip():
+            first_answer = interrupt(
+                {**draft_payload, "note": "没收到答复，仍在这里等你的决定"}
+            )
+            kind, text = _normalize_answer(first_answer)
 
         if kind == "confirm":
             return confirm_update(kind, text, "draft-confirm")

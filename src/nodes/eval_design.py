@@ -50,27 +50,29 @@ MAX_EVAL_ESCALATED_REVISIONS = 1
 # 无需额外 state 字段，用 eval_revision_count 本身作深度界，达上限保持 escalated。
 MAX_EVAL_TOTAL_REVISIONS = MAX_EVAL_REVISIONS + MAX_EVAL_ESCALATED_REVISIONS
 
-# 第 3 版仍提修改意见的升级暂停说明（三选一） [C 2026-09-12 by codebuddy-ds41flash]
+# 第 3 版仍提修改意见的暂停说明（三选一） [C 2026-09-12 by codebuddy-ds41flash]
+# [MA 2026-09-19] S056：轮数是建议不是闸门——给具体意见就按其再起草一轮
 _REVISION_ESCALATION_REASON = (
-    "评测体系已出到第 3 版（初版 + 2 轮重起草），你仍有修改意见，"
-    "流水线升级暂停，不自动空转。请三选一："
-    "① 带着新决策给出具体意见，由你主动发起再起草一轮（升级后限 1 轮）；"
+    "评测体系已出到第 3 版（初版 + 2 轮重起草），你仍有修改意见。"
+    "请三选一："
+    "① 给出具体意见（如「第 2 层加两道对抗题」），我按你的意见再起草一轮；"
     "② 回复「确认」按当前版落盘 Promptfoo YAML 草案与评测档案；"
     "③ 让 Pi 协助调查（如查参考库/竞品四层出题口径）后再给意见。"
 )
 
-# 已达升级深度硬上限的暂停说明（不再自动重起草，反复抛中断等真人决策）
+# 已超过建议轮数的暂停说明（意见照跑、确认照落盘、空答复继续等）
+# [MA 2026-09-19] S056：不再写「只认确认」，也不再用线下核实当唯一出路
 _ESCALATION_LIMIT_REASON = (
-    "已达人工介入上限（升级暂停后再给意见最多 1 轮），流水线保持升级暂停、不再自动重起草；"
-    "请与 Pi 线下核实后重新发起流水线，或回复「确认」按当前版落盘。"
+    "已超过建议的人工介入上限（初版 + 2 轮重起草 + 升级后 1 轮），"
+    "我不会自己接着改。你可以继续给具体意见，我按你的意见再起草一轮；"
+    "也可以回复「确认」按当前版落盘；不答复我就停在这里等。"
 )
 
 # 确认精确集合：归一化（strip + lower）后恰好属于其中才算确认。
-# 空串=确认（与其他确认门空答复放行一致）；
-# "可以，但要改"不是精确匹配，不判确认（落 feedback 打回重起草）。
+# [MA 2026-09-19] S056：去空串（空答复不算确认，节点在分类前拦空并继续停等），
+# 补日常肯定说法；"可以，但要改"不是精确匹配，不判确认（落 feedback 打回重起草）。
 _EVAL_CONFIRM_WORDS: frozenset[str] = frozenset(
     {
-        "",
         "confirmed",
         "confirm",
         "ok",
@@ -78,14 +80,29 @@ _EVAL_CONFIRM_WORDS: frozenset[str] = frozenset(
         "yes",
         "确认",
         "通过",
+        "通过吧",
         "同意",
+        "同意了",
+        "认可",
         "没问题",
+        "没意见",
         "可以",
+        "可以吧",
+        "可以了",
         "行",
+        "行吧",
+        "行了",
+        "好",
+        "好的",
         "就这样",
+        "就这样吧",
         "就这版",
+        "按这个来",
+        "听你的",
+        "继续",
         "落盘",
         "放行",
+        "放行吧",
         "同意评测",
     }
 )
@@ -116,10 +133,12 @@ def classify_eval_answer(text: str) -> str:
 
     判定顺序（顺序不可换）：
     1. strip；英文小写化后做精确匹配；
-    2. **确认精确集合判定**：归一化后恰好属于 ``_EVAL_CONFIRM_WORDS`` 才 pass，
-       空串=确认（与其他确认门空答复放行一致）；
+    2. **确认精确集合判定**：归一化后恰好属于 ``_EVAL_CONFIRM_WORDS`` 才 pass；
     3. 其余一律 feedback（打回重新起草）——本门没有回退上游分支，
        否定式（"不确认""先放一放"）与任意自由文本自然落 feedback。
+
+    [MA 2026-09-19] S056：空串不属于确认词集合，本函数对空串返回 feedback；
+    空答复由节点在调用本函数之前拦下（不当作确认、不当作意见），继续停等下一句。
 
     Returns:
         ``pass`` / ``feedback``
@@ -135,14 +154,18 @@ def classify_eval_answer(text: str) -> str:
 def route_after_eval_confirm(state: dict) -> str:
     """条件边路由：按 eval_confirm.verdict 两态映射。
 
+    - pass -> ``issue_splitting``（确认落盘）
     - redraft -> ``eval_design``（带人工意见重新起草）
-    - 其余/缺失 -> ``issue_splitting``（确认落盘或保守放行，避免卡死）
+    - 其余/缺失 -> ``eval_confirm``（回本节点再停，不再兜底放行）
     """
     confirm = state.get("eval_confirm") or {}
     verdict = str(confirm.get("verdict") or "")
     if verdict == "redraft":
         return "eval_design"
-    return "issue_splitting"
+    if verdict == "pass":
+        return "issue_splitting"
+    # [MA 2026-09-19] S056：缺 verdict（没有答复）不再兜底放行，回本节点继续停等
+    return "eval_confirm"
     # [C 2026-09-12 by codebuddy-ds41flash] 确认评测体系门两态条件边路由纯函数
 
 
@@ -367,9 +390,9 @@ def make_eval_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节点保持
     - feedback（前 2 版）-> eval_revision_count+1、写 eval_revision_feedback、verdict=redraft
       -> 条件边回 eval_design 重起草 -> 重回本确认门；
     - feedback（第 3 版起）-> 先 interrupt 升级暂停（status="escalated"），
-      二次答复：确认落盘 / 带新决策的具体意见再起草一轮（升级后限 1 轮）；
-    - 升级后再给意见达硬上限（eval_revision_count 触顶）-> 保持 escalated 暂停，
-      反复抛中断等真人答复，非确认不写任何意见/计数字段，不自动空转。
+      二次答复：确认落盘 / 带具体意见再起草一轮；
+    - 已超过建议轮数（eval_revision_count 触顶）-> 抛中断等真人答复：
+      给具体意见就按其再起草一轮（留痕、计数 +1），确认就落盘，空答复继续等。
     """
 
     def eval_confirm(state: dict) -> dict:
@@ -431,10 +454,12 @@ def make_eval_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节点保持
             )
 
         def escalation_limit_stop(round_label: str) -> dict:
-            """已达人工介入上限：暂停循环，反复抛同一 escalated 中断等真人答复。
+            """已超过建议轮数：确认落盘 / 具体意见按其再跑一轮 / 空答复继续等。
 
-            只有「确认」才跳出循环、写 verdict=pass 落盘；
-            非确认答复不写任何意见/计数字段，恰好留痕一条后继续抛中断等下一轮真人输入。
+            [MA 2026-09-19] S056：轮数上限是建议不是闸门。
+            - 确认词 -> 写 verdict=pass 落盘；
+            - 具体意见 -> 按其意见再起草一轮（计数照常 +1，留痕；材料写明已超建议轮数）；
+            - 空答复 -> 不当作确认、不当作意见，继续停在本节点等下一句。
             人工驱动的反复暂停不是空转：每轮都在等真人输入、不调模型。
             """
             seq = 0
@@ -443,9 +468,13 @@ def make_eval_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节点保持
                 answer = escalation_interrupt(_ESCALATION_LIMIT_REASON)
                 kind2, text2 = _normalize_answer(answer)
                 label = round_label if seq == 1 else f"{round_label}-{seq}"
+                if not text2.strip():
+                    continue
                 if kind2 == "pass":
                     return pass_update(text2, f"{label}-confirm")
+                # 具体意见：按其意思再起草一轮（材料已写明已超过建议轮数）
                 append_log(kind2, text2, label)
+                return feedback_update(text2, count)
 
         def ask_then_route(text: str, current: int, round_label: str) -> dict:
             """第 3 版仍有意见：升级暂停，按二次答复分流。"""
@@ -461,19 +490,24 @@ def make_eval_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节点保持
             return feedback_update(text2, current)
 
         # ── 首次中断：请用户审阅评测体系草案（四层考题 + 及格线建议值）──
-        first_answer = interrupt(
-            {
-                "node": "eval_confirm",
-                "status": "draft",
-                "requirement_name": requirement_name,
-                "eval_system": eval_system,
-                # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 出题质量检查结果随载荷展示
-                # （用户在确认评测体系时即可看到哪道题的材料或评分方式可能有问题；只提示不阻断）
-                "eval_quality": state.get("eval_quality") or {},
-                "eval_revision_count": count,
-            }
-        )
+        draft_payload = {
+            "node": "eval_confirm",
+            "status": "draft",
+            "requirement_name": requirement_name,
+            "eval_system": eval_system,
+            # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 出题质量检查结果随载荷展示
+            # （用户在确认评测体系时即可看到哪道题的材料或评分方式可能有问题；只提示不阻断）
+            "eval_quality": state.get("eval_quality") or {},
+            "eval_revision_count": count,
+        }
+        first_answer = interrupt(draft_payload)
         kind, text = _normalize_answer(first_answer)
+        # [MA 2026-09-19] S056：空答复不当作确认、不当作意见，继续停在本节点等下一句
+        while not text.strip():
+            first_answer = interrupt(
+                {**draft_payload, "note": "没收到答复，仍在这里等你的决定"}
+            )
+            kind, text = _normalize_answer(first_answer)
 
         if kind == "pass":
             return pass_update(text, "draft-confirm")

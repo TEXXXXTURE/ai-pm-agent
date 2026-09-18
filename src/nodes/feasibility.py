@@ -87,10 +87,10 @@ class RunProbeTool(BaseModel):
     # [C 2026-09-14 by S043-b3] RunProbeTool 工具定义（pydantic BaseModel，供 bind_tools 绑定）
 
 # 通过精确集合：归一化（strip + lower）后恰好属于其中才算 pass。
-# 空串=通过（与 requirement_confirm / issue_confirm / launch_confirm 空答复放行一致）。
+# [MA 2026-09-19] S056：去空串（空答复不算通过，节点在分类前拦空并继续停等），
+# 补日常肯定说法。
 _PASS_WORDS: frozenset[str] = frozenset(
     {
-        "",
         "confirmed",
         "confirm",
         "ok",
@@ -98,13 +98,28 @@ _PASS_WORDS: frozenset[str] = frozenset(
         "yes",
         "确认",
         "通过",
+        "通过吧",
         "同意",
+        "同意了",
+        "认可",
         "可行",
         "没问题",
+        "没意见",
         "可以",
+        "可以吧",
+        "可以了",
+        "行",
+        "行吧",
+        "行了",
+        "好",
+        "好的",
+        "按这个来",
+        "听你的",
         "放行",
+        "放行吧",
         "继续",
         "就这样",
+        "就这样吧",
     }
 )
 
@@ -137,9 +152,10 @@ _ABANDON_KEYWORDS: tuple[str, ...] = (
 )
 
 # 重塑额度用尽后的升级暂停说明 [C 2026-09-12]
+# [MA 2026-09-19] S056：额度是建议不是闸门——坚持重塑就按用户意思回第 1 段
 _RESHAPE_LIMIT_REASON = (
-    "重塑额度已用尽（全程限 1 次），流水线升级暂停、不再自动回第 1 段改范围。"
-    "请重新拍板：回复「通过」进 PRD；回复「改判普通」转普通轨；回复「放弃」结束流程。"
+    "已重塑过 1 次（建议额度）。你可以回复「通过」进 PRD；回复「改判普通」转普通轨；"
+    "回复「放弃」结束流程；仍要重塑我按你的意思回第 1 段调范围。"
 )
 
 # 证据不齐时二次确认的强制放行词（归一化后精确匹配）
@@ -294,9 +310,11 @@ def classify_feasibility_answer(text: str) -> str:
     1. strip；英文小写化后做包含/精确匹配；
     2. **先做四态关键词包含判定**（去空白含全角空格后）：放弃 > 重塑 > 改判普通；
        命中即返回对应态（更"重"的态优先，避免"放弃重塑"被误判为重塑）；
-    3. **再做通过精确集合判定**：归一化后恰好属于 ``_PASS_WORDS`` 才 pass，
-       空串=通过（与其他确认门空答复放行一致）；
+    3. **再做通过精确集合判定**：归一化后恰好属于 ``_PASS_WORDS`` 才 pass；
     4. 其余一律 feedback（补充意见，节点内默认按 pass 处理并留痕）。
+
+    [MA 2026-09-19] S056：空串不属于通过词集合，本函数对空串返回 feedback；
+    空答复由节点在调用本函数之前拦下（不当作通过、不当作意见），继续停等下一句。
 
     Returns:
         ``pass`` / ``reclassify`` / ``reshape`` / ``abandon`` / ``feedback``
@@ -1055,6 +1073,7 @@ def make_feasibility_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节�
     """确认AI可行性门节点工厂：返回签名 (state: dict) -> dict 的节点函数（不调模型）。
 
     交互协议（首次中断 status="draft"）：
+    - 空答复 -> 不当作通过、不当作意见，继续停在本节点等下一句；
     - pass（含自由文本补充意见）-> 先看 ``evidence_audit["complete"]``：
         证据齐全（complete=True）-> 只追加 human_feedback、写 verdict=pass
           -> 条件边去 prd_generation（[r2]：含 failed 不再阻断，只靠 guidance/hint 提示）；
@@ -1062,8 +1081,8 @@ def make_feasibility_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节�
     - reclassify -> 写 verdict=reclassify、ai_core=False -> 条件边去 prd_generation；
     - reshape（feasibility_reshape_count=0）-> 计数 +1、写 verdict=reshape
       -> 条件边回 requirement_confirm 调整范围（限 1 次）；
-    - reshape（计数已达上限）-> 先 interrupt 升级暂停（status="escalated"），
-      二次答复按 通过/改判普通/放弃 分流；再次要求重塑则按通过处理（不再回第 1 段）；
+    - reshape（计数已达建议额度）-> 先 interrupt 升级暂停（status="escalated"），
+      二次答复按 通过/改判普通/放弃/重塑 分流；坚持重塑按其意思回第 1 段调范围；
     - abandon -> 写 verdict=abandon -> 条件边到 END，流程结束。
 
     二次 interrupt（status="evidence_gap"）协议（[r2] 放宽）：
@@ -1129,10 +1148,11 @@ def make_feasibility_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节�
             }
 
         def escalation_stop(first_text: str) -> dict:
-            """重塑额度用尽：升级暂停，按二次答复分流。
+            """已重塑过 1 次（建议额度）：暂停问一次，按答复分流。
 
-            二次答复不再回 requirement_confirm；若仍要求重塑，按通过处理并留痕说明，
-            防理论无限递归。人工驱动的暂停不是空转：每轮都在等真人输入、不调模型。
+            [MA 2026-09-19] S056：额度是建议不是闸门——用户坚持重塑就按其意思回第 1 段调范围
+            （verdict=reshape，留痕写明已超过建议额度），不再改判为通过。
+            人工驱动的暂停不是空转：每轮都在等真人输入、不调模型。
             """
             seq = 0
             while True:
@@ -1150,6 +1170,9 @@ def make_feasibility_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节�
                 )
                 kind2, text2 = _normalize_answer(answer)
                 label = "escalated" if seq == 1 else f"escalated-{seq}"
+                # 空答复：不当作通过、不当作意见，继续停在这里等下一句
+                if not text2.strip():
+                    continue
                 if kind2 == "reclassify":
                     return decision_update(
                         "reclassify", text2, f"{label}-reclassify", {"ai_core": False}
@@ -1157,9 +1180,13 @@ def make_feasibility_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节�
                 if kind2 == "abandon":
                     return decision_update("abandon", text2, f"{label}-abandon")
                 if kind2 == "reshape":
-                    # 仍要求重塑：额度已用尽，改判为通过（不再回第 1 段）
-                    note = f"{text2}；重塑额度已用尽，按通过处理".lstrip("；")
-                    return decision_update("pass", note, f"{label}-reshape-limit")
+                    # 用户坚持重塑：按其意思回第 1 段调范围（留痕说明已超过建议额度）
+                    return decision_update(
+                        "reshape",
+                        text2,
+                        f"{label}-reshape-limit",
+                        {"feasibility_reshape_count": reshape_count + 1},
+                    )
                 # pass / feedback：按通过处理
                 return decision_update("pass", text2, f"{label}-pass")
 
@@ -1233,18 +1260,23 @@ def make_feasibility_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节�
             # [C 2026-09-15 by codebuddy-glm-5.2 r2] S045 块4 r2：二次确认放行口径放宽
 
         # ── 首次中断：请用户审阅可行性报告并录入探针实测结论 ──
-        first_answer = interrupt(
-            {
-                "node": "feasibility_confirm",
-                "status": "draft",
-                "requirement_name": requirement_name,
-                "feasibility_report": report,
-                "feasibility_reshape_count": reshape_count,
-                "evidence_audit": audit,
-                "evidence_audit_hint": audit_hint,
-            }
-        )
+        draft_payload = {
+            "node": "feasibility_confirm",
+            "status": "draft",
+            "requirement_name": requirement_name,
+            "feasibility_report": report,
+            "feasibility_reshape_count": reshape_count,
+            "evidence_audit": audit,
+            "evidence_audit_hint": audit_hint,
+        }
+        first_answer = interrupt(draft_payload)
         kind, text = _normalize_answer(first_answer)
+        # [MA 2026-09-19] S056：空答复不当作通过、不当作意见，继续停在本节点等下一句
+        while not text.strip():
+            first_answer = interrupt(
+                {**draft_payload, "note": "没收到答复，仍在这里等你的决定"}
+            )
+            kind, text = _normalize_answer(first_answer)
 
         if kind == "reshape":
             return handle_reshape(text, "draft")

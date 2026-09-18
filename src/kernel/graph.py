@@ -211,11 +211,12 @@ def build_graph(deps: Any, db_path: str | None = None) -> Any:
         # [C 2026-09-13 by codebuddy-ds41flash] 第 6 段：确认（route 返回语义值 "issue_splitting"）
         # 改映射为 bake_off（对比选型）；修改意见 -> eval_design 重起草（前 2 轮自动，第 3 版起升级暂停）。
         # 不改 route_after_eval_confirm 纯函数（保持其"确认语义值=issue_splitting"），只在 graph 换目标节点。
-        # 升级暂停靠节点内部第二次 interrupt 实现，二次答复最终只剩 pass/feedback 两类，
-        # 不会返回 graph 未映射的值，故无需 escalated 映射项。
+        # 升级暂停靠节点内部第二次 interrupt 实现，二次答复最终只剩 pass/feedback 两类。
+        # [MA 2026-09-19] S056：缺 verdict（没有答复）不再兜底放行，路由回本节点继续停等。
         {
             "eval_design": "eval_design",
             "issue_splitting": "bake_off",
+            "eval_confirm": "eval_confirm",
         },
     )
     # [C 2026-09-13 by codebuddy-ds41flash] 第 6 段对比选型（AI 核心需求经此，普通轨不经）：
@@ -239,11 +240,13 @@ def build_graph(deps: Any, db_path: str | None = None) -> Any:
         # 修改意见 -> issue_splitting 重拆；回PRD -> prd_generation 回炉。
         # [C 2026-09-12 by codebuddy-ds41flash] 第 8 段：确认且 ai_core=True 时 route 返回
         # "eval_run"，先跑构建期评测；普通轨仍返回 "artifact_persist" 直达 launch_plan。
+        # [MA 2026-09-19] S056：没有工单草案（无答复）不再兜底落盘，路由回本节点继续停等。
         {
             "issue_splitting": "issue_splitting",
             "prd_generation": "prd_generation",
             "artifact_persist": "launch_plan",
             "eval_run": "eval_run",
+            "issue_confirm": "issue_confirm",
         },
     )
     # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 修复单：第 8 段拆两步（AI 核心需求经此，
@@ -272,10 +275,12 @@ def build_graph(deps: Any, db_path: str | None = None) -> Any:
         # route_after_launch_confirm 不写"escalated"分支：升级暂停靠节点内部第二次
         # interrupt 实现，二次答复最终走 confirm/feedback/redo_issues 三路之一，
         # 不会返回 graph 未映射的值，故无需 escalated 映射项。 [C 2026-09-11]
+        # [MA 2026-09-19] S056：没有发布计划草案（无答复）不再兜底落盘，路由回本节点继续停等。
         {
             "artifact_persist": "artifact_persist",
             "launch_plan": "launch_plan",
             "issue_splitting": "issue_splitting",
+            "launch_confirm": "launch_confirm",
         },
     )
     graph.add_edge("artifact_persist", END)

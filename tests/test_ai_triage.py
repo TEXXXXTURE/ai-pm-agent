@@ -167,11 +167,16 @@ class TestClassifyRequirementAnswer(unittest.TestCase):
                 classify_requirement_answer(word), "confirm", msg=word
             )
 
-    def test_empty_is_confirm(self):
-        # 空串=确认（与原 requirement_confirm 空答复放行一致，普通轨行为不变）
-        self.assertEqual(classify_requirement_answer(""), "confirm")
-        self.assertEqual(classify_requirement_answer("   "), "confirm")
-        self.assertEqual(classify_requirement_answer(None), "confirm")
+    def test_empty_is_not_confirm(self):
+        # [MA 2026-09-19] S056：空串不再算确认（节点在分类前拦空、继续停等）
+        self.assertEqual(classify_requirement_answer(""), "feedback")
+        self.assertEqual(classify_requirement_answer("   "), "feedback")
+        self.assertEqual(classify_requirement_answer(None), "feedback")
+
+    def test_colloquial_confirm_words(self):
+        # [MA 2026-09-19] S056：措辞不在旧词表也按字面意思当确认
+        for word in ("行吧", "按这个来", "好的", "听你的", "没意见", "通过吧"):
+            self.assertEqual(classify_requirement_answer(word), "confirm", msg=word)
 
     # [C 2026-09-14 by codebuddy-ds41flash] S041 小块1：中文确认词对齐工单门
     def test_chinese_confirm_words(self):
@@ -311,7 +316,7 @@ class TestRequirementConfirmNode(unittest.TestCase):
                 }
             ]
         )
-        out, payloads = run_confirm_node(confirm_state(), [""], fake)
+        out, payloads = run_confirm_node(confirm_state(), ["确认"], fake)
         self.assertEqual(len(fake.calls), 1)
         self.assertFalse(fake.calls[0]["as_text"])  # JSON 通道
         self.assertTrue(out["ai_core"])
@@ -331,6 +336,34 @@ class TestRequirementConfirmNode(unittest.TestCase):
         self.assertEqual(len(out["human_feedback"]), 1)
         self.assertEqual(out["human_feedback"][0]["kind"], "confirm")
 
+    def test_empty_answer_keeps_waiting_not_confirmed(self):
+        # [MA 2026-09-19] S056 用例 a：空答复再抛 interrupt、不放行；
+        # 下一句「确认」才按确认走（两次载荷都带 ai_triage，节点不重调模型）
+        fake = FakeLLM(
+            json_queue=[
+                {"suggestion": "ai_core", "reason": "AI", "signals": ["x"]}
+            ]
+        )
+        out, payloads = run_confirm_node(confirm_state(), ["", "确认"], fake)
+        self.assertEqual(len(payloads), 2)
+        self.assertIn("ai_triage", payloads[1])
+        self.assertEqual(len(fake.calls), 1)
+        self.assertTrue(out["ai_core"])
+        self.assertEqual(out["human_feedback"][-1]["kind"], "confirm")
+
+    def test_colloquial_confirm_word_lands(self):
+        # [MA 2026-09-19] S056 用例 f：措辞「行吧」「按这个来」按确认处理
+        for word in ("行吧", "按这个来"):
+            fake = FakeLLM(
+                json_queue=[
+                    {"suggestion": "ai_core", "reason": "AI", "signals": ["x"]}
+                ]
+            )
+            out, payloads = run_confirm_node(confirm_state(), [word], fake)
+            self.assertEqual(len(payloads), 1, msg=word)
+            self.assertEqual(out["human_feedback"][-1]["kind"], "confirm", msg=word)
+            self.assertFalse(out["requirement_refine_pending"], msg=word)
+
     def test_confirm_accepts_non_ai_suggestion(self):
         fake = FakeLLM(
             json_queue=[
@@ -341,7 +374,7 @@ class TestRequirementConfirmNode(unittest.TestCase):
                 }
             ]
         )
-        out, _ = run_confirm_node(confirm_state(), [""], fake)
+        out, _ = run_confirm_node(confirm_state(), ["确认"], fake)
         self.assertFalse(out["ai_core"])
         self.assertEqual(out["ai_triage"]["suggestion"], "non_ai")
 
@@ -497,7 +530,7 @@ class TestRequirementConfirmNode(unittest.TestCase):
             ]
         )
         with self.assertRaises(NodeExecutionError):
-            run_confirm_node(confirm_state(), [""], fake)
+            run_confirm_node(confirm_state(), ["确认"], fake)
         self.assertEqual(len(fake.calls), 2)  # 重试一次后抛错
 
 

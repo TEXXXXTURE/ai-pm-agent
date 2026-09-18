@@ -5,7 +5,8 @@
 """需求确认门节点：AI 适用性分流建议 -> interrupt 请用户确认/改判 -> 初始化评测用例。
 
 resume 协议四态（与工单门/发布计划门的关键词风格一致）：
-- 「确认」或空 -> 接受模型建议（uncertain 时按 v3.0 默认 ai_core=true）；
+- 确认词（如「确认」「行吧」「按这个来」）-> 接受模型建议（uncertain 时按 v3.0 默认 ai_core=true）；
+  空答复不算确认：不 resume，继续停在本节点等下一句；
 - 「非AI」 -> 改判普通轨（ai_core=false，文本仍作为 confirmed_requirement）；
 - 「AI核心」 -> 改判 AI 全轨（ai_core=true，文本仍作为 confirmed_requirement）；
 - 其他文本 -> 需求修订意见（confirmed_requirement 用用户文本，分流沿用模型建议）。
@@ -56,9 +57,10 @@ _AI_CORE_NEGATIONS: tuple[str, ...] = (
 )
 
 # [C 2026-09-14 by codebuddy-ds41flash] S041 小块1：确认词集合对齐工单门（issues.py _CONFIRM_WORDS）
+# [MA 2026-09-19] S056：去空串（空答复不再算确认，节点在分类前拦空并继续停等），
+# 补日常肯定说法，措辞不在词表不再被丢弃。
 _REQUIREMENT_CONFIRM_WORDS: frozenset[str] = frozenset(
     {
-        "",
         "confirmed",
         "confirm",
         "ok",
@@ -66,14 +68,29 @@ _REQUIREMENT_CONFIRM_WORDS: frozenset[str] = frozenset(
         "yes",
         "确认",
         "通过",
+        "通过吧",
         "同意",
+        "同意了",
+        "认可",
         "没问题",
+        "没意见",
         "可以",
+        "可以吧",
+        "可以了",
         "行",
+        "行吧",
+        "行了",
+        "好",
+        "好的",
         "就这样",
+        "就这样吧",
         "就这版",
+        "按这个来",
+        "听你的",
+        "继续",
         "落盘",
         "放行",
+        "放行吧",
     }
 )
 
@@ -128,9 +145,11 @@ def classify_requirement_answer(text: str) -> str:
        - 命中任一 ``_AI_CORE_KEYWORDS`` 且前 3 字内无否定前缀 -> ``ai_core``
          （ai_core=true）；
        - ai_core 关键词紧邻否定前缀（如"不是AI核心"）不判 ai_core，落 feedback；
-    3. **再做确认精确判定**：归一化后恰好为空串或 "confirmed" 才算 confirm
-       （与既有 requirement_confirm 行为一致，普通轨行为不变）；
+    3. **再做确认精确判定**：归一化后恰好属于 ``_REQUIREMENT_CONFIRM_WORDS`` 才算 confirm；
     4. 其余文本 -> feedback（需求修订意见，分流沿用模型建议，confirmed_requirement 用用户文本）。
+
+    [MA 2026-09-19] S056：空串不在确认词集合里，本函数对空串返回 feedback；
+    空答复由节点在调用本函数之前拦下（不当作确认、不当作意见），继续停等下一句。
 
     Returns:
         ``confirm`` / ``non_ai`` / ``ai_core`` / ``feedback``
@@ -184,15 +203,19 @@ def make_requirement_confirm(deps):
         model_suggestion = str(ai_triage.get("suggestion") or "")
 
         # 2. 中断，请用户确认/改判/修订需求
-        user_input = interrupt(
-            value={
-                "node": "requirement_confirm",
-                "requirement_name": state.get("requirement_name", ""),
-                "raw_requirement": state.get("raw_requirement", ""),
-                "info_completeness": state.get("info_completeness"),
-                "ai_triage": ai_triage,
-            }
-        )
+        payload = {
+            "node": "requirement_confirm",
+            "requirement_name": state.get("requirement_name", ""),
+            "raw_requirement": state.get("raw_requirement", ""),
+            "info_completeness": state.get("info_completeness"),
+            "ai_triage": ai_triage,
+        }
+        user_input = interrupt(value=payload)
+        # [MA 2026-09-19] S056：空答复不当作确认、不当作意见，继续停在本节点等下一句
+        while not str(user_input if user_input is not None else "").strip():
+            user_input = interrupt(
+                value={**payload, "note": "没收到答复，仍在这里等你的决定"}
+            )
 
         # 3. resume 值归一化四态：confirm / non_ai / ai_core / feedback
         original = user_input if isinstance(user_input, str) else str(user_input)

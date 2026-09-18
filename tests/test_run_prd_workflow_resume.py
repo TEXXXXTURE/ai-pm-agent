@@ -9,7 +9,10 @@
    （`graph.stream(None, config, stream_mode="updates")`，与既有一次性脚本等价）：
    - 停在下一个停等点 -> `STATUS: HITL`，退出码 0；
    - 一路跑完 -> `STATUS: DONE`，退出码 0；
-4. 既有「有待处理中断 -> Command(resume)」路径未改动（回归护栏）。
+4. 既有「有待处理中断 -> Command(resume)」路径未改动（回归护栏）；
+5. [C 2026-09-19 by codebuddy-ds41flash] S056：有待处理中断时 `--answer` 为空串 / 未传 /
+   纯空白 -> 不放行：打印「未收到答复」并重新输出同一节点 `STATUS: HITL`，退出码 0，不 stream；
+   给明确答复 -> 正常 `Command(resume)` 推进。
 
 中断收集与输出一律走真实实现（`cli.hitl_cli.collect_interrupts` + `_emit_hitl` / `_emit_done`），
 假图只提供 `get_state` / `stream`，用例断言输出块里的节点特化问句与中断载荷，即证明复用而非新造。
@@ -201,6 +204,61 @@ class TestResumeWithPendingInterruptUnchanged(unittest.TestCase):
         inputs = graph.stream_calls[0][0]
         self.assertIsInstance(inputs, Command)
         self.assertEqual(inputs.resume, "非AI")
+
+
+class TestResumeEmptyAnswerDoesNotAdvance(unittest.TestCase):
+    """S056：有待处理中断时，空答复 / 未传 --answer 不放行，重新输出当前节点 HITL。"""
+
+    @staticmethod
+    def _run(answer: str | None) -> tuple[int, str, _FakeGraph]:
+        mod = _load_workflow_module()
+        graph = _FakeGraph(
+            _FakeSnapshot(
+                {"requirement_name": "供应商合同审查 AI 助手"},
+                ("requirement_confirm",),
+                interrupts=[{"node": "requirement_confirm"}],
+            ),
+            _FakeSnapshot(
+                {
+                    "requirement_name": "供应商合同审查 AI 助手",
+                    "artifacts": {},
+                },
+                (),
+            ),
+        )
+        config = {"configurable": {"thread_id": THREAD_ID}}
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            code = mod._run_resume(graph, config, THREAD_ID, answer)
+        return code, buf.getvalue(), graph
+
+    def _assert_停下不放行(self, answer: str | None):
+        code, out, graph = self._run(answer)
+        self.assertEqual(code, 0)
+        self.assertIn("未收到答复", out)
+        self.assertIn("STATUS: HITL", out)
+        self.assertIn("NODE: requirement_confirm", out)
+        self.assertNotIn("STATUS: DONE", out)
+        # 不 resume：没有调用 graph.stream，节点不推进
+        self.assertEqual(graph.stream_calls, [])
+
+    def test_empty_string_answer_reprints_hitl(self):
+        self._assert_停下不放行("")
+
+    def test_missing_answer_reprints_hitl(self):
+        self._assert_停下不放行(None)
+
+    def test_whitespace_only_answer_reprints_hitl(self):
+        self._assert_停下不放行("   ")
+
+    def test_explicit_answer_advances(self):
+        code, out, graph = self._run("confirmed")
+        self.assertEqual(code, 0)
+        self.assertIn("STATUS: DONE", out)
+        self.assertEqual(len(graph.stream_calls), 1)
+        inputs = graph.stream_calls[0][0]
+        self.assertIsInstance(inputs, Command)
+        self.assertEqual(inputs.resume, "confirmed")
 
 
 if __name__ == "__main__":

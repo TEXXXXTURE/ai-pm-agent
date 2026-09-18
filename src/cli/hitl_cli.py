@@ -126,12 +126,15 @@ def handle_hitl(graph: Any, config: dict, interrupt_value: Any) -> None:
     # [C 2026-09-09] M6 handle_hitl 兼容 dict 载荷并 Pretty 打印 recap 材料
 
     # 4. 等待用户输入
+    # [MA 2026-09-19] S056：空答复不当作确认——不 resume，停在本节点等下一句
     console.print()
-    user_input = console.input(
-        f"[bold cyan]请输入对「{node_name}」的确认/反馈（直接回车表示确认通过）: [/bold cyan]"
-    )
-    if not user_input.strip():
-        user_input = "confirmed"
+    while True:
+        user_input = console.input(
+            f"[bold cyan]请输入对「{node_name}」的确认/反馈: [/bold cyan]"
+        )
+        if user_input.strip():
+            break
+        console.print("[dim]没收到答复，仍在这里等你的决定[/dim]")
 
     console.print(f"[dim]已提交输入: {user_input!r}[/dim]")
 
