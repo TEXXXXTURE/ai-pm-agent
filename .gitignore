@@ -44,11 +44,12 @@ references/vibe-check/
 # 第三方技能解压包（references/_extracted/）：非自制内容、zip 与解压副本重复、无来源许可声明，不进仓库
 references/_extracted/
 
-# 内部文档兜底（对外仓库只保留三份核心规格；任务书/调研/草稿等一律不上仓库）
+# 内部文档兜底（对外仓库只保留三份核心规格 + 立项依据调研；任务书/调研/草稿等一律不上仓库）
 docs/*
 !docs/PRD.md
 !docs/technical-design.md
 !docs/workflow-design.md
+!docs/AI-PM职能标准与能力模型调研.md
 
 # 个人想法草稿（未随项目发布）
 IDEA.md
