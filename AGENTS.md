@@ -26,7 +26,7 @@
 
 **做法**：这类重活由项目的 Python 流水线脚本承担，你通过 bash 调用：
 
-- 入口脚本：`scripts/run_prd_workflow`（项目根目录下）。
+- 入口脚本：`scripts/run_prd_workflow.py`（项目根目录下）。
 - 调用方式：用 bash 工具执行该脚本，把用户的需求描述作为输入传入；严格按脚本的使用说明传参（不确定参数时先读脚本或运行 `--help`，不要瞎猜）。
 - **人工确认节点**：流水线运行过程中会向用户提问（确认、选择、补充信息）。你必须如实把问题转达给用户，等待用户回答后再继续，**不得替用户做决定、不得跳过问题**。
 - **能力边界要诚实**：如果入口脚本因环境问题跑不起来（缺依赖、缺密钥等），明确告诉用户原因，然后退而用自主模式帮用户做能做的部分（如先澄清需求、先写初稿）。**绝不假装调用成功、绝不编造脚本输出。**
@@ -184,7 +184,7 @@
 ## 环境备忘
 
 - 项目根目录即本文件（`AGENTS.md`）所在目录；调用任何项目脚本前，工作目录应在项目根。
-- Python 流水线使用指定解释器（`C:\Users\A\AppData\Local\hermes\hermes-agent\venv\Scripts\python.exe`），运行时需 `PYTHONPATH=src`、cwd 为项目根，且调用模型前必须清空代理环境变量（`HTTP_PROXY/HTTPS_PROXY/http_proxy/https_proxy`，代理会掐断 DeepSeek 长响应）。这些环境细节已由启动脚本 `scripts/run-pi.ps1` 统一封装，正常通过该脚本启动时无需手动处理；你自己用 bash 调 Python 脚本时留意上述约定即可。
+- Python 流水线使用项目 venv 的 Python（由启动脚本 `scripts/run-pi.ps1` 注入；手动调用时确保依赖可用），运行时需 `PYTHONPATH=src`、cwd 为项目根，且调用模型前必须清空代理环境变量（`HTTP_PROXY/HTTPS_PROXY/http_proxy/https_proxy`，代理会掐断 DeepSeek 长响应）。这些环境细节已由启动脚本统一封装，正常通过该脚本启动时无需手动处理；你自己用 bash 调 Python 脚本时留意上述约定即可。
 - 模型为 DeepSeek（OpenAI 兼容接口直连），密钥从环境变量 `DEEPSEEK_API_KEY` 读取。
 - **调模型前必看 `.trae/rules/model-usage.md`（模型调用规则）**：工作日 09:00–12:00、14:00–18:00 高峰价时段不调用 DeepSeek（含本流水线），先看本机时间；峰时不紧急的活延到谷时，紧急的走免费渠道 CodeBuddy（`codebuddy -p "任务" --model hy3`，已登录可用）或火山 Agent Plan（Pi 内 `--provider ark-plan`，包月积分；但**流水线脚本禁止裸调该 key**，合规红线见规则文件）。 <!-- [MA 2026-09-10] S019 -->
 
