@@ -9,7 +9,7 @@
 - 阅读 SOP（可编辑提示词）：src/components/prompts/industry_digest.md
 
 数据来源（只读，不写库）：
-- D:\\信源库\\data\\articles.db（articles 表 + articles_fts）——信源库是收集层，
+- 默认路径见 `DEFAULT_SOURCE_DB`（可在 config.yaml `industry_digest.source_db` 覆盖，或用 `--source-db` 指定）——信源库是收集层，
   本脚本只读它最近抓取的文章，绝不改写库结构或内容。
 
 模型：
@@ -54,7 +54,7 @@ from kernel.config import load_config  # noqa: E402
 from kernel.model import build_llm  # noqa: E402
 
 # ── 默认路径（可在 config.yaml 覆盖，见 load_digest_config） ──────────────
-DEFAULT_SOURCE_DB = Path(r"D:\信源库\data\articles.db")
+DEFAULT_SOURCE_DB = PROJECT_ROOT / "data" / "sources" / "articles.db"
 DEFAULT_OUTPUT_ROOT = PROJECT_ROOT / "output" / "行业追踪"
 DEFAULT_PROMPT_PATH = SRC / "components" / "prompts" / "industry_digest.md"
 DEFAULT_PROVIDER_CLASSIFY = "deepseek"
@@ -116,7 +116,7 @@ def fetch_recent_articles(db_path: Path, days: int, limit: int = CLASSIFY_MAX_AR
         FileNotFoundError: 信源库不存在（调用方转成友好报错）。
     """
     if not db_path.is_file():
-        raise FileNotFoundError(f"信源库不存在：{db_path}\n请确认信源库已抓取（D:\\信源库\\data\\articles.db）。")
+        raise FileNotFoundError(f"信源库不存在：{db_path}\n请确认信源库已抓取，或用 --source-db 指定路径。")
 
     since = datetime.datetime.now() - datetime.timedelta(days=days)
     con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
