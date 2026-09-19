@@ -1,9 +1,9 @@
-{# [C 2026-09-11] 研发工单清单 Markdown 模板（.md 产物，doc_type=issues）：
+{# 研发工单清单 Markdown 模板（.md 产物，doc_type=issues）：
    容错渲染——字段缺失/为空自动跳过；跨工单结构错误（shape_errors）来自
    nodes/issues.py 代码硬判，两轮自检仍有错时在顶部醒目展示交人工。 #}
 # 研发工单清单 — {{ requirement_name }}，{{ generated_at }}
 
-{#- [C 2026-09-12 by pi-deepseek-flash] 第①项修复：来源 PRD 用渲染变量真实文件名，
+{#- 第①项修复：来源 PRD 用渲染变量真实文件名，
    缺省容错为「未知」，不写死 prd.md #}
 - 来源 PRD：{{ prd_filename or "未知" }}
 - 可开工状态：{% if plan.get("readiness") == "pass" %}pass（可按单开工）{% elif plan.get("readiness") == "needs_clarification" %}needs_clarification（有澄清项，部分可开工）{% elif plan.get("readiness") == "blocked" %}blocked（整份方案受阻，见状态说明）{% else %}{{ plan.get("readiness", "未标注") }}{% endif %}
@@ -110,7 +110,7 @@
 | {{ c.get("prd_item", "") }} | {% if c.get("status") == "covered" %}covered（已覆盖）{% elif c.get("status") == "excluded" %}excluded（不做）{% elif c.get("status") == "clarify" %}clarify（待澄清）{% else %}{{ c.get("status", "") }}{% endif %} | {% set refs = c.get("covered_by", []) %}{% if refs %}{% for r in refs %}{{ r }}{% if not loop.last %}、{% endif %}{% endfor %}{% else %}—{% endif %} | {{ c.get("notes", "") }} |
 {% endfor %}
 {%- endif %}
-{#- [C 2026-09-13 by codebuddy-ds41flash] AI 特殊项承接表（仅 AI 核心需求产出）：
+{#- AI 特殊项承接表（仅 AI 核心需求产出）：
    字段缺失/为空整节不渲染；普通轨无此键，渲染结果逐字不变；未知 category 原样输出 #}
 {%- set ai_items = plan.get("ai_special_items", []) %}
 {%- if ai_items %}

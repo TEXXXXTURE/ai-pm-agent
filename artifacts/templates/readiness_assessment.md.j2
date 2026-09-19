@@ -1,4 +1,4 @@
-{# [C 2026-09-16] 就绪度打分报告模板（.md 产物，doc_type=readiness_assessment）：
+{# 就绪度打分报告模板（.md 产物，doc_type=readiness_assessment）：
    容错渲染——11 维度字段缺失/为空自动跳过；加权均分、6 档结论、三级阻断条件
    来自 nodes/readiness_assessment.py 代码硬判（score_readiness 纯函数）。
    模型只给分数与证据，判定由代码算。 #}
@@ -92,4 +92,4 @@
 
 > 本打分由代码按 11 维度加权计算（eval readiness 权重最高 1.5，其后风险与安全 1.4、监管就绪 1.3、可观测 1.3）；档位与阻断条件均由代码硬判，模型只提供各维度的分数与证据。
 
-<!-- [C 2026-09-16] templates/readiness_assessment.md.j2 新增：11 维度打分表 + 档位对照 + 三级阻断 -->
+<!-- templates/readiness_assessment.md.j2 新增：11 维度打分表 + 档位对照 + 三级阻断 -->

@@ -1,7 +1,7 @@
-{# [C 2026-09-13 by codebuddy-ds41flash] 对比选型报告模板（bake_off 节点渲染）
+{# 对比选型报告模板（bake_off 节点渲染）
    渲染上下文：requirement_name / generated_at / selection（含 status/recommended/candidates）。
    推荐结论由代码硬判给出（judge_bakeoff），模板只负责呈现，不做任何判定。
-   [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 第二块：
+   S048 第二块：
    候选来源改为第 2 段候选池（用户拍板选哪几个），候选表加「角色与提案理由」「接入状态」
    两列；未实跑候选（本机未接入）不给三维数据（渲染为 —），另起一节说明没跑的原因。 #}
 {% set rec = selection.get('recommended', {}) %}

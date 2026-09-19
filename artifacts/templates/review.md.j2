@@ -1,9 +1,9 @@
-{# [C 2026-09-10] PRD 评审报告 Markdown 模板（.md 产物，doc_type=review）：
+{# PRD 评审报告 Markdown 模板（.md 产物，doc_type=review）：
    容错渲染——字段缺失/为空自动跳过；结论 verdict 由 nodes/review.py 代码硬判后传入。
    forced=True（3 轮上限强制放行）时在顶部显著标注"待人工裁决"。 #}
 # PRD 评审报告 — {{ requirement_name }}
 
-生成日期：{{ generated_at }} · 评审轮次：{% if review.get("round", 0) >= 1 %}第 {{ review.get("round") }} 轮修订后复审{% else %}首轮评审{% endif %}{# [C 2026-09-10] 轮次文案：0/缺失显示"首轮评审"，>=1 显示"第 N 轮修订后复审" #}
+生成日期：{{ generated_at }} · 评审轮次：{% if review.get("round", 0) >= 1 %}第 {{ review.get("round") }} 轮修订后复审{% else %}首轮评审{% endif %}{# 轮次文案：0/缺失显示"首轮评审"，>=1 显示"第 N 轮修订后复审" #}
 {%- if review.forced %}
 
 > **【强制放行】已达 3 轮修订上限，本稿仍未完全达标，系统强制放行待人工裁决。**
@@ -48,7 +48,7 @@
 {%- set blockers = review.get("blockers", []) -%}
 {%- if blockers %}
 
-## {% if review.forced %}强制放行遗留问题（系统已放行，须人工优先处理，{{ blockers | length }} 条）{% elif review.verdict == "reject" %}Blockers（必须修后复审，{{ blockers | length }} 条）{% else %}待跟进问题（本轮已放行，建议人工跟进，{{ blockers | length }} 条）{% endif %}{# [C 2026-09-10] 标题随结论切换：forced/ reject / 放行态三档；表格列与内容不变，blockers 为空时整节仍不渲染 #}
+## {% if review.forced %}强制放行遗留问题（系统已放行，须人工优先处理，{{ blockers | length }} 条）{% elif review.verdict == "reject" %}Blockers（必须修后复审，{{ blockers | length }} 条）{% else %}待跟进问题（本轮已放行，建议人工跟进，{{ blockers | length }} 条）{% endif %}{# 标题随结论切换：forced/ reject / 放行态三档；表格列与内容不变，blockers 为空时整节仍不渲染 #}
 
 | # | 严重程度 | 所在章节/位置 | 问题 | 改法方向 |
 |---|---|---|---|---|

@@ -1,10 +1,10 @@
-{# [C 2026-09-11] 发布计划 Markdown 模板（.md 产物，doc_type=launch_plan）：
+{# 发布计划 Markdown 模板（.md 产物，doc_type=launch_plan）：
    容错渲染——字段缺失/为空自动跳过；字段自检错误（shape_errors）来自
    nodes/launch_plan.py 代码硬判，两轮自检仍有错时在顶部醒目展示交人工。
    对照 .pi/skills/launch-plan/SKILL.md 第三节输出模板渲染。 #}
 # 发布计划 — {{ requirement_name }}，{{ generated_at }}
 
-{#- [C 2026-09-12 by pi-deepseek-flash] 第①项修复：来源 PRD 用渲染变量真实文件名，
+{#- 第①项修复：来源 PRD 用渲染变量真实文件名，
    缺省容错为「未知」，不写死 prd.md #}
 - 来源 PRD：{{ prd_filename or "未知" }}
 - 分层：{% if plan.get("tier") == "1" %}**Tier 1（大发布）**{% elif plan.get("tier") == "2" %}Tier 2（中等发布）{% elif plan.get("tier") == "3" %}Tier 3（小发布）{% else %}{{ plan.get("tier", "未标注") }}{% endif %}
@@ -88,7 +88,7 @@
 {%- endif %}
 **回滚责任人**：{{ rollback.get("rollback_owner", "未填") }}
 {%- endif %}
-{#- [C 2026-09-13 by codebuddy-ds41flash] 两组 AI 专属字段（仅 AI 核心需求产出）：
+{#- 两组 AI 专属字段（仅 AI 核心需求产出）：
    字段缺失/为空整节不渲染；普通轨无此二键，渲染结果逐字不变 #}
 {%- set guardrails = plan.get("ai_guardrails", []) %}
 {%- if guardrails %}
@@ -196,4 +196,4 @@
 ---
 发布计划可保存分享；如需做成 PPT 汇报、发布时间线图、作战看板等演示物，不自制 HTML，按项目规矩产出《演示需求交接单》交外置工具包处理。
 
-<!-- [C 2026-09-11] launch_plan.md.j2 新增：7 步骨架 + Tier1 扩展条件渲染 + errors/warnings 醒目展示 -->
+<!-- launch_plan.md.j2 新增：7 步骨架 + Tier1 扩展条件渲染 + errors/warnings 醒目展示 -->

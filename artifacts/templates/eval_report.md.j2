@@ -1,4 +1,4 @@
-{# [C 2026-09-12 by codebuddy-ds41flash] 评测报告模板（eval_run 节点渲染）
+{# 评测报告模板（eval_run 节点渲染）
    渲染上下文：requirement_name / generated_at / parsed（parse_promptfoo_results 输出）/ judge（judge_eval_report 输出）。
    结论由代码硬判给出（judge.passed），模板只负责呈现，不做任何判定。 #}
 {% set overall_rate = judge.get('overall_rate', 0) %}
