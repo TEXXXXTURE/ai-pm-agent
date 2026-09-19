@@ -98,12 +98,11 @@ model_catalog:
   price_script: ./scripts/model_catalog.py
 
 # [MA 2026-09-17] R13 行业追踪（scripts/industry_digest.py）：
-# 数据只读复用信源库（source_db）；产物落 output/行业追踪/；
-# 模型走 llm.providers 统一层（判类/提炼用便宜模型，写总结用大模型）；
-# 生产在用的方案与缺口清单为两个用户维护输入件（见 docs/S052-R13知识结构草案.md）。
-# 出刊节奏（S053 用户拍板）：以周为单位（days=7），每期篇数由模型按内容自定（只挑最突出的写），无料不出刊。
+# 数据只读复用信源库（source_db，SQLite，自行填入路径；不配则 industry_digest.py 不可用）；产物落 output/行业追踪/；
+# 模型走 llm.providers 统一层（判类/提炼用便宜模型，写总结用大模型）。
+# 出刊节奏（2026-09-17 用户拍板）：以周为单位（days=7），每期篇数由模型按内容自定（只挑最突出的写），无料不出刊。
 industry_digest:
-  source_db: D:\信源库\data\articles.db
+  source_db: ./data/sources/articles.db
   output_root: ./output/行业追踪
   prompt_path: ./src/components/prompts/industry_digest.md
   provider_classify: deepseek
