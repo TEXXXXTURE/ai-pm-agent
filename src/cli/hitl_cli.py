@@ -114,7 +114,7 @@ def handle_hitl(graph: Any, config: dict, interrupt_value: Any) -> None:
 
     # 1. 打印分隔线与节点名
     console.print()
-    console.rule(f"[bold yellow]⚠ HITL 中断节点: {node_name}[/bold yellow]")
+    console.rule(f"[bold yellow]⚠ 需要你确认的地方: {node_name}[/bold yellow]")
 
     # 2. dict 载荷：节点尚未返回 state，capability_boundary 等材料只在载荷里，先打印
     if isinstance(interrupt_value, dict):
@@ -151,7 +151,7 @@ def _print_payload_recap(payload: dict) -> None:
     state 里还没有，因此需要单独打印载荷。
     """
     console.print(
-        Panel.fit("[bold]需求确认材料（中断载荷）[/bold]", title="HITL recap", border_style="magenta")
+        Panel.fit("[bold]需求确认材料[/bold]", title="HITL recap", border_style="magenta")
     )
     # 标题保留"需求确认材料"措辞，
     # 因 ai_triage 与旧 capability_boundary 都是需求确认门的 recap 材料
@@ -199,7 +199,7 @@ def _print_decision_materials(state: dict, node_name: str) -> None:
     if not has_material:
         console.print(
             "[dim]（首版节点为占位实现，决策材料字段暂为空；"
-            "M4 接入真实节点后将展示结构化信息）[/dim]"
+            "接入完整流程后会展示结构化信息）[/dim]"
         )
 
 

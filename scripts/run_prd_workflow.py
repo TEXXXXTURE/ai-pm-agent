@@ -87,7 +87,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--resume",
         type=str,
         metavar="THREAD_ID",
-        help="断点恢复：传入 thread_id（与 --requirement 互斥）",
+        help="从上次停下的地方继续：传入会话编号（与 --requirement 互斥）",
     )
     parser.add_argument(
         "--answer",
@@ -114,7 +114,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     if args.resume and args.requirement:
         parser.error("--resume 与 --requirement 互斥，只能指定其一")
     if not args.resume and not args.requirement:
-        parser.error("必须指定 --requirement（新需求）或 --resume（断点恢复）")
+        parser.error("必须指定 --requirement（新需求）或 --resume（从上次停下的地方继续）")
     if not args.resume and not args.name:
         parser.error("新建需求时必须指定 --name")
 
@@ -316,7 +316,7 @@ def _build_question(node_name: str, payload: dict, state: dict) -> str:
     """
     if node_name == "requirement_confirm":
         return (
-            "节点「requirement_confirm」进入需求确认门。"
+            "进入「确认需求」这一步（需求确认门），停下来等你的决定。"
             "请审阅下方需求理解与 AI 适用性分流建议，确认无误后回复 confirmed，"
             "或回复「非AI」改判普通轨、「AI核心」改判 AI 全轨；"
             "其他文本作为需求修订意见处理（分流沿用模型建议，不二次中断）。"
@@ -391,7 +391,7 @@ def _build_question(node_name: str, payload: dict, state: dict) -> str:
             return (
                 "节点「bake_off」对比选型模型：缺少被测 prompt 文件，流水线暂停等待。"
                 "请把被测 system_prompt.txt 放到下方中断材料的 prompt_path 指定路径，"
-                "放好后回复任意内容恢复，流水线将重新检查并继续横跑候选模型。"
+                "放好后回复任意内容恢复，流水线将重新检查并继续给候选模型跑同一批考题。"
             )
         if status == "tool_error":
             return (

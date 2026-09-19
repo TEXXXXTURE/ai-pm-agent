@@ -432,10 +432,10 @@ def build_decision_payload(
     prefix = f"{fallback_note}；" if fallback_note else ""
     if reason is None:
         reason = prefix + (
-            "本版暂无历史选型记录：请确认对哪些候选横跑对比。"
+            "本版暂无历史选型记录：请确认对哪些候选模型做对比测试。"
             f"本次可实跑的候选：{runnable_line}；"
             "未接入的候选会写进结论但不实跑。"
-            "横跑会真实产生多次模型调用（候选数 × 考题数）。"
+            "跑对比测试会真实产生多次模型调用（候选数 × 考题数）。"
         )
     elif prefix:
         reason = prefix + reason
@@ -726,7 +726,7 @@ def make_bake_off(deps):
         if not eval_yaml_draft or not eval_archive or not eval_system:
             raise NodeExecutionError(
                 "bake_off",
-                "缺少 eval_yaml_draft / eval_archive / eval_system，无法执行对比选型",
+                "缺少评测配置/考题/系统提示词，无法执行对比选型",
             )
 
         bake_off_config = getattr(deps, "bake_off_config", None)

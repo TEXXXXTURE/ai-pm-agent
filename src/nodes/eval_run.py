@@ -674,7 +674,7 @@ def make_eval_run(deps):
         if not eval_yaml_draft or not eval_archive or not eval_system:
             raise NodeExecutionError(
                 "eval_run",
-                "缺少 eval_yaml_draft / eval_archive / eval_system，无法执行评测",
+                "缺少评测配置/考题/系统提示词，无法执行评测",
             )
 
         eval_tool = deps.eval_tool

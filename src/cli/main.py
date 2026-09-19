@@ -59,13 +59,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--resume",
         type=str,
         metavar="THREAD_ID",
-        help="断点恢复：传入 thread_id（与 --requirement 互斥）",
+        help="从上次停下的地方继续：传入会话编号（与 --requirement 互斥）",
     )
     parser.add_argument(
         "--stage",
         type=str,
         default=None,
-        help="指定起始阶段（可选，默认从 kb_lookup 开始；首版仅记录到 state）",
+        help="指定起始阶段（可选，默认从知识库查询开始；首版仅记录状态）",
     )
 
     args = parser.parse_args(argv)
@@ -74,7 +74,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     if args.resume and args.requirement:
         parser.error("--resume 与 --requirement 互斥，只能指定其一")
     if not args.resume and not args.requirement:
-        parser.error("必须指定 --requirement（新需求）或 --resume（断点恢复）")
+        parser.error("必须指定 --requirement（新需求）或 --resume（从上次停下的地方继续）")
     if not args.resume and not args.name:
         parser.error("新建需求时必须指定 --name")
 
@@ -125,7 +125,7 @@ def run_resume(graph: Any, config: dict, args: argparse.Namespace) -> None:
     console.print(
         Panel.fit(
             f"[bold]thread_id[/bold]: {thread_id}",
-            title="断点恢复",
+            title="从上次停下的地方继续",
             border_style="blue",
         )
     )

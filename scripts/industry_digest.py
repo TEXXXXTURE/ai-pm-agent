@@ -504,7 +504,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.max_articles:
         articles = articles[: args.max_articles]
     if not articles:
-        print(f"INFO: 近 {dc['days']} 天没有新文章（或信源库为空），本期不出刊。")
+        print(f"INFO: 近 {dc['days']} 天没有新文章（或信源库为空），本期不生成总结。")
         return 0
     print(f"INFO: 信源库近 {dc['days']} 天共 {len(articles)} 篇候选。")
 
@@ -538,7 +538,7 @@ def main(argv: list[str] | None = None) -> int:
     prod_file = dc["output_root"] / "生产在用方案.md"
     prod_text = prod_file.read_text(encoding="utf-8") if prod_file.is_file() else ""
     if not relevant:
-        print("INFO: 没有 AI 相关文章，本期不出刊。")
+        print("INFO: 没有 AI 相关文章，本期不生成总结。")
         return 0
     try:
         entries = extract_entries(llm_classify, relevant, dc["prompt_path"], gap_text, prod_text)

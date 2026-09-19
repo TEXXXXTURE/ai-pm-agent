@@ -2,7 +2,7 @@
 
 > 版本：v1.0
 > 日期：2026-09-08
-> 状态：M1-M10 已全部建成（截至 S029 共 164 测试全绿——现已达 819 全绿、多段真机验收）；本文的机制设计（三件套、NodeRunner、HITL、组件架构）仍有效
+> 状态：M1-M10 已全部建成（截至 S029 共 164 测试全绿——现已达 819 全绿、多段真机验收）；本文的机制设计（三件套、NodeRunner、HITL（停下来等真人确认）、组件架构）仍有效
 > 前置文档：[workflow-design.md](workflow-design.md)（节点级设计）、[PRD.md](PRD.md)（产品需求）
 > 核心问题：**Agent 如何按既定通路"思考"——通路不被模型自由发挥带偏，节点内有结构化推理，HITL 点能中断恢复**
 
@@ -14,11 +14,11 @@
 
 Agent 按通路思考，靠三个机制保证：
 
-| 机制 | 解决什么 | 技术载体 |
+| 机制 | 解决什么 | 用什么实现 |
 |---|---|---|
 | **通路 = 确定性状态图** | 走哪条路不由模型决定，由 State 字段 + 条件边决定 | LangGraph StateGraph |
 | **思考 = 节点内统一执行器** | 每个节点的"推理"走同一模式：上下文装配→结构化输出→校验自检→写回 State | NodeRunner + Pydantic + 可插拔组件 |
-| **HITL = 原生中断 + 持久化** | 人机门暂停等人决策，进程退出可断点续跑 | LangGraph interrupt() + SQLite Checkpointer |
+| **HITL = 原生中断 + 持久化** | 停下来等真人决策，进程退出后可从上次停下的地方接着跑 | LangGraph interrupt() + SQLite Checkpointer |
 
 ### 1.1 通路 = 确定性状态图
 
@@ -81,7 +81,7 @@ graph.add_conditional_edges(
 
 **关键设计**：PM 方法论全部固化在三类**可插拔组件**里，内核零业务知识：
 
-| 组件类型 | 载体 | 内容 | 例子 |
+| 组件类型 | 放在哪 | 内容 | 例子 |
 |---|---|---|---|
 | Prompt 模板 | `components/prompts/*.md` | 节点的推理指令、方法论框架 | `prd_generation.md` 内含章节结构、描述列分块规则、禁止技术接口表述 |
 | 输出 Schema | `components/schemas/*.py` | Pydantic 模型，约束模型输出结构 | `MetricsTreeSchema` 要求 North Star + drivers + guardrails + blindspot |
@@ -132,7 +132,7 @@ config = {"configurable": {"thread_id": state["initiative_id"]}}
 **CLI 端 HITL 交互流程**：
 
 ```
-[Agent] 需求确认门 — 以下是对你需求的理解：
+[Agent] 需求确认门（停下来等你确认的地方） — 以下是对你需求的理解：
   问题背景：✅ 已提供
   目标：⚠️ 需补充
   用户场景：✅ 已提供
@@ -707,7 +707,7 @@ kb_lookup → intake → requirement_confirm(HITL) → needs_discovery → prd_g
 | `intake` | NodeRunner 跑通：Prompt 渲染 + Pydantic 输出 + 写回 State |
 | `requirement_confirm` | **HITL interrupt/resume 跑通**；G8 能力边界输出；G2 考题集初始化 |
 | `needs_discovery` | 纯推理节点 NodeRunner 验证（无工具调用） |
-| `prd_generation` | HTML 产物落盘跑通；自检规则跑通（no_tech_jargon） |
+| `prd_generation` | HTML 产物写成文件跑通；自检规则跑通（no_tech_jargon） |
 | `artifact_persist` | 按需求名分文件夹保存 HTML |
 
 ### 7.2 开发模块拆解（可验收任务清单）
@@ -762,7 +762,7 @@ kb_lookup → intake → requirement_confirm(HITL) → needs_discovery → prd_g
 **实现要点**：
 1. ComponentRegistry._scan() 扫描 4 个子目录（prompts/schemas/tools/guards），自动注册
 2. Prompt 模板用 Jinja2 语法，可接收 State 字段渲染
-3. Pydantic Schema 定义节点输出结构，字段名与 State 输出映射对齐
+3. Pydantic Schema 定义节点输出结构，字段名与 State 输出映射保持一致
 4. Guard 函数签名统一：`(result) -> tuple[bool, str]`
 5. 首批只做纵切 3 个自动节点（intake / needs_discovery / prd_generation）的组件
 

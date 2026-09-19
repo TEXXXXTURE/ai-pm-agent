@@ -1,13 +1,13 @@
 ---
 name: agent-manual
-description: 本产品的操作手册（给运行本产品的 Agent 读）。动手前先读：跑流水线、挑工具、加技能或工具、不确定自己有什么能力时。讲六件事：干什么活；流水线有哪几段、哪里停人；项目口径；手上有什么；停人处怎么转达；怎么给自己加东西。
+description: 本产品的操作手册（给运行本产品的 Agent 读）。动手前先读：跑流水线、挑工具、加技能或工具、不确定自己有什么能力时。讲六件事：干什么活；流水线有哪几段、哪里停人；项目判定标准；手上有什么；停人处怎么转达；怎么给自己加东西。
 ---
 
 # 操作手册（agent-manual）
 
 > 给「运行本产品的 Agent」看（现在跑这个角色的是 Pi，将来换别的 Agent 读同一份）。
 > 只讲操作：人设、纪律与各确认点的答复协议见 `AGENTS.md`；外置工具见 `references/外置工具路由.md`；节点级字段与源码见 `references/流水线模块拓扑清单.md`。
-> 建立 2026-09-19（S055）；S056 补流水线段落表、项目口径、两处漏写的停人点。
+> 建立 2026-09-19（S055）；S056 补流水线段落表、项目判定标准、两处漏写的停人点。
 
 ## 一、我干什么活
 
@@ -26,7 +26,7 @@ bash scripts/run-tool.sh scripts/run_prd_workflow.py --requirement "用户原话
 bash scripts/run-tool.sh scripts/run_prd_workflow.py --resume <THREAD_ID> --answer "用户答复"
 ```
 
-它不跟你对话，三种收尾：`STATUS: HITL` + `NODE: 节点名` + 一份材料（要人拿主意）；`STATUS: DONE`（跑完，产物已落盘）；`STATUS: ERROR`（照原文转达报错）。
+它不跟你对话，三种收尾：`STATUS: HITL`（停下来等真人确认）+ `NODE: 节点名` + 一份材料（要人拿主意）；`STATUS: DONE`（跑完，产物已写成文件保存到目录）；`STATUS: ERROR`（照原文转达报错）。
 
 拿到 `STATUS: HITL` 后三件事：①读懂材料（字段见 `AGENTS.md` 同名小节）再用日常话概述，不甩 JSON；②原样转达选项、等用户回答，不替他决定；③用 `--resume` 把用户的话原样传回去。
 
@@ -43,25 +43,25 @@ bash scripts/run-tool.sh scripts/run_prd_workflow.py --resume <THREAD_ID> --answ
 | 0 接收需求 | `kb_lookup` `intake` `requirement_confirm` | 查领域库打底 → 录入需求 → 模型建议算不算 AI 核心 | 需求原文、需求名、AI 适用性建议 | ✅ |
 | 0.5 需求修订整合 | `requirement_refine` | 把原需求与修订意见合成新草案 | 需求草案、调整说明 | ✅ |
 | 1 挖需求 + 定轨道 | `needs_discovery` | 出洞察与缺口；定 AI 轨还是普通轨（普通轨跳过 2、5、6、8 段） | 洞察、缺口、轨道判定 | — |
-| 2 判断需求与 AI 的边界 | `feasibility_check` `feasibility_confirm` | 探针真跑取证 + 风险成本；同段出模型候选池（2–5 个，带实时单价与本机接入状态） | 可行性报告、探针证据、候选池 | ✅ |
+| 2 判断需求与 AI 的边界 | `feasibility_check` `feasibility_confirm` | 探针（拿几个真实样例试跑模型，看它能不能做）真跑取证 + 风险成本；同段出模型候选池（2–5 个，带实时单价与本机接入状态） | 可行性报告、探针证据、候选池 | ✅ |
 | 3 写 PRD | `prd_generation` | AI 轨九项模板 / 普通轨模板 | PRD（Markdown） | — |
 | 4 评审 PRD | `prd_review` | 模型按五维 + AI 维度打分；通过或打回**由代码按分数算**（含一票否决），打回自动重写（限次） | 评审结果、结论 | — |
 | 5 设计评测体系 | `eval_design` `eval_confirm` | 出四层考题、每题评分方式、两条及格线建议值；出题质量检查只提示不拦 | 考题集、检查结果 | ✅ |
 | 6 对比选型模型 | `bake_off` | 同一批考题分发给候选模型各跑一遍，按质量、成本、延迟算推荐 | 对比选型报告 | ✅ |
-| 7 拆研发工单 | `issue_splitting` `issue_confirm` | 纵切成工单 + 覆盖矩阵（结构与覆盖一致性由代码算）；AI 轨加四类特殊项 | 工单、覆盖矩阵 | ✅ |
+| 7 拆研发工单 | `issue_splitting` `issue_confirm` | 按「用户能做完一件事」切成工单 + 覆盖矩阵（结构与覆盖一致性由代码算）；AI 轨加四类特殊项 | 工单、覆盖矩阵 | ✅ |
 | 8 构建期跑评测 | `eval_run` `eval_gate` | 调 Promptfoo 真跑，代码按两条及格线算达标；不达标不进第 9 段 | 评测报告 | ✅ |
 | 9 写发布计划 | `launch_plan` `readiness_assessment` `launch_confirm` | 7 步发布计划 + 11 维就绪度打分（阻断项直接标出） | 发布计划、就绪度得分 | ✅ |
 | 10 / 11 灰度监控、数据飞轮 | — | 二期，本期没做 | — | — |
-| 收尾 | `artifact_persist` | 全部 Markdown 产物写入 `output/<需求名>/<中文子目录>/` | 落盘清单 | — |
+| 收尾 | `artifact_persist` | 全部 Markdown 产物写入 `output/<需求名>/<中文子目录>/` | 写成文件保存的清单 | — |
 
 **8 处停人点**：`requirement_confirm`、`requirement_refine`、`feasibility_confirm`、`eval_confirm`、`bake_off`、`issue_confirm`、`eval_run`、`launch_confirm`——答复协议都在 `AGENTS.md` 同名小节。
 
 节点级字段、可调参数、源码文件见 `references/流水线模块拓扑清单.md`；段与停人点以 `src/kernel/graph.py`、`src/nodes/` 的实际代码为准。
 
-## 三、项目口径（用户问「为什么这么做」时答这些）
+## 三、项目判定标准（用户问「为什么这么做」时答这些）
 
 1. **判结论给代码，出内容给模型**：评审结论、是否达标、结构一致性、就绪度一律由代码按数值算；模型只写内容、只给建议。写 PRD、挖需求这类创意活只在提示词里给方向、不拿格式卡。好处是同一份输入走同样的流程、结论可复现。
-2. **需要人拿主意就停下等人，不替他决定**：用户给出明确答复就算答复（哪怕只是一句改口径的话）；只有空答复、材料缺失才继续等。每处具体判法以 `AGENTS.md` 与代码为准。
+2. **需要人拿主意就停下等人，不替他决定**：用户给出明确答复就算答复（哪怕只是一句改判定标准的话）；只有空答复、材料缺失才继续等。每处具体判法以 `AGENTS.md` 与代码为准。
 3. **三层**：流水线保稳定、综合 Agent 保灵活、外置工具保可生长（`docs/workflow-design.md` 第 0 条）。加能力不改流水线代码，改文件 + 到 `references/外置工具路由.md` 登记。
 4. **单 Agent**：只有你一个，没有子 Agent 可派。
 5. **产物一律 Markdown**（落 `output/`）；PPT、幻灯片、图表、流程图、原型属演示类，走外置工具包（`demo-handover` 技能），不许用 Markdown 拼凑或假装能做。
