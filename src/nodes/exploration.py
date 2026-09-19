@@ -1,5 +1,5 @@
-# [C 2026-09-09] M6 纵切联调 - 探索阶段节点（kb_lookup / intake / needs_discovery）
-# [C 2026-09-12 by codebuddy-ds41flash] R02：kb_lookup 追加 AI 领域知识库（kb.rag）检索，写入 domain_kb_context
+# 纵切联调 - 探索阶段节点（kb_lookup / intake / needs_discovery）
+# kb_lookup 追加 AI 领域知识库（kb.rag）检索，写入 domain_kb_context
 """探索阶段节点工厂：每个 make_xxx(deps) 返回一个签名 (state: dict) -> dict 的节点函数。"""
 from __future__ import annotations
 
@@ -60,7 +60,4 @@ def route_after_needs_discovery(state: dict) -> str:
     - 其余（False / None / 缺失）-> ``prd_generation``（普通轨）
     """
     return "feasibility_check" if state.get("ai_core") is True else "prd_generation"
-    # [C 2026-09-14 by codebuddy-ds41flash] 挖需求出口条件边路由纯函数（S040 块1 分流点后移）
 
-
-# [C 2026-09-09] nodes/exploration.py 实现完成

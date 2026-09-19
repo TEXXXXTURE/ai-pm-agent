@@ -1,4 +1,4 @@
-# [MA 2026-09-17] R13 行业追踪 自测
+# 行业追踪 自测
 """R13 行业追踪（digest_quality 检查件 + industry_digest 驱动脚本纯函数）零 API 测试。
 
 两类：

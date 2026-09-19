@@ -1,4 +1,4 @@
-# [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 出题质量机械检查：材料可投喂 + 评分可核对
+# 出题质量机械检查：材料可投喂 + 评分可核对
 """eval_design 产物的出题质量机械检查（纯函数，只提示不阻断）。
 
 纯函数 ``audit_exam_quality(eval_system) -> {"errors": [], "warnings": [], "notes": []}``，
@@ -280,4 +280,3 @@ def audit_exam_quality(eval_system: dict) -> dict:
     return {"errors": errors, "warnings": warnings, "notes": notes}
 
 
-# [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] guards/eval_quality.py 新增完成

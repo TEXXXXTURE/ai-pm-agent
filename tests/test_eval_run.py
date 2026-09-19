@@ -1,5 +1,5 @@
-# [C 2026-09-12 by MA] 构建期跑评测节点（eval_run）自测
-# [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 修复单：第 8 段拆两步，补 eval_gate 用例
+# 构建期跑评测节点（eval_run）自测
+# 第 8 段拆两步，补 eval_gate 用例
 """eval_run 零 API 测试：patch 掉 nodes.eval_run.interrupt 与 subprocess.run，
 不发起任何真实模型调用、不跑真 Promptfoo。
 
@@ -24,7 +24,7 @@
    - eval_run_count 每次执行 +1；await_prompt 阶段不 +1；
 5. eval_gate（S048 第 8 段后半，纯函数）：达标返回空、不中断；未达标 interrupt 载荷六字段
    与原一致（仅 node 改名 eval_gate）、report 只含判定字段；未达标答复按放行/重跑/追问三态
-   分流（[MA 2026-09-19] S056：放行写 forced_pass 并进 launch_plan、空答复继续等、
+   分流：放行写 forced_pass 并进 launch_plan、空答复继续等、
    读不出意图追问一句）；eval_report 缺失/畸形保守返回空且路由回 eval_run；
    节点函数无 deps 闭包（不可能调模型）；
 6. 路由：route_after_eval_gate 两态（passed -> launch_plan；否则 -> eval_run）；
@@ -497,7 +497,7 @@ class TestEvalRunNode(unittest.TestCase):
             self.assertEqual(out["eval_run_count"], 1)  # 只成功那次计数
 
     def test_eval_failed_no_longer_interrupts_returns_three_fields(self):
-        # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 拆两步：未达标不再在 eval_run 内中断，
+        # 拆两步：未达标不再在 eval_run 内中断，
         # 一律 return 三字段（判定与停等移交 eval_gate），修「未达标不写状态致清单缺三件套」。
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             deps = make_deps(Path(tmp))
@@ -619,7 +619,7 @@ class TestEvalGate(unittest.TestCase):
         self.assertNotIn("run_count", payload["report"])
 
     def test_fail_then_rerun_answer_routes_back_to_eval_run(self):
-        # [MA 2026-09-19] S056 用例 e：答复「再跑」-> 节点返回 {}，条件边据 passed 非 True
+        # 用例 e：答复「再跑」-> 节点返回 {}，条件边据 passed 非 True
         # 回 eval_run 重跑（不自动放行，也不写判定）
         report = _fake_eval_report(False)
         state = {"ai_core": True, "requirement_name": "eval-smoke", "eval_report": report}
@@ -629,7 +629,7 @@ class TestEvalGate(unittest.TestCase):
         self.assertEqual(route_after_eval_gate(state), "eval_run")
 
     def test_fail_then_forced_pass_lands_and_goes_launch_plan(self):
-        # [MA 2026-09-19] S056 用例 e：放行类答复 -> passed=True + forced_pass=True +
+        # 用例 e：放行类答复 -> passed=True + forced_pass=True +
         # forced_note 带原文；human_feedback 留痕；条件边去 launch_plan
         report = _fake_eval_report(False)
         out, payloads = self._run(report, answers=("我知道未达标，仍进发布计划",))
@@ -646,7 +646,7 @@ class TestEvalGate(unittest.TestCase):
         self.assertEqual(route_after_eval_gate(merged), "launch_plan")
 
     def test_fail_then_empty_answer_keeps_waiting(self):
-        # [MA 2026-09-19] S056 用例 a：空答复再抛 interrupt、不放行；
+        # 用例 a：空答复再抛 interrupt、不放行；
         # 下一句「再跑」才回 eval_run
         report = _fake_eval_report(False)
         out, payloads = self._run(report, answers=("", "再跑"))
@@ -657,7 +657,7 @@ class TestEvalGate(unittest.TestCase):
         self.assertEqual(route_after_eval_gate({"eval_report": report}), "eval_run")
 
     def test_fail_then_unreadable_answer_asks_again(self):
-        # [MA 2026-09-19] S056：非空但读不出意图 -> 追问一句，不替用户判成放行或重跑
+        # 非空但读不出意图 -> 追问一句，不替用户判成放行或重跑
         report = _fake_eval_report(False)
         out, payloads = self._run(report, answers=("嗯……这个我看看", "再跑"))
         self.assertEqual(len(payloads), 2)
@@ -740,18 +740,18 @@ class TestGraphWiring(unittest.TestCase):
             graph = build_graph(deps, db_path=str(Path(tmp) / "g.db"))
             names = set(graph.get_graph().nodes.keys())
             self.assertIn("eval_run", names)
-            # [C 2026-09-13 by codebuddy-ds41flash] 第 6 段新增 bake_off 后为 17 个真实节点
-            # [C 2026-09-14 by codebuddy-ds41flash] S041 新增 requirement_refine 后为 18 个真实节点
-            # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 第 8 段拆两步，新增 eval_gate
+            # 第 6 段新增 bake_off 后为 17 个真实节点
+            # requirement_refine 后为 18 个真实节点
+            # 第 8 段拆两步，新增 eval_gate
             # 后为 19 个真实节点（本测试仅随图节点数增长同步计数断言，eval_run 节点自身行为断言未改动）
-            # [C 2026-09-16] R11 新增 readiness_assessment 后为 20 个真实节点
+            # readiness_assessment 后为 20 个真实节点
             self.assertIn("bake_off", names)
             self.assertIn("eval_gate", names)
             real = names - {"__start__", "__end__"}
             self.assertEqual(len(real), 20)
 
     def test_eval_run_plain_edge_to_gate_and_two_way_conditional(self):
-        # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048：eval_run 普通边到 eval_gate，
+        # eval_run 普通边到 eval_gate，
         # eval_gate 条件边两态（launch_plan / eval_run 重跑）
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             deps = make_deps(Path(tmp))
@@ -796,7 +796,7 @@ class TestQuestionText(unittest.TestCase):
         self.assertIn("工具", q)
 
     def test_eval_run_eval_failed_question(self):
-        # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048：未达标的问句移到 eval_gate
+        # 未达标的问句移到 eval_gate
         mod = self._load_workflow_module()
         q = mod._build_question(
             "eval_gate",
@@ -808,4 +808,3 @@ class TestQuestionText(unittest.TestCase):
         self.assertIn("eval_gate", q)
 
 
-# [C 2026-09-12 by MA] tests/test_eval_run.py 新增完成

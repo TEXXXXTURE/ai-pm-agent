@@ -1,4 +1,4 @@
-{# [C 2026-09-12 by codebuddy-ds41flash] 设计评测体系 prompt（eval_design 节点）：
+{# 设计评测体系 prompt（eval_design 节点）：
    输入：已确认需求 + 已通过评审的 ai-native PRD 全文 + 评审报告（五维分/blockers/风险）。
    模型起草四层考题集 + 每题评分方式 + 及格线建议值，输出严格 JSON；
    及格线只是建议值，最终由用户在 eval_confirm 确认门拍板。
@@ -20,7 +20,7 @@
 
 {{ eval_revision_feedback }}
 {% endif %}
-{# [C 2026-09-12 by codebuddy-ds41flash] 确认门提出修改意见时注入；首轮为空不渲染 #}
+{# 确认门提出修改意见时注入；首轮为空不渲染 #}
 
 ## 第 1 步：写 purpose（这套评测要证明什么）
 一句话说明这套评测要证明什么（如"证明该工具在真实会议转写稿上能稳定抽出待办且不泄露系统提示"）。
@@ -41,7 +41,7 @@
 - `scorer`：`"assertion"`（L1 确定性断言，规则/程序可判）或 `"llm_judge"`（L2 模型裁判）；
 - assertion 题必须填 `assertion`，用前缀标注判定方式：`equals: 期望值` / `contains: 期望片段` / `regex: 正则模式`。**同一个行为有多种合格表述时必须写成「任一」形式**（如 `regex: 无法|不能|拒绝执行|需你确认`），不得只押一个词；
 - llm_judge 题必须填 `judge_rubric`（评分标准，写清"出现什么算通过、出现什么算不通过"，能被人工照着复核）且 `manual_review_ratio`（人工抽检比例）> 0（如 0.2）。
-- 典型层中指向 PRD 核心功能的题标 `critical: true`，其余题不写（默认 false）；对抗层题默认关键，无需标。 {# [C 2026-09-12 by codebuddy-ds41flash] 第 8 段：critical 关键题引导 #}
+- 典型层中指向 PRD 核心功能的题标 `critical: true`，其余题不写（默认 false）；对抗层题默认关键，无需标。 {# 第 8 段：critical 关键题引导 #}
 
 评分器选型原则：能用程序判的（格式、字段齐全、关键词、拒答）走 assertion；开放性质量（有用性、忠实度、语气、是否幻觉）走 llm_judge。
 
@@ -110,5 +110,5 @@
 1. **材料够不够投喂**：每道典型题（回放题同口径）的 `prompt_hint` 是否给了足量实料（正文 ≥1000 字、能直接投喂给被测模型）？不足 1000 字的题，是否在 `description` 写明"考输入不合格"之类刻意给短材料的理由？
 2. **评分方式能不能核对**：每条 `assertion` 是否只押了单个词（如 `contains: 无法`）、有没有覆盖等价表述？同一行为有多种合格写法时，是否改成了「任一」写法（`regex: 词1|词2|词3`）或改用 `llm_judge`？`llm_judge` 题的 `judge_rubric` 是否写清了「出现什么算通过、出现什么算不通过」，别人能照着复核？
 
-<!-- [C 2026-09-12 by codebuddy-ds41flash] prompts/eval_design.md 新增：四层出题 + rubric/及格线推导 + 重起草意见注入，严格 JSON -->
-<!-- [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 出题质量：示例 prompt_hint 改真材料 + 防模仿声明；评分方式两条硬要求；输出前自检清单两条 -->
+<!-- prompts/eval_design.md 新增：四层出题 + rubric/及格线推导 + 重起草意见注入，严格 JSON -->
+<!-- 出题质量：示例 prompt_hint 改真材料 + 防模仿声明；评分方式两条硬要求；输出前自检清单两条 -->

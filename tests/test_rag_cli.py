@@ -1,4 +1,4 @@
-# [C 2026-09-12] R3 知识库 CLI 自测 - build_ingester / build_store 整体替换为假对象（零真实 API、零真实 ChromaDB）
+# 知识库 CLI 自测 - build_ingester / build_store 整体替换为假对象（零真实 API、零真实 ChromaDB）
 """rag_ingest.py / rag_query.py 零成本自测。
 
 做法：用 importlib 按文件路径加载 scripts/ 下的两个 CLI 模块（scripts 不在 src/
@@ -253,4 +253,3 @@ def test_query_no_result_returns_0(query_cli, make_fake_store, capsys):
     assert "未检索到" in out
 
 
-# [C 2026-09-12 by pi-deepseek-v4-flash]

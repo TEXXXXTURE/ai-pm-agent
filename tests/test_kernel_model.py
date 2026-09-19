@@ -1,4 +1,4 @@
-# [C 2026-09-15 by codebuddy-ds41flash] S046 extract_json 截断识别与 max_tokens 透传自测
+# extract_json 截断识别与 max_tokens 透传自测
 """kernel.model 的截断识别 + max_tokens 透传测试（零网络、零真实 API）。
 
 覆盖任务书第三节口径 2、口径 4 与第二节接口约定：
@@ -322,5 +322,4 @@ if __name__ == "__main__":
     unittest.main(verbosity=2)
 
 
-# [C 2026-09-15 by codebuddy-ds41flash] tests/test_kernel_model.py 新增完成
-# [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 修复B：补第 4 节空内容文案用例
+# 补第 4 节空内容文案用例

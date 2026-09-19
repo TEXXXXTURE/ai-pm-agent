@@ -1,4 +1,4 @@
-# [C 2026-09-08] M1 内核骨架 - 节点规格定义
+# 内核骨架 - 节点规格定义
 """NodeSpec：描述单个节点的执行规格（prompt / schema / 映射 / 自检 / 重试）。"""
 from dataclasses import dataclass, field
 from typing import Any, Callable
@@ -29,4 +29,3 @@ class NodeSpec:
     max_retries: int = 2
 
 
-# [C 2026-09-08] spec.py 实现完成

@@ -1,6 +1,6 @@
-# [C 2026-09-08] M2 组件框架 - PRD 生成 schema
-# [C 2026-09-09] M6 纵切联调 - 改为 sections: list[PrdSection] 片段结构
-# [C 2026-09-09] M7.5 创意放松 - 删除 body_html 非空 / 章节数硬校验，schema 只保证结构形状
+# 组件框架 - PRD 生成 schema
+# 纵切联调 - 改为 sections: list[PrdSection] 片段结构
+# 创意放松 - 删除 body_html 非空 / 章节数硬校验，schema 只保证结构形状
 """PRDOutputSchema：PRD 生成节点的输出结构（章节片段列表，HTML 外壳由模板提供）。
 
 M7.5 起不再做机器硬校验：章节数量、章节标题、内容深浅均由模型按需求
@@ -35,4 +35,4 @@ class PRDOutputSchema(BaseModel):
     sections: list[PrdSection]
 
 
-# [C 2026-09-09] M7.5 PRD schema 放松完成：仅保留结构形状，去除硬校验
+# PRD schema 放松完成：仅保留结构形状，去除硬校验

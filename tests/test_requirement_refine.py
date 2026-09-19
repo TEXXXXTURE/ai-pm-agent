@@ -1,4 +1,4 @@
-# [C 2026-09-14 by codebuddy-ds41flash] S041 需求修订整合节点自测
+# 需求修订整合节点自测
 """requirement_refine 节点（含确认门 pending 标志）零 API 测试：
 patch 掉 nodes.refine.interrupt / nodes.hitl.interrupt，假 LLM 回放预制响应，
 不发起任何真实模型调用。
@@ -203,7 +203,7 @@ class TestClassifyRefineAnswer(unittest.TestCase):
             "确认",
             "通过",
             "同意",
-            # [MA 2026-09-19] S056：补的日常肯定说法
+            # 补的日常肯定说法
             "行吧",
             "按这个来",
             "好的",
@@ -214,7 +214,7 @@ class TestClassifyRefineAnswer(unittest.TestCase):
             self.assertEqual(classify_refine_answer(word), "confirm", msg=repr(word))
 
     def test_empty_and_none_are_not_confirm(self):
-        # [MA 2026-09-19] S056：空串/None 不再算确认（节点在分类前拦空、继续停等）
+        # 空串/None 不再算确认（节点在分类前拦空、继续停等）
         for word in ("", "   ", None):
             self.assertEqual(classify_refine_answer(word), "feedback", msg=repr(word))
 
@@ -441,7 +441,7 @@ class TestRequirementRefineNode(unittest.TestCase):
         self.assertEqual(payloads[0]["requirement_refine_count"], 1)
 
     def test_empty_answer_keeps_waiting_not_confirmed(self):
-        # [MA 2026-09-19] S056 用例 a：空答复再抛 interrupt、不放行（草案载荷重复出现）；
+        # 用例 a：空答复再抛 interrupt、不放行（草案载荷重复出现）；
         # 下一句「确认」才写回确认稿
         fake = FakeLLM(
             json_queue=[
@@ -794,7 +794,7 @@ class TestNormalTrackUnchanged(unittest.TestCase):
             deps = make_deps(Path(tmp), fake)
             base = confirm_state()
             # 1) 需求确认门答复「确认」-> pending=False, ai_core 沿用模型建议=False
-            # （[MA 2026-09-19] S056：空答复不再算确认，故这里用明确确认词）
+            # （空答复不再算确认，故这里用明确确认词）
             confirm_node = make_requirement_confirm(deps)
             with patch("nodes.hitl.interrupt", return_value="确认"):
                 confirm_out = confirm_node(base)
@@ -1025,7 +1025,7 @@ class TestDraftProgressWiring(unittest.TestCase):
 class TestGraphWiring(unittest.TestCase):
     def test_graph_compiles_with_eighteen_nodes(self):
         # R16：图编译通过，节点数 18（17 + requirement_refine）
-        # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 新增 eval_gate 后为 19
+        # eval_gate 后为 19
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             tmp_path = Path(tmp)
             deps = make_deps(tmp_path, FakeLLM())
@@ -1049,10 +1049,10 @@ class TestGraphWiring(unittest.TestCase):
                 "issue_splitting",
                 "issue_confirm",
                 "eval_run",
-                # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 第 8 段拆两步新增判定门
+                # 第 8 段拆两步新增判定门
                 "eval_gate",
                 "launch_plan",
-                # [C 2026-09-16] R11 就绪度打分
+                # 就绪度打分
                 "readiness_assessment",
                 "launch_confirm",
                 "artifact_persist",
@@ -1142,4 +1142,3 @@ if __name__ == "__main__":
     unittest.main(verbosity=2)
 
 
-# [C 2026-09-14 by codebuddy-ds41flash] tests/test_requirement_refine.py 新增完成

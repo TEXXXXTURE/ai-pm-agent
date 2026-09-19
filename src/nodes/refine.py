@@ -1,4 +1,4 @@
-# [C 2026-09-14 by codebuddy-ds41flash] S041 需求修订整合节点（requirement_refine HITL）
+# 需求修订整合节点（requirement_refine HITL）
 """需求修订整合节点：用户在需求确认门提修订意见时，模型把"当前需求 + 修订意见"整合为一版完整新需求草案。
 
 图位置（第 1 段探索阶段，requirement_confirm 与 needs_discovery 之间的条件分支）：
@@ -32,7 +32,7 @@ from langgraph.types import interrupt
 from components.tools.init_eval_cases import init_eval_cases
 from kernel.spec import NodeSpec
 
-# 复用 hitl.py 的确认词集合和改判关键词——直接 import，避免重复定义 [C 2026-09-14]
+# 复用 hitl.py 的确认词集合和改判关键词——直接 import，避免重复定义
 from nodes.hitl import (  # noqa: E402 - 延迟导入避免循环（hitl.py 不依赖本模块）
     _AI_CORE_KEYWORDS,
     _NON_AI_KEYWORDS,
@@ -45,7 +45,7 @@ from nodes.hitl import (  # noqa: E402 - 延迟导入避免循环（hitl.py 不�
 # 放弃关键词（与 feasibility.py 一致）
 _ABANDON_KEYWORDS: tuple[str, ...] = ("放弃", "不做", "终止", "搁置", "停做")
 
-# 变化体检阈值（纯提示，不拦流程） [C 2026-09-16 by codebuddy-deepseek-v4.1-flash]
+# 变化体检阈值（纯提示，不拦流程）
 _SIMILARITY_NOTE_THRESHOLD = 0.95  # 草案与上一版相似度达此值 -> 提示"几乎相同"
 _SHRINK_RATIO_THRESHOLD = 0.8  # 新版字数 / 上一版字数 <= 此值 -> 提示"少了 N 字"
 _FEEDBACK_SIMILARITY_NOTE_THRESHOLD = 0.8  # 与上一轮意见相似度达此值 -> 提示"高度相似"
@@ -132,7 +132,7 @@ def audit_draft_progress(
         "feedback_similarity": feedback_similarity,
         "notes": notes,
     }
-    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S047 草案变化体检纯函数（零 API）
+    # 草案变化体检纯函数（零 API）
 
 
 def classify_refine_answer(text: str) -> str:
@@ -146,7 +146,7 @@ def classify_refine_answer(text: str) -> str:
     4. **再做确认词精确集合判定**：归一化后恰好属于 _REQUIREMENT_CONFIRM_WORDS 才 confirm；
     5. 其余文本 -> feedback（带新意见重整合，正常路径下自环）。
 
-    [MA 2026-09-19] S056：空串不属于确认词集合，本函数对空串返回 feedback；
+    空串不属于确认词集合，本函数对空串返回 feedback；
     空答复由节点在调用本函数之前拦下（不当作确认、不当作意见），继续停等下一句。
 
     Returns:
@@ -162,16 +162,12 @@ def classify_refine_answer(text: str) -> str:
     if lowered in _REQUIREMENT_CONFIRM_WORDS:
         return "confirm"
     return "feedback"
-    # [C 2026-09-14 by codebuddy-ds41flash] 整合确认门答复分类纯函数
-
 
 def route_after_requirement_confirm(state: dict) -> str:
     """确认门后路由：requirement_refine_pending=True -> requirement_refine，否则 needs_discovery。"""
     if state.get("requirement_refine_pending"):
         return "requirement_refine"
     return "needs_discovery"
-    # [C 2026-09-14 by codebuddy-ds41flash] 确认门后条件边路由纯函数
-
 
 def route_after_requirement_refine(state: dict) -> str:
     """整合节点后路由：abandon->END, feedback->requirement_refine 自环, 其余->needs_discovery。"""
@@ -182,8 +178,6 @@ def route_after_requirement_refine(state: dict) -> str:
     if verdict == "feedback":
         return "requirement_refine"
     return "needs_discovery"
-    # [C 2026-09-14 by codebuddy-ds41flash] 整合节点条件边三态路由纯函数
-
 
 def make_requirement_refine(deps):
     """需求修订整合节点工厂：返回签名 (state: dict) -> dict 的节点函数（调模型 + HITL）。"""
@@ -209,7 +203,7 @@ def make_requirement_refine(deps):
 
         # ── 调模型整合当前需求 + 修订意见 -> 中断展示草案 -> 四态分流 ──
         # 不设整合次数上限：每次重整合都必须真人回话才会发生，模型不会自己循环；
-        # count 只作记录、不作拦截。 [C 2026-09-16 by codebuddy-deepseek-v4.1-flash]
+        # count 只作记录、不作拦截。
         prompt = deps.registry.read_prompt("requirement_refine")
         schema = deps.registry.load_schema("requirement_refine")
         spec = NodeSpec(
@@ -217,7 +211,7 @@ def make_requirement_refine(deps):
             prompt_template=prompt,
             output_schema=schema,
         )
-        # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S047 重整合丢内容修复：
+        # 重整合丢内容修复：
         # prompt 模板的「当前需求」取自 confirmed_requirement，而 feedback 自环分支只写
         # requirement_draft、不写 confirmed_requirement，导致第二轮起整合输入恒为最初需求原文、
         # 上一版草案从未进入输入（真机 thread a320de8e：856 字草案缩到 235 字）。
@@ -231,7 +225,7 @@ def make_requirement_refine(deps):
         changes = draft.get("change_summary") or []
         new_count = count + 1
 
-        # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S047 变化体检接线：
+        # 变化体检接线：
         # 本轮意见 = 本轮整合所依据的意见（state 的 requirement_refine_feedback）；
         # 上一轮意见 = 上一轮整合所依据的意见（从 human_feedback 日志按轮次标签取，
         # 日志中 draft-{k}-feedback 记录的是第 k 轮用户答复，即第 k+1 轮的整合输入）。
@@ -262,7 +256,7 @@ def make_requirement_refine(deps):
         }
         answer = interrupt(payload)
         text = answer.strip() if isinstance(answer, str) else str(answer).strip()
-        # [MA 2026-09-19] S056：空答复不当作确认、不当作意见，继续停在本节点等下一句
+        # 空答复不当作确认、不当作意见，继续停在本节点等下一句
         while not text:
             answer = interrupt({**payload, "note": "没收到答复，仍在这里等你的决定"})
             text = answer.strip() if isinstance(answer, str) else str(answer).strip()
@@ -335,7 +329,4 @@ def make_requirement_refine(deps):
         }
 
     return requirement_refine
-    # [C 2026-09-14 by codebuddy-ds41flash] 整合节点工厂完成
 
-
-# [C 2026-09-14 by codebuddy-ds41flash] nodes/refine.py 新增完成

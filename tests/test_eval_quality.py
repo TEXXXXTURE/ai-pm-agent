@@ -1,4 +1,4 @@
-# [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 出题质量机械检查 自测
+# 出题质量机械检查 自测
 """guards/eval_quality.audit_exam_quality 零依赖测试（纯函数，不调模型、不落文件）。
 
 覆盖任务书 2.2 的五类检查项（命中与不命中）：
@@ -430,4 +430,3 @@ class TestSummaryAndSafety(unittest.TestCase):
 if __name__ == "__main__":
     unittest.main(verbosity=2)
 
-# [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] tests/test_eval_quality.py 新增完成

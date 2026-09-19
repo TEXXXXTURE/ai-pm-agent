@@ -1,4 +1,4 @@
-# [C 2026-09-08] M3 CLI 前端 - 产物输出通知
+# CLI 前端 - 产物输出通知
 """产物路径打印与打开工具。"""
 from __future__ import annotations
 
@@ -61,4 +61,3 @@ def open_artifact(path: str) -> None:
         console.print(f"[red]打开失败: {exc}[/red]")
 
 
-# [C 2026-09-08] output.py 实现完成

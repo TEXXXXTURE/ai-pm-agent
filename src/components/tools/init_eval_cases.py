@@ -1,4 +1,4 @@
-# [C 2026-09-09] M6 纵切联调 - 评测用例初始化工具
+# 纵切联调 - 评测用例初始化工具
 """init_eval_cases：需求确认门后，按模板确定性生成 4 条初始评测用例。
 
 纯函数、不调模型；依据 confirmed_requirement（无则回退 raw_requirement）
@@ -56,4 +56,3 @@ def init_eval_cases(state: dict) -> list[dict]:
     ]
 
 
-# [C 2026-09-09] tools/init_eval_cases.py 实现完成

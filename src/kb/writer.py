@@ -1,4 +1,4 @@
-# [C 2026-09-09] M5 知识库接入 - 档案写回（Markdown + index.json，原子写）
+# 知识库接入 - 档案写回（Markdown + index.json，原子写）
 """KBWriter：把决策/评测/案例档案写回本地知识库。
 
 - 档案落盘：store_path/<type>/<id>.md，文件头含 updated / type / id 注释与标题；
@@ -85,4 +85,3 @@ class KBWriter:
         return target
 
 
-# [C 2026-09-09] M5 KBWriter 实现完成

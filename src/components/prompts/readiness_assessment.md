@@ -1,4 +1,4 @@
-{# [C 2026-09-16] 就绪度打分 prompt（readiness_assessment 节点）：
+{# 就绪度打分 prompt（readiness_assessment 节点）：
    输入：PRD 全文 + 评测报告 + 选型报告 + 发布计划 + 评审报告 + 工单清单
    模型对 11 个维度各打 0-5 分并给证据/风险/责任人/下一步；
    加权均分与三级阻断由代码硬判（模型不决定走向）。 #}
@@ -134,4 +134,4 @@
 {% if not ai_core %}{# 普通需求也有就绪度打分，但不涉及 AI 专属维度（eval_readiness 等仍打分，只是证据来源不同） #}
 {% endif %}
 
-<!-- [C 2026-09-16] prompts/readiness_assessment.md 新增：11 维度打分 + 证据等级 + 严格 JSON -->
+<!-- prompts/readiness_assessment.md 新增：11 维度打分 + 证据等级 + 严格 JSON -->

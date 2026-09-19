@@ -1,4 +1,4 @@
-# [C 2026-09-13 by codebuddy-ds41flash] 对比选型模型节点（bake_off，第 6 段）
+# 对比选型模型节点（bake_off，第 6 段）
 """对比选型模型：用第 5 段定稿的同一批考题，经 Promptfoo 对候选模型逐个横跑，
 产出质量（通过率）/ 成本 / 延迟（P50、P95）三维对比，**代码硬判推荐模型**，写入选型档案。
 
@@ -217,8 +217,6 @@ def classify_bakeoff_answer(text: object) -> str:
     if positive_skip:
         return "skip"
     return "other"
-    # [C 2026-09-13 by codebuddy-ds41flash] 模型横跑确认门答复三分类纯函数（否定式防误判）
-
 
 def _normalize_provider_id(value: object) -> str:
     """provider_id 归一化：去空白 + 小写 + 冒号转斜杠（配置侧 ``a:b`` vs 池侧 ``a/b``）。"""
@@ -245,8 +243,6 @@ def _match_config_candidate(provider_id: object, candidates_cfg: list) -> dict |
             if cfg_name and cfg_name == name:
                 return cand
     return None
-    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] 候选池 <-> 配置候选匹配（两轮，口径同第 2 段）
-
 
 def _config_candidate_as_pool_item(cand: dict) -> dict:
     """候选池为空时，把 config 候选折算成候选池条目（兜底用，字段尽量对齐池形态）。"""
@@ -264,7 +260,7 @@ def _config_candidate_as_pool_item(cand: dict) -> dict:
         "price_note": "",
         "access_status": _ACCESS_READY,
     }
-    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] 配置候选折算候选池条目（兜底）
+    # 配置候选折算候选池条目（兜底）
 
 
 def build_candidate_view(pool: list, candidates_cfg: list) -> list[dict]:
@@ -309,8 +305,6 @@ def build_candidate_view(pool: list, candidates_cfg: list) -> list[dict]:
             }
         )
     return view
-    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] 候选池统一视图（序号 + 可跑性 + 配置映射）
-
 
 def _name_tokens(item: dict) -> list[str]:
     """候选的可点名文本片段：provider_id 整串、label、以及斜杠/冒号后的模型名（均小写）。"""
@@ -343,8 +337,6 @@ def _pick_candidates(text: str, pool: list) -> list[str]:
         if any(token in text for token in _name_tokens(item)):
             picked.append(provider_id)
     return picked
-    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] 序号 / 名称点名解析
-
 
 def classify_candidate_choice(answer: object, pool: list) -> dict:
     """纯函数：把第 6 段"跑哪几个候选"的答复四分类为 skip / all / pick / other。
@@ -402,8 +394,6 @@ def classify_candidate_choice(answer: object, pool: list) -> dict:
         return {"decision": "all", "picked": all_ids}
     # 6. 不猜
     return {"decision": "other", "picked": []}
-    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] 候选拍板答复四分类纯函数（点名优先于全选）
-
 
 def _selected_view(view: list, choice: dict) -> list[dict]:
     """按分类结果取用户选中的候选视图（保池内顺序；all 取全池）。"""
@@ -473,8 +463,6 @@ def build_decision_payload(
     if stop_reason:
         payload["stop_reason"] = stop_reason
     return payload
-    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] await_decision 候选池材料（全字段 + 可实跑一行）
-
 
 def build_no_runnable_reason(view: list) -> str:
     """用户所选候选一个都不能跑时的再停一次说明（不自动放行、不替用户改选）。"""
@@ -483,7 +471,7 @@ def build_no_runnable_reason(view: list) -> str:
         "请改选本机已接入的候选（回复序号或名称）；若本次都不想实跑，回复「跳过」"
         "按默认模型记推荐。"
     )
-    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] 「选中但一个都不能跑」再停一次说明
+    # 「选中但一个都不能跑」再停一次说明
 
 
 def build_provider_config(
@@ -517,8 +505,6 @@ def build_provider_config(
     # llm-rubric 断言统一由固定阅卷模型评分（S039 真机修复，与 eval_run 同口径）
     ensure_judge_provider(document)
     return yaml.safe_dump(document, allow_unicode=True, sort_keys=False)
-    # [C 2026-09-13 by codebuddy-ds41flash] 单模型 Promptfoo YAML 生成纯函数（chat/reasoner 分档）
-
 
 def _percentile(values: list[float], quantile: float) -> float:
     """最近秩法算百分位：排序后取 ``ceil(q*n)-1``（越界夹紧）。
@@ -612,7 +598,7 @@ def aggregate_candidate_stats(parsed: dict, exam_sets: list | None = None) -> di
         "total": total,
         "critical_total": critical_total,
     }
-    # [C 2026-09-13 by codebuddy-ds41flash] 候选三维指标汇总纯函数（关键题口径复用 eval_run）
+    # 候选三维指标汇总纯函数（关键题口径复用 eval_run）
 
 
 def _is_better(candidate: dict, incumbent: dict) -> bool:
@@ -655,7 +641,7 @@ def judge_bakeoff(candidates: list) -> dict:
         "recommended": winner,
         "candidates": items,
     }
-    # [C 2026-09-13 by codebuddy-ds41flash] 推荐模型硬判纯函数（通过率>关键题率>成本>顺序）
+    # 推荐模型硬判纯函数（通过率>关键题率>成本>顺序）
 
 
 def route_after_bake_off(state: dict) -> str:
@@ -668,8 +654,6 @@ def route_after_bake_off(state: dict) -> str:
     if isinstance(selection, dict) and selection.get("status") in ("completed", "skipped"):
         return "issue_splitting"
     return "bake_off"
-    # [C 2026-09-13 by codebuddy-ds41flash] 对比选型两态条件边路由纯函数
-
 
 def _skipped_selection(candidates_cfg: list, answer: object, ran_at: str) -> dict:
     """人工选择跳过横跑时的 model_selection（默认推荐项目自有 DeepSeek）。"""
@@ -718,7 +702,7 @@ def _unrun_entry(item: dict) -> dict:
         "run_status": _RUN_NOT_RAN,
         "run_note": _ACCESS_PENDING,
     }
-    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] 实跑/未实跑结论条目（未实跑不给三维数据）
+    # 实跑/未实跑结论条目（未实跑不给三维数据）
 
 
 def make_bake_off(deps):
@@ -998,7 +982,4 @@ def make_bake_off(deps):
         }
 
     return bake_off
-    # [C 2026-09-13 by codebuddy-ds41flash] bake_off 节点主体完成（三态暂停 + 代码硬判，不自动空转）
 
-
-# [C 2026-09-13 by codebuddy-ds41flash] nodes/bake_off.py 新增完成

@@ -1,4 +1,4 @@
-# [C 2026-09-11] 块2 工单确认门（issue_confirm）自测
+# 工单确认门（issue_confirm）自测
 """issue_confirm 节点零成本自测：patch 掉 nodes.issues.interrupt，不发起任何真实模型调用。
 
 覆盖：
@@ -201,7 +201,7 @@ class TestClassifyConfirmAnswer(unittest.TestCase):
             "落盘",
             "放行",
             "同意拆",
-            # [MA 2026-09-19] S056：补的日常肯定说法
+            # 补的日常肯定说法
             "行吧",
             "按这个来",
             "好的",
@@ -212,7 +212,7 @@ class TestClassifyConfirmAnswer(unittest.TestCase):
             self.assertEqual(classify_confirm_answer(word), "confirm", msg=word)
 
     def test_empty_string_is_not_confirm(self):
-        # [MA 2026-09-19] S056：空串不再算确认（节点在分类前拦空、继续停等）
+        # 空串不再算确认（节点在分类前拦空、继续停等）
         self.assertEqual(classify_confirm_answer(""), "feedback")
         self.assertEqual(classify_confirm_answer("   "), "feedback")
 
@@ -246,11 +246,11 @@ class TestClassifyConfirmAnswer(unittest.TestCase):
 
     def test_plain_text_defaults_feedback(self):
         self.assertEqual(classify_confirm_answer("I1 和 I2 粒度太粗，合并"), "feedback")
-        # [MA 2026-09-19] S056：None 归一为空串，空串不再算确认
+        # None 归一为空串，空串不再算确认
         self.assertEqual(classify_confirm_answer(None), "feedback")
 
     def test_negated_back_to_prd_is_feedback(self):
-        # [C 2026-09-11] 紧邻否定语的"回炉/重做PRD"是"不回炉"，不得判 back_to_prd
+        # 紧邻否定语的"回炉/重做PRD"是"不回炉"，不得判 back_to_prd
         self.assertEqual(
             classify_confirm_answer("不用回炉，直接改工单"), "feedback"
         )
@@ -262,7 +262,7 @@ class TestClassifyConfirmAnswer(unittest.TestCase):
         self.assertEqual(classify_confirm_answer("先别回PRD"), "feedback")
 
     def test_negated_back_to_prd_expanded_words(self):
-        # [C 2026-09-12 by pi-deepseek-flash] 第③项修复：「不需要/无需」此前漏配，
+        # 「不需要/无需」此前漏配，
         # 「不需要回炉」被误判为 back_to_prd；补词后一律落 feedback
         for word in (
             "不需要回炉",
@@ -276,7 +276,7 @@ class TestClassifyConfirmAnswer(unittest.TestCase):
         self.assertEqual(classify_confirm_answer("需要回炉"), "back_to_prd")
 
     def test_spaced_back_to_prd_keywords(self):
-        # [C 2026-09-11] 关键词内部带空格（含全角空格）归一化后仍判 back_to_prd
+        # 关键词内部带空格（含全角空格）归一化后仍判 back_to_prd
         self.assertEqual(classify_confirm_answer("回 PRD"), "back_to_prd")
         self.assertEqual(classify_confirm_answer("重写 PRD"), "back_to_prd")
         self.assertEqual(classify_confirm_answer("回\u3000PRD"), "back_to_prd")
@@ -314,7 +314,7 @@ class TestIssueConfirmNode(unittest.TestCase):
             )
 
     def test_empty_answer_keeps_waiting_not_confirmed(self):
-        # [MA 2026-09-19] S056 用例 a：draft 阶段空答复再抛 interrupt、不放行；
+        # 用例 a：draft 阶段空答复再抛 interrupt、不放行；
         # 下一句「确认」才只留痕、路由落盘
         out, payloads = run_confirm_node(confirm_state(), ["", "确认"])
         self.assertEqual(len(payloads), 2)
@@ -404,7 +404,7 @@ class TestIssueConfirmNode(unittest.TestCase):
         self.assertIn("退款口径需要重新讨论-CCC", redo_text)
         self.assertIn("完整修订版 PRD", redo_text)
         self.assertIn("重新拆单", redo_text)
-        # [C 2026-09-11] 阻断1回归：原话只由 handle_back_to_prd 统一留痕一次，
+        # 阻断1回归：原话只由 handle_back_to_prd 统一留痕一次，
         # draft 分支不得再 append 一遍（此前 draft-back_to_prd 与 redo-1 重复）
         self.assertEqual(len(out["human_feedback"]), 1)
         log = out["human_feedback"][0]
@@ -440,7 +440,7 @@ class TestIssueConfirmNode(unittest.TestCase):
         self.assertNotIn("prd_rewrite_feedback", out)
 
     def test_back_to_prd_insist_twice_goes_upstream(self):
-        # [MA 2026-09-19] S056 用例 d：redo=1 暂停后二次仍要求回炉
+        # 用例 d：redo=1 暂停后二次仍要求回炉
         # -> 按其意思再回炉（留痕 back_to_prd），不再降级成"仍需回炉PRD："前缀意见
         out, payloads = run_confirm_node(
             confirm_state(issue_prd_redo_count=1),
@@ -468,7 +468,7 @@ class TestIssueConfirmNode(unittest.TestCase):
         self.assertEqual(out["issue_prd_redo_count"], 1)
         self.assertEqual(out["issue_revision_count"], 0)
         self.assertTrue(out["prd_rewrite_feedback"])
-        # [C 2026-09-11] 阻断1回归：首次意见 1 条 + 回PRD 由 handle_back_to_prd
+        # 阻断1回归：首次意见 1 条 + 回PRD 由 handle_back_to_prd
         # 统一留痕 1 条（round=redo-1），同一原话不得出现两条 back_to_prd
         self.assertEqual(len(out["human_feedback"]), 2)
         kinds = [item["kind"] for item in out["human_feedback"]]
@@ -476,10 +476,10 @@ class TestIssueConfirmNode(unittest.TestCase):
         rounds = [item["round"] for item in out["human_feedback"]]
         self.assertEqual(rounds, ["draft-feedback-3", "redo-1"])
 
-    # ── [C 2026-09-12 by pi-deepseek-flash] 第⑥项修复：升级深度硬上限 ──
+    # 升级深度硬上限
 
     def test_escalation_limit_opinion_redrafts(self):
-        # [MA 2026-09-19] S056 用例 b：已超建议轮数后给具体意见
+        # 用例 b：已超建议轮数后给具体意见
         # -> 按其意见再拆一轮（计数 +1、意见写进 issue_revision_feedback、留痕）
         state = confirm_state(
             issue_revision_count=MAX_ISSUE_REVISIONS,
@@ -500,7 +500,7 @@ class TestIssueConfirmNode(unittest.TestCase):
         )
 
     def test_escalation_limit_empty_answer_keeps_waiting(self):
-        # [MA 2026-09-19] S056 用例 a：上限暂停时空答复再抛 interrupt、不放行；
+        # 用例 a：上限暂停时空答复再抛 interrupt、不放行；
         # 下一句「确认」才按当前版落盘
         state = confirm_state(
             issue_revision_count=MAX_ISSUE_REVISIONS,
@@ -516,7 +516,7 @@ class TestIssueConfirmNode(unittest.TestCase):
         self.assertEqual(out["human_feedback"][-1]["kind"], "confirm")
 
     def test_redo_limit_insist_goes_upstream(self):
-        # [MA 2026-09-19] S056 用例 d：回炉额度用尽 + 3 版建议线，
+        # 用例 d：回炉额度用尽 + 3 版建议线，
         # 二次答复换意见后又坚持回炉 -> 按其意思回 prd_generation（留痕）
         state = confirm_state(
             issue_prd_redo_count=1,
@@ -572,7 +572,7 @@ class TestRouteAfterIssueConfirm(unittest.TestCase):
         )
 
     def test_empty_state_goes_back_to_confirm(self):
-        # [MA 2026-09-19] S056：缺字段（None/缺键）不炸，也不再兜底落盘——回本节点继续停等
+        # 缺字段（None/缺键）不炸，也不再兜底落盘——回本节点继续停等
         self.assertEqual(route_after_issue_confirm({}), "issue_confirm")
         self.assertEqual(
             route_after_issue_confirm({"issue_plan": None, "prd_rewrite_feedback": None}),
@@ -624,7 +624,7 @@ class TestConsumeAndClearContracts(unittest.TestCase):
 
 class TestGraphWiring(unittest.TestCase):
     def test_graph_compiles_with_ten_nodes_and_launch_plan_branch(self):
-        # [C 2026-09-11] 块1 新增 launch_plan：确认分支改走 launch_plan -> artifact_persist
+        # launch_plan：确认分支改走 launch_plan -> artifact_persist
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             tmp_path = Path(tmp)
             deps = make_deps(tmp_path, FakeLLM())  # 队列空：只编译不执行
@@ -639,7 +639,7 @@ class TestGraphWiring(unittest.TestCase):
                 "prd_review",
                 "issue_splitting",
                 "issue_confirm",  # 块2 工单确认门
-                "launch_plan",    # [C 2026-09-11] 块1 发布计划节点
+                "launch_plan",    # 发布计划节点
                 "artifact_persist",
             ):
                 self.assertIn(name, names)
@@ -718,7 +718,7 @@ class TestWorkflowQuestionAndAgentsDoc(unittest.TestCase):
         self.assertIn("status=escalated", agents_md)
 
     def test_build_question_draft_vs_escalated_copy(self):
-        # [C 2026-09-11] 阻断2b：draft 与 escalated 文案不同；
+        # 阻断2b：draft 与 escalated 文案不同；
         # escalated（含 redo 额度用尽）不承诺一定可回 PRD，语义以 reason 为准
         module = self._load_workflow_module()
         draft_q = module._build_question(
@@ -747,7 +747,7 @@ class TestWorkflowQuestionAndAgentsDoc(unittest.TestCase):
             self.assertIn("不再承诺", q)
 
     def test_emit_hitl_escalated_exposes_status_reason_priors(self):
-        # [C 2026-09-11] 阻断2a：escalated 载荷经 _emit_hitl 必须向 Pi 透传
+        # 阻断2a：escalated 载荷经 _emit_hitl 必须向 Pi 透传
         # status / reason / prior_feedbacks（list 走 JSON），且不重复打印
         module = self._load_workflow_module()
         payload = {
@@ -782,7 +782,7 @@ class TestWorkflowQuestionAndAgentsDoc(unittest.TestCase):
         self.assertEqual(out.count("prior_feedbacks:"), 1)
 
     def test_emit_hitl_does_not_pollute_requirement_confirm(self):
-        # [C 2026-09-11] 阻断2a：升级三字段仅 issue_confirm 输出；
+        # 阻断2a：升级三字段仅 issue_confirm 输出；
         # 即便 requirement_confirm 载荷碰巧带同名键也不得泄漏进 STATUS 块
         module = self._load_workflow_module()
         payload = {

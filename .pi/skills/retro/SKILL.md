@@ -104,4 +104,4 @@ bash scripts/run-tool.sh scripts/kb_query.py --query "复盘 改进 行动项 �
 - [ ] 与发布场景衔接时，对照的是 launch-plan 中 D7/D30 既定目标；采用的假设已在开头标注
 - [ ] 产物为 markdown；未自制 HTML / PPT 等演示物
 
-<!-- [C 2026-09-10] S020-1：发布计划+复盘技能 -->
+<!-- 发布计划+复盘技能 -->

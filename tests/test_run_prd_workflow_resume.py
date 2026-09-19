@@ -1,4 +1,4 @@
-# [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 修复A 断点续跑自测
+# 断点续跑自测
 """scripts/run_prd_workflow.py `_run_resume` 三态零 API 测试（假图，不调模型、不建真 graph）。
 
 覆盖任务书「修复 A」的口径：
@@ -10,7 +10,7 @@
    - 停在下一个停等点 -> `STATUS: HITL`，退出码 0；
    - 一路跑完 -> `STATUS: DONE`，退出码 0；
 4. 既有「有待处理中断 -> Command(resume)」路径未改动（回归护栏）；
-5. [C 2026-09-19 by codebuddy-ds41flash] S056：有待处理中断时 `--answer` 为空串 / 未传 /
+5. ：有待处理中断时 `--answer` 为空串 / 未传 /
    纯空白 -> 不放行：打印「未收到答复」并重新输出同一节点 `STATUS: HITL`，退出码 0，不 stream；
    给明确答复 -> 正常 `Command(resume)` 推进。
 
@@ -265,4 +265,3 @@ if __name__ == "__main__":
     unittest.main(verbosity=2)
 
 
-# [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] tests/test_run_prd_workflow_resume.py 新增完成

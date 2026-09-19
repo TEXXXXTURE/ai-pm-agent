@@ -1,9 +1,9 @@
-# [C 2026-09-10] PRD 评审门（prd_review）自测
+# PRD 评审门（prd_review）自测
 """prd_review 节点零成本自测：全部使用可编排 FakeLLM，不发起任何真实模型调用。
 
 覆盖：
 1. judge_scores 硬判纯函数四场景（pass / pass_with_warning / reject / 边界 3.5）；
-1.5 阻断一票否决（阻断级 blocker 不看分数直接打回，重要/建议不否决） [C 2026-09-12]；
+1.5 阻断一票否决（阻断级 blocker 不看分数直接打回，重要/建议不否决） ；
 2. 节点级：reject 计数递增+反馈文本、连续 reject 第 3 轮 forced 放行、pass 计数不变；
 3. route_after_review 路由；
 4. build_graph 图接线编译（不调模型）；
@@ -168,7 +168,7 @@ class TestJudgeScores(unittest.TestCase):
             judge_scores([])
 
 
-# ─────────────────── 1.5 阻断一票否决 [C 2026-09-12] ───────────────────
+# 1.5 阻断一票否决
 
 
 class TestJudgeScoresBlockerVeto(unittest.TestCase):
@@ -346,7 +346,7 @@ class TestRouter(unittest.TestCase):
         self.assertEqual(route_after_review(state), "prd_generation")
 
     def test_pass_and_warn_to_issue_splitting(self):
-        # [C 2026-09-11] 块1：通过分支不再直连落盘，改走 issue_splitting 拆研发工单
+        # 通过分支不再直连落盘，改走 issue_splitting 拆研发工单
         self.assertEqual(
             route_after_review({"red_team_review": {"verdict": "pass"}}),
             "issue_splitting",
@@ -379,7 +379,7 @@ class TestGraphWiring(unittest.TestCase):
             node_names = set(graph.get_graph().nodes.keys())
             self.assertIn("prd_review", node_names)
             self.assertIn("prd_generation", node_names)
-            self.assertIn("issue_splitting", node_names)  # [C 2026-09-11] 块1新节点
+            self.assertIn("issue_splitting", node_names)  # 新节点
             self.assertIn("artifact_persist", node_names)
 
             # 静态断言条件边存在：prd_review 的 mermaid 连线指向打回/拆单两个目标
@@ -450,7 +450,7 @@ class TestTemplateAndPersist(unittest.TestCase):
             self.assertIn("第 3 轮", md)
 
     def test_blockers_title_followups_when_pass_with_blockers(self):
-        # [C 2026-09-10] 修复1：verdict=pass 但 blockers 非空（模型标了阻断级 finding）时，
+        # 修复1：verdict=pass 但 blockers 非空（模型标了阻断级 finding）时，
         # 标题不得再写"必须修后复审"，应切换为"待跟进问题"，表格内容照常渲染。
         with tempfile.TemporaryDirectory() as tmp:
             deps = make_deps(Path(tmp))
@@ -470,7 +470,7 @@ class TestTemplateAndPersist(unittest.TestCase):
             self.assertIn("阻断级误标-GGG", md)
 
     def test_blockers_title_reject_and_forced(self):
-        # [C 2026-09-10] 修复1：reject 保持"Blockers（必须修后复审）"；
+        # 修复1：reject 保持"Blockers（必须修后复审）"；
         # forced=True（第 3 轮强制放行）切换为"强制放行遗留问题"。
         with tempfile.TemporaryDirectory() as tmp:
             deps = make_deps(Path(tmp))
@@ -498,7 +498,7 @@ class TestTemplateAndPersist(unittest.TestCase):
             self.assertNotIn("必须修后复审", forced_md)
 
     def test_round_label_first_round_and_re_review(self):
-        # [C 2026-09-10] 修复2：round=0 显示"首轮评审"且不出现"第 0 轮"；
+        # 修复2：round=0 显示"首轮评审"且不出现"第 0 轮"；
         # round=2 显示"第 2 轮修订后复审"。
         with tempfile.TemporaryDirectory() as tmp:
             deps = make_deps(Path(tmp))
@@ -612,7 +612,7 @@ class TestGenerationPromptConditional(unittest.TestCase):
             self.assertIn("逐条修复 AAA", rendered)
             self.assertIn("第 1 轮", rendered)
 
-    # [C 2026-09-12 by codebuddy-ds41flash] prd_review AI 专项检查条件块渲染测试
+    # prd_review AI 专项检查条件块渲染测试
     AI_CHECK_KEYWORDS = ("协作边界", "负向验收", "风险登记册", "kill 阈值")
 
     def _render_prd_review(self, **extra):
@@ -656,7 +656,7 @@ class TestGenerationPromptConditional(unittest.TestCase):
 
 
 # ────────────────────────── R10 证据分级 ──────────────────────────
-# [C 2026-09-16 by MA] R10：关键结论标来源等级 [T1]-[T5]，低等级驱动的决策显式标记。
+# 关键结论标来源等级 [T1]-[T5]，低等级驱动的决策显式标记。
 
 
 class TestR10EvidenceTier(unittest.TestCase):

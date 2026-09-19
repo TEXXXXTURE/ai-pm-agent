@@ -1,4 +1,4 @@
-# [C 2026-09-11] 发布计划 schema（launch_plan 节点）
+# 发布计划 schema（launch_plan 节点）
 """LaunchPlanSchema：发布计划（GTM launch plan）模型输出结构。
 
 按 registry 命名约定：文件名 launch_plan -> 类名 LaunchPlanSchema。
@@ -23,7 +23,7 @@ class SuccessMetrics(BaseModel):
 
     d7: str = Field(description="第 7 天的数字化成功目标（如日活破 X、核心转化率 Y%）")
     d30: str = Field(description="第 30 天的数字化成功目标")
-    # [C 2026-09-16 by MA] R10 证据分级：D7/D30 目标数字的关键来源等级 [T1]-[T5]，可空。
+    # 证据分级：D7/D30 目标数字的关键来源等级 [T1]-[T5]，可空。
     evidence_tier: Literal["T1", "T2", "T3", "T4", "T5"] | None = Field(
         default=None,
         description=(
@@ -124,7 +124,7 @@ class Risk(BaseModel):
     early_warning: str = Field(
         description="早期预警信号（可观察的数字或事件，不是'感觉不对'）"
     )
-    # [C 2026-09-16 by MA] R10 证据分级：本风险判断依据的关键来源等级 [T1]-[T5]，可空。
+    # 证据分级：本风险判断依据的关键来源等级 [T1]-[T5]，可空。
     evidence_tier: Literal["T1", "T2", "T3", "T4", "T5"] | None = Field(
         default=None,
         description=(
@@ -256,7 +256,7 @@ class LaunchPlanSchema(BaseModel):
         default=None,
         description="Tier1 扩展检查；仅 Tier1 必填，Tier2/3 给 null",
     )
-    # [C 2026-09-13 by codebuddy-ds41flash] 两组 AI 专属字段，仅 AI 核心需求（ai_core=true）
+    # 两组 AI 专属字段，仅 AI 核心需求（ai_core=true）
     # 必填并由 judge 纯函数硬判；普通需求给 null（不产出、不校验）。
     ai_guardrails: Optional[list[KillThreshold]] = Field(
         default=None,
@@ -274,5 +274,4 @@ class LaunchPlanSchema(BaseModel):
     )
 
 
-# [C 2026-09-11] schemas/launch_plan.py 新增完成
-# [C 2026-09-13 by codebuddy-ds41flash] 新增 KillThreshold/CohortStage 与两组 AI 专属 Optional 字段
+# KillThreshold/CohortStage 与两组 AI 专属 Optional 字段

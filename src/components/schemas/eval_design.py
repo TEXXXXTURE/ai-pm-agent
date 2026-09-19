@@ -1,4 +1,4 @@
-# [C 2026-09-12 by codebuddy-ds41flash] 设计评测体系 schema（eval_design 节点）
+# 设计评测体系 schema（eval_design 节点）
 """EvalDesignSchema：四层考题集 + 每题评分方式 + 及格线建议值。
 
 按 registry 命名约定：文件名 eval_design -> 类名 EvalDesignSchema。
@@ -64,7 +64,7 @@ class ExamItem(BaseModel):
         le=1.0,
         description="人工抽检比例（scorer=llm_judge 时必须 >0，如 0.2 表示抽检 20%）",
     )
-    # [C 2026-09-12 by codebuddy-ds41flash] 第 8 段新增：关键题标记（供评测达标硬判筛关键题）
+    # 第 8 段新增：关键题标记（供评测达标硬判筛关键题）
     critical: bool = Field(
         default=False,
         description="是否为关键题：典型层中指向核心功能的题标 true；对抗层题本就视为关键无需标",
@@ -145,4 +145,3 @@ class EvalDesignSchema(BaseModel):
         return self
 
 
-# [C 2026-09-12 by codebuddy-ds41flash] schemas/eval_design.py 新增完成

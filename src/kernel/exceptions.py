@@ -1,4 +1,4 @@
-# [C 2026-09-08] M1 内核骨架 - 异常与自检结果
+# 内核骨架 - 异常与自检结果
 """节点执行异常与自检结果定义。"""
 from dataclasses import dataclass
 
@@ -28,4 +28,3 @@ class CheckResult:
     feedback: str = ""
 
 
-# [C 2026-09-08] exceptions.py 实现完成

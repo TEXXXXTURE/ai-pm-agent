@@ -89,4 +89,4 @@ bash scripts/run-tool.sh scripts/kb_query.py --query "北极星 指标 埋点" -
 - [ ] 输入 / 输出标签、负责团队标注齐全；商业模式与产品阶段已在分析中考虑
 - [ ] 产物为 markdown；未自制 HTML / PPT 等演示物
 
-<!-- [C 2026-09-10] T3第2批：路线图+指标树技能 -->
+<!-- 路线图+指标树技能 -->

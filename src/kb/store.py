@@ -1,4 +1,4 @@
-# [C 2026-09-09] M5 知识库接入 - 本地档案检索（纯标准库关键词打分）
+# 知识库接入 - 本地档案检索（纯标准库关键词打分）
 """KBStore：本地知识库检索。
 
 - index.json 位于 store_path 根下，结构：
@@ -141,4 +141,3 @@ class KBStore:
         return self.retrieve_relevant(query, types=["case"], top_k=top_k)
 
 
-# [C 2026-09-09] M5 KBStore 实现完成

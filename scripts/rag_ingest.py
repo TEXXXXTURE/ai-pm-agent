@@ -1,4 +1,4 @@
-# [C 2026-09-12] R3 知识库入库命令行工具
+# 知识库入库命令行工具
 """rag_ingest.py — 领域知识库入库 CLI（概念层 Markdown / 论文层 JSON → ChromaDB）。
 
 用途：把 domain_kb/source 下的概念层文档与论文层 JSON 写进 ChromaDB 的
@@ -171,4 +171,3 @@ def main(argv: list[str] | None = None) -> int:
 if __name__ == "__main__":
     sys.exit(main())
 
-# [C 2026-09-12 by pi-deepseek-v4-flash]

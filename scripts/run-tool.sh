@@ -15,7 +15,7 @@
 #
 # 退出码：跟随被执行脚本的退出码；hermes python 不存在时退出 1。
 #
-# [C 2026-09-10] T4-1 工具脚本包装器
+# 工具脚本包装器
 
 set -euo pipefail
 
@@ -51,7 +51,7 @@ export PATH="$HERMES_BIN:$PATH"
 #    (b) 分隔符：Windows 上 PYTHONPATH 的条目分隔符是「;」不是「:」。
 #        若写成 "${PYTHONPATH:+:$PYTHONPATH}"，调用方已有 PYTHONPATH 时（Pi 启动
 #        脚本会设）会拼成 "src:src" 这种单条无效路径，同样 ModuleNotFoundError。
-#    [C 2026-09-17] S053：修路径形式 + 分隔符，两处都勿改回。
+# 修路径形式 + 分隔符，两处都勿改回。
 PROJECT_ROOT_WIN="$(cygpath -m "$PROJECT_ROOT")"
 export PYTHONPATH="$PROJECT_ROOT_WIN/src${PYTHONPATH:+;$PYTHONPATH}"
 
@@ -59,7 +59,7 @@ export PYTHONPATH="$PROJECT_ROOT_WIN/src${PYTHONPATH:+;$PYTHONPATH}"
 unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy
 
 # 3.5) LiteLLM 用本地模型价格表，不拉远程（远程握手失败会阻塞 400 秒）
-#     [MA 2026-09-17] R13 真机发现：ChatLiteLLM 初始化会尝试拉取远程价格表，
+# 真机发现：ChatLiteLLM 初始化会尝试拉取远程价格表，
 #     握手超时阻塞；本地表足够，禁远程后每个脚本启动省 ~400 秒。
 export LITELLM_LOCAL_MODEL_COST_MAP=True
 

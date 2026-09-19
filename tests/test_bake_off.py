@@ -1,4 +1,4 @@
-# [C 2026-09-13 by codebuddy-ds41flash] 对比选型模型节点（bake_off）自测
+# 对比选型模型节点（bake_off）自测
 """bake_off 零 API 假测试：patch 掉 nodes.bake_off.interrupt 与 nodes.eval_run.subprocess.run，
 subprocess 全部 mock，不发起任何真实模型调用、不跑真 Promptfoo、不碰真机。
 
@@ -705,9 +705,9 @@ class TestGraphWiring(unittest.TestCase):
             graph = build_graph(deps, db_path=str(tmp_path / "g.db"))
             names = set(graph.get_graph().nodes.keys())
             self.assertIn("bake_off", names)
-            # [C 2026-09-14 by codebuddy-ds41flash] S041 新增 requirement_refine 后为 18 个真实节点
-            # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 新增 eval_gate 后为 19 个真实节点
-            # [C 2026-09-16] R11 新增 readiness_assessment 后为 20 个真实节点
+            # requirement_refine 后为 18 个真实节点
+            # eval_gate 后为 19 个真实节点
+            # readiness_assessment 后为 20 个真实节点
             real = names - {"__start__", "__end__"}
             self.assertEqual(len(real), 20)
             drawn = graph.get_graph().draw_mermaid()
@@ -1146,4 +1146,3 @@ if __name__ == "__main__":
     unittest.main(verbosity=2)
 
 
-# [C 2026-09-13 by codebuddy-ds41flash] tests/test_bake_off.py 新增完成

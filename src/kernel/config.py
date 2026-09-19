@@ -1,5 +1,5 @@
-# [MA 2026-09-08] 配置加载器：读取 config.yaml + .env，提供 LLM Provider 配置
-# [C 2026-09-09] get_llm_config 改为 LiteLLM 模型串格式（litellm_model），支持本地模型空密钥
+# 配置加载器：读取 config.yaml + .env，提供 LLM Provider 配置
+# get_llm_config 改为 LiteLLM 模型串格式（litellm_model），支持本地模型空密钥
 """全局配置加载模块。
 
 用法:
@@ -52,7 +52,7 @@ def get_llm_config(config: dict[str, Any], provider: str | None = None) -> dict[
         配置了 api_base 时额外包含 api_base。
 
     说明:
-        - max_tokens 取自 llm 段，未配置时为 None（[C 2026-09-15 by codebuddy-ds41flash] S046），
+        - max_tokens 取自 llm 段，未配置时为 None，
           调用方据此决定是否透传该参数；
         - api_key_env 为空字符串（本地模型，如 ollama）：api_key 返回空串，不报错；
         - api_key_env 非空但环境变量缺失：抛 ValueError，报错信息含环境变量名。
@@ -69,7 +69,7 @@ def get_llm_config(config: dict[str, Any], provider: str | None = None) -> dict[
 
     p = providers[provider_name]
 
-    # [C 2026-09-09] LiteLLM 模型串为必填项
+    # LiteLLM 模型串为必填项
     litellm_model = p.get("litellm_model")
     if not litellm_model:
         raise ValueError(
@@ -77,7 +77,7 @@ def get_llm_config(config: dict[str, Any], provider: str | None = None) -> dict[
             f"（LiteLLM 模型串，如 'deepseek/deepseek-chat'、'ollama/qwen2.5'）。"
         )
 
-    # [C 2026-09-09] 本地模型 api_key_env 为空字符串时不查环境变量、不报错
+    # 本地模型 api_key_env 为空字符串时不查环境变量、不报错
     api_key_env = p.get("api_key_env", "") or ""
     if api_key_env:
         api_key = os.environ.get(api_key_env, "")
@@ -95,7 +95,7 @@ def get_llm_config(config: dict[str, Any], provider: str | None = None) -> dict[
         "max_retries": llm_section.get("max_retries", 2),
         "provider": provider_name,
     }
-    # [C 2026-09-15 by codebuddy-ds41flash] S046 max_tokens：长结构化产物防截断；
+    # max_tokens：长结构化产物防截断；
     # 未配置时为 None，build_llm/build_chat 不传该参数（保持 provider 默认，向后兼容）
     result["max_tokens"] = llm_section.get("max_tokens")
     # 可选：OpenAI 兼容自定义端点（透传给 ChatLiteLLM 的 api_base）
@@ -104,5 +104,4 @@ def get_llm_config(config: dict[str, Any], provider: str | None = None) -> dict[
     return result
 
 
-# [MA 2026-09-08]
-# [C 2026-09-09] get_llm_config 适配 LiteLLM 完成
+# get_llm_config 适配 LiteLLM 完成

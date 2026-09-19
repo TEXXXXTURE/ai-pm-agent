@@ -1,4 +1,4 @@
-# [C 2026-09-12 by MA] S033 块2a - AI 适用性分流 + ai-native PRD 模板自测
+# AI 适用性分流 + ai-native PRD 模板自测
 """requirement_confirm 节点（含 ai_triage 分流）+ prd_generation 模板选择 自测：
 patch 掉 nodes.hitl.interrupt，不发起任何真实模型调用。
 
@@ -168,17 +168,17 @@ class TestClassifyRequirementAnswer(unittest.TestCase):
             )
 
     def test_empty_is_not_confirm(self):
-        # [MA 2026-09-19] S056：空串不再算确认（节点在分类前拦空、继续停等）
+        # 空串不再算确认（节点在分类前拦空、继续停等）
         self.assertEqual(classify_requirement_answer(""), "feedback")
         self.assertEqual(classify_requirement_answer("   "), "feedback")
         self.assertEqual(classify_requirement_answer(None), "feedback")
 
     def test_colloquial_confirm_words(self):
-        # [MA 2026-09-19] S056：措辞不在旧词表也按字面意思当确认
+        # 措辞不在旧词表也按字面意思当确认
         for word in ("行吧", "按这个来", "好的", "听你的", "没意见", "通过吧"):
             self.assertEqual(classify_requirement_answer(word), "confirm", msg=word)
 
-    # [C 2026-09-14 by codebuddy-ds41flash] S041 小块1：中文确认词对齐工单门
+    # 中文确认词对齐工单门
     def test_chinese_confirm_words(self):
         for word in (
             "确认",
@@ -337,7 +337,7 @@ class TestRequirementConfirmNode(unittest.TestCase):
         self.assertEqual(out["human_feedback"][0]["kind"], "confirm")
 
     def test_empty_answer_keeps_waiting_not_confirmed(self):
-        # [MA 2026-09-19] S056 用例 a：空答复再抛 interrupt、不放行；
+        # 用例 a：空答复再抛 interrupt、不放行；
         # 下一句「确认」才按确认走（两次载荷都带 ai_triage，节点不重调模型）
         fake = FakeLLM(
             json_queue=[
@@ -352,7 +352,7 @@ class TestRequirementConfirmNode(unittest.TestCase):
         self.assertEqual(out["human_feedback"][-1]["kind"], "confirm")
 
     def test_colloquial_confirm_word_lands(self):
-        # [MA 2026-09-19] S056 用例 f：措辞「行吧」「按这个来」按确认处理
+        # 用例 f：措辞「行吧」「按这个来」按确认处理
         for word in ("行吧", "按这个来"):
             fake = FakeLLM(
                 json_queue=[
@@ -395,7 +395,7 @@ class TestRequirementConfirmNode(unittest.TestCase):
 
     def test_non_ai_keyword_overrides_model_suggestion(self):
         # 模型建议 ai_core，用户改判非AI 且带附言
-        # [C 2026-09-14 by codebuddy-ds41flash] S041：改判带附言不再直接用用户文本替换
+        # 改判带附言不再直接用用户文本替换
         # confirmed_requirement——confirmed 保留原 raw_requirement，附言交整合节点处理
         fake = FakeLLM(
             json_queue=[
@@ -426,7 +426,7 @@ class TestRequirementConfirmNode(unittest.TestCase):
             confirm_state(), ["AI核心"], fake
         )
         self.assertTrue(out["ai_core"])
-        # [C 2026-09-14 by codebuddy-ds41flash] S041 小块1：纯改判不污染需求
+        # 纯改判不污染需求
         self.assertEqual(out["confirmed_requirement"], "帮产品经理做会议纪要总结")
         # 纯改判不进整合节点
         self.assertFalse(out["requirement_refine_pending"])
@@ -436,7 +436,7 @@ class TestRequirementConfirmNode(unittest.TestCase):
 
     def test_free_text_feedback_keeps_model_suggestion(self):
         # 用户给需求修订意见（feedback），分流沿用模型建议
-        # [C 2026-09-14 by codebuddy-ds41flash] S041：feedback 不再直接替换 confirmed_requirement
+        # feedback 不再直接替换 confirmed_requirement
         # ——confirmed 保留原 raw_requirement，意见交整合节点处理
         fake = FakeLLM(
             json_queue=[
@@ -456,7 +456,7 @@ class TestRequirementConfirmNode(unittest.TestCase):
         self.assertNotIn("eval_cases", out)
         self.assertEqual(out["human_feedback"][-1]["kind"], "feedback")
 
-    # [C 2026-09-14 by codebuddy-ds41flash] S041 小块1：纯改判不污染需求文本
+    # 纯改判不污染需求文本
     def test_pure_reclassify_keeps_raw_requirement(self):
         # 用户只回"AI核心"/"非AI"等纯改判词，关键词不写回 confirmed_requirement
         fake = FakeLLM(
@@ -661,7 +661,7 @@ class TestPrdGenerationTemplateSelection(unittest.TestCase):
 
 class TestGraphWiring(unittest.TestCase):
     def test_graph_compiles_with_eleven_nodes(self):
-        # [C 2026-09-12 by MA] S033 块2a：图结构不动，仍 11 节点
+        # 图结构不动，仍 11 节点
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             tmp_path = Path(tmp)
             deps = make_deps(tmp_path, FakeLLM())
@@ -773,4 +773,3 @@ if __name__ == "__main__":
     unittest.main(verbosity=2)
 
 
-# [C 2026-09-12 by MA] tests/test_ai_triage.py 新增完成

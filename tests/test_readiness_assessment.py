@@ -1,4 +1,4 @@
-# [C 2026-09-16] 就绪度打分节点（readiness_assessment，R11）自测
+# 就绪度打分节点（readiness_assessment）自测
 """readiness_assessment 零 API 假测试：FakeLLM 提供 11 维度打分，不发任何真实模型调用。
 
 覆盖：

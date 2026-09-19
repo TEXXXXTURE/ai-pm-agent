@@ -1,4 +1,4 @@
-# [C 2026-09-12] RAG 子库 - 检索器（分层加权混合检索：向量召回 + 候选内关键词分）
+# RAG 子库 - 检索器（分层加权混合检索：向量召回 + 候选内关键词分）
 """RAGStore：在 agent_knowledge collection 上做分层加权混合检索。
 
 检索流程（对应《RAG知识库实施规划》5.4）：
@@ -217,4 +217,3 @@ class RAGStore:
         return None
 
 
-# [C 2026-09-12 by pi-deepseek-v4-flash]

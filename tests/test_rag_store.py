@@ -1,4 +1,4 @@
-# [C 2026-09-12] RAG 检索器自测 - 真实临时 ChromaDB + 方向可控假 embedder（零真实 API）
+# RAG 检索器自测 - 真实临时 ChromaDB + 方向可控假 embedder（零真实 API）
 """RAGStore 零成本自测：ChromaDB 用 tmp_path 下的真实嵌入式实例，嵌入走方向可控假 embedder。
 
 假 embedder 设计：每个关键词一个单位基向量（最后一维为"无关键词"兜底方向），
@@ -415,4 +415,3 @@ def test_search_reads_new_params_defaults(tmp_path):
     assert len(store.search("beta")) == 1
 
 
-# [C 2026-09-12 by pi-deepseek-v4-flash]

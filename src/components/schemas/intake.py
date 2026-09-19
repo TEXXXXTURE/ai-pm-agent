@@ -1,4 +1,4 @@
-# [C 2026-09-08] M2 组件框架 - 需求接收 schema
+# 组件框架 - 需求接收 schema
 """IntakeSchema：需求接收节点的输出结构（6 维度信息完整度评估）。"""
 from __future__ import annotations
 
@@ -51,4 +51,3 @@ class IntakeSchema(BaseModel):
         return self
 
 
-# [C 2026-09-08] schemas/intake.py 实现完成

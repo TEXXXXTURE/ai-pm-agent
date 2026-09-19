@@ -1,5 +1,5 @@
-# [C 2026-09-12 by codebuddy-ds41flash] 判断需求与 AI 的边界节点（feasibility_check + feasibility_confirm HITL）
-# [C 2026-09-14 by S043-b3] feasibility_check 重写：探针真跑（进程内 function calling ReAct）
+# 判断需求与 AI 的边界节点（feasibility_check + feasibility_confirm HITL）
+# feasibility_check 重写：探针真跑（进程内 function calling ReAct）
 """判断需求与 AI 的边界：流水线生成可行性报告（含探针方案）-> 自动跑探针采集证据 -> 人工在确认门录入结论。
 
 图位置（第 2 段，仅 AI 核心需求经过）：
@@ -62,10 +62,10 @@ from kernel.exceptions import NodeExecutionError
 from kernel.model import build_chat, build_llm, extract_json
 from kernel.spec import NodeSpec
 
-# 重塑额度：全程限 1 次；计数达到该值后再要求重塑 -> 先升级暂停，由人重新拍板 [C 2026-09-12]
+# 重塑额度：全程限 1 次；计数达到该值后再要求重塑 -> 先升级暂停，由人重新拍板
 MAX_FEASIBILITY_RESHAPE = 1
 
-# ReAct 循环硬上限：探针执行最多 8 轮模型调用，防止死循环 [C 2026-09-14 by S043-b3]
+# ReAct 循环硬上限：探针执行最多 8 轮模型调用，防止死循环
 MAX_REACT_ROUNDS = 8
 
 
@@ -78,16 +78,16 @@ class RunProbeTool(BaseModel):
     """
 
     # bind_tools 注册名=run_probe，与 _run_react_probes 的 tc_name 判定一致
-    # [C 2026-09-14 by codebuddy-ds41flash] S043 块3 真机修复：显式 title 修工具名不匹配
+    # 真机修复：显式 title 修工具名不匹配
     model_config = ConfigDict(title="run_probe")
 
     probe_name: str = Field(description="探针名称")
     prompt: str = Field(description="要发给模型的探针 prompt 文本")
     expected: str = Field(description="期望观察到的结果，用于判定是否通过")
-    # [C 2026-09-14 by S043-b3] RunProbeTool 工具定义（pydantic BaseModel，供 bind_tools 绑定）
+    # RunProbeTool 工具定义（pydantic BaseModel，供 bind_tools 绑定）
 
 # 通过精确集合：归一化（strip + lower）后恰好属于其中才算 pass。
-# [MA 2026-09-19] S056：去空串（空答复不算通过，节点在分类前拦空并继续停等），
+# 去空串（空答复不算通过，节点在分类前拦空并继续停等），
 # 补日常肯定说法。
 _PASS_WORDS: frozenset[str] = frozenset(
     {
@@ -151,8 +151,8 @@ _ABANDON_KEYWORDS: tuple[str, ...] = (
     "停做",
 )
 
-# 重塑额度用尽后的升级暂停说明 [C 2026-09-12]
-# [MA 2026-09-19] S056：额度是建议不是闸门——坚持重塑就按用户意思回第 1 段
+# 重塑额度用尽后的升级暂停说明
+# 额度是建议不是闸门——坚持重塑就按用户意思回第 1 段
 _RESHAPE_LIMIT_REASON = (
     "已重塑过 1 次（建议额度）。你可以回复「通过」进 PRD；回复「改判普通」转普通轨；"
     "回复「放弃」结束流程；仍要重塑我按你的意思回第 1 段调范围。"
@@ -160,7 +160,7 @@ _RESHAPE_LIMIT_REASON = (
 
 # 证据不齐时二次确认的强制放行词（归一化后精确匹配）
 # 与原 _PASS_WORDS 区分：原词如「通过」「确认」不足以在证据不齐时放行，
-# 必须用更显式的「仍进PRD」类表态，避免用户无意确认即放行。 [C 2026-09-15]
+# 必须用更显式的「仍进PRD」类表态，避免用户无意确认即放行。
 _EVIDENCE_PASS_WORDS: frozenset[str] = frozenset(
     {
         "仍进prd",
@@ -170,7 +170,7 @@ _EVIDENCE_PASS_WORDS: frozenset[str] = frozenset(
     }
 )
 
-# 证据缺口二次 interrupt 的 reason 模板 [C 2026-09-15]
+# 证据缺口二次 interrupt 的 reason 模板
 _EVIDENCE_GAP_REASON_TEMPLATE = (
     "探针证据不齐，未自动放行。请明确答复：「仍进PRD」强制放行；"
     "或「改判普通」「重塑」「放弃」走对应分支；"
@@ -188,8 +188,6 @@ def _is_evidence_pass_answer(text: str) -> bool:
     stripped = str(text if text is not None else "").strip()
     compact = re.sub(r"[\s\u3000]+", "", stripped.lower())
     return compact in _EVIDENCE_PASS_WORDS
-    # [C 2026-09-15 by codebuddy-glm-5.2] S045 块4：二次确认强制放行词判定
-
 
 def audit_probe_evidence(evidence: list) -> dict:
     """纯函数：审计探针证据列表的完整性，返回缺口字典（零 API 可测）。
@@ -282,7 +280,7 @@ def audit_probe_evidence(evidence: list) -> dict:
         "complete": complete,
         "guidance": guidance,
     }
-    # [C 2026-09-15 by codebuddy-glm-5.2] S045 块4：探针证据审计纯函数
+    # 探针证据审计纯函数
 
 
 def _evidence_audit_hint(audit: dict) -> str:
@@ -294,14 +292,10 @@ def _evidence_audit_hint(audit: dict) -> str:
     if audit["complete"] and not audit["failed"]:
         return ""
     return f"⚠ 证据不齐：{audit['guidance']}"
-    # [C 2026-09-15 by codebuddy-glm-5.2] S045 块4：证据缺口显著提示
-
 
 def _evidence_gap_reason(audit: dict) -> str:
     """生成二次 interrupt（status=evidence_gap）的 reason 文案。"""
     return f"{_EVIDENCE_GAP_REASON_TEMPLATE}（缺口：{audit['guidance']}）"
-    # [C 2026-09-15 by codebuddy-glm-5.2] S045 块4：证据缺口 reason 文案
-
 
 def classify_feasibility_answer(text: str) -> str:
     """纯函数：把确认AI可行性门的用户答复归一化分类为 pass / reclassify / reshape / abandon / feedback。
@@ -313,7 +307,7 @@ def classify_feasibility_answer(text: str) -> str:
     3. **再做通过精确集合判定**：归一化后恰好属于 ``_PASS_WORDS`` 才 pass；
     4. 其余一律 feedback（补充意见，节点内默认按 pass 处理并留痕）。
 
-    [MA 2026-09-19] S056：空串不属于通过词集合，本函数对空串返回 feedback；
+    空串不属于通过词集合，本函数对空串返回 feedback；
     空答复由节点在调用本函数之前拦下（不当作通过、不当作意见），继续停等下一句。
 
     Returns:
@@ -331,8 +325,6 @@ def classify_feasibility_answer(text: str) -> str:
     if lowered in _PASS_WORDS:
         return "pass"
     return "feedback"
-    # [C 2026-09-12 by codebuddy-ds41flash] 确认AI可行性门答复分类纯函数
-
 
 def route_after_feasibility_confirm(state: dict) -> str:
     """确认AI可行性门后的条件边路由：按 feasibility_confirm.verdict 四态映射。
@@ -350,8 +342,6 @@ def route_after_feasibility_confirm(state: dict) -> str:
     if verdict == "abandon":
         return END
     return "prd_generation"
-    # [C 2026-09-12 by codebuddy-ds41flash] 确认AI可行性门四态条件边路由纯函数
-
 
 def _normalize_answer(answer: object) -> tuple[str, str]:
     """resume 值归一化：返回 (分类, strip 后原文)；None/非字符串安全转空串。"""
@@ -397,7 +387,7 @@ def _parse_react_results(content: object) -> list[dict] | None:
     """
     if content is None:
         return None
-    # [C 2026-09-14 by codebuddy-ds41flash] S043 块3 真机修复2：
+    # 真机修复2：
     # DeepSeek 思考模式返回 content blocks，判定 JSON 在 text 块，thinking 段必须跳过
     if isinstance(content, list):
         text = "\n".join(
@@ -419,8 +409,6 @@ def _parse_react_results(content: object) -> list[dict] | None:
     if not isinstance(results, list):
         return None
     return results
-    # [C 2026-09-14 by S043-b3] ReAct 最终判定 JSON 解析（容错，失败返回 None）
-
 
 def _merge_react_results(evidence: list[dict], results: list[dict]) -> None:
     """把模型最终判定（results 列表）合并到 evidence：按 probe_name 匹配，更新 passed/reason。
@@ -444,7 +432,7 @@ def _merge_react_results(evidence: list[dict], results: list[dict]) -> None:
         reason = item.get("reason") or ""
         if reason and not target.get("reason"):
             target["reason"] = reason
-    # [C 2026-09-14 by S043-b3] 合并模型最终判定到 evidence
+    # 合并模型最终判定到 evidence
 
 
 def _run_react_probes(
@@ -581,8 +569,6 @@ def _run_react_probes(
             )
 
     return evidence
-    # [C 2026-09-14 by S043-b3] ReAct 循环执行探针（进程内 function calling，硬上限 8 轮）
-
 
 def _backfill_evidence_to_report(report: dict, evidence: list[dict]) -> dict:
     """把探针证据回填到报告的 capability_matrix，并按规则降级绿色无证据项。
@@ -610,7 +596,7 @@ def _backfill_evidence_to_report(report: dict, evidence: list[dict]) -> dict:
     # 探针未执行（actual_output=""）或真调失败（actual_output="[执行失败] …"）都拿不到
     # 有效验证，绿点必须降黄；真跑成功无论模型后判 pass/fail 均算有证据（本函数不按
     # pass/fail 改色，现有行为不动）。
-    # [C 2026-09-14 by codebuddy-ds41flash] S043 块3 真机修复：证据判据收紧
+    # 真机修复：证据判据收紧
     cap_has_evidence: dict[str, bool] = {
         cap.get("capability", ""): False for cap in capability_matrix
     }
@@ -658,16 +644,13 @@ def _backfill_evidence_to_report(report: dict, evidence: list[dict]) -> dict:
     new_report = dict(report)
     new_report["capability_matrix"] = new_matrix
     return new_report
-    # [C 2026-09-14 by S043-b3] 证据回填 + 绿色无证据降级规则
-
 
 # ────────────────────────── 候选池前置（S048）──────────────────────────
 # 第 2 段在产可行性报告的同时产出候选池（2–5 个候选），由本节点代码补齐实时单价与
 # 「本机已接入 / 需接入后验证」，供第 3 段 AI-native PRD「模型要求与切换条件」引用。
 # 三条降级路径（清单缺失 / 价格脚本失败 / 候选为空）都不阻断流程，只在报告里记原因。
-# [C 2026-09-16 by codebuddy-deepseek-v4.1-flash]
 
-# 价格脚本硬超时（秒）：脚本自身远端取数默认 20 秒，留 10 秒余量 [C 2026-09-16]
+# 价格脚本硬超时（秒）：脚本自身远端取数默认 20 秒，留 10 秒余量
 PRICE_SCRIPT_TIMEOUT = 30
 
 # price_source 三个取值（口径见任务书 3.1 第 3 条）
@@ -696,8 +679,6 @@ def _split_provider_id(provider_id: object) -> str:
     if ":" in pid:
         return pid.rsplit(":", 1)[-1].strip()
     return pid
-    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 provider_id 拆名
-
 
 def _read_model_catalog(deps) -> tuple[str, str]:
     """读候选清单整份文本（第 2 段 prompt 的 ``model_catalog`` 输入）。
@@ -721,8 +702,6 @@ def _read_model_catalog(deps) -> tuple[str, str]:
     if not text.strip():
         return "", f"候选清单内容为空：{target}"
     return text, ""
-    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 候选清单整份读取（失败降级）
-
 
 def _configured_candidates(deps) -> list[dict]:
     """取本机已接入的候选（config ``bake_off.candidates`` 的 id / label / kind）。
@@ -743,8 +722,6 @@ def _configured_candidates(deps) -> list[dict]:
             }
         )
     return result
-    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 已接入候选清单（config bake_off）
-
 
 def _configured_id_keys(deps) -> set[str]:
     """把 config ``bake_off.candidates`` 的 id 归一化成可比集合。
@@ -764,8 +741,6 @@ def _configured_id_keys(deps) -> set[str]:
         keys.add(slashed.rsplit("/", 1)[-1])
         keys.add(cid.rsplit(":", 1)[-1])
     return keys
-    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 接入判定用 id 归一化
-
 
 def _is_configured(provider_id: str, deps) -> bool:
     """候选是否命中本机已接入清单（config ``bake_off.candidates``）。"""
@@ -776,7 +751,7 @@ def _is_configured(provider_id: str, deps) -> bool:
         provider_id.strip().lower() in keys
         or _split_provider_id(provider_id).lower() in keys
     )
-    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 已接入判定
+    # 已接入判定
 
 
 def _fetch_candidate_prices(lookup_keys: list[str], price_script: str | None) -> dict:
@@ -859,8 +834,6 @@ def _fetch_candidate_prices(lookup_keys: list[str], price_script: str | None) ->
         if isinstance(row, dict) and row.get("model_id"):
             meta["rows"][str(row["model_id"])] = row
     return meta
-    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 价格脚本调用（超时/退出码/JSON 全降级）
-
 
 def _row_price_missing(row: dict) -> bool:
     """价格行是否「表内收录但没给单价」（脚本缺价时字段值是 ``"-"``）。"""
@@ -872,8 +845,6 @@ def _row_price_missing(row: dict) -> bool:
             continue
         return False
     return True
-    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 缺价行判定（缺价≠免费，须另行核实）
-
 
 def _enrich_candidate(candidate: dict, price_meta: dict, configured: bool) -> dict:
     """给一条候选补五个字段：price / price_source / price_fetched_at / price_note / access_status。
@@ -935,8 +906,6 @@ def _enrich_candidate(candidate: dict, price_meta: dict, configured: bool) -> di
 
     enriched["access_status"] = _ACCESS_READY if configured else _ACCESS_PENDING
     return enriched
-    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 候选逐条补字段
-
 
 def build_model_candidates(report: dict, deps) -> tuple[list[dict], str]:
     """产 state["model_candidates"]：拆分 provider_id 取价 + 补接入状态。
@@ -972,7 +941,7 @@ def build_model_candidates(report: dict, deps) -> tuple[list[dict], str]:
         _enrich_candidate(c, price_meta, _is_configured(str(c.get("provider_id", "")), deps))
         for c in candidates
     ], ""
-    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 候选池合并（取价 + 接入判定）
+    # 候选池合并（取价 + 接入判定）
 
 
 def make_feasibility_check(deps):
@@ -989,9 +958,9 @@ def make_feasibility_check(deps):
     """
 
     def feasibility_check(state: dict) -> dict:
-        # [C 2026-09-14 by S043-b1] 注入工具能力清单供 prompt 渲染
+        # 注入工具能力清单供 prompt 渲染
         state = {**state, "tool_catalog": deps.tool_catalog or []}
-        # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048：注入候选清单整份文本 +
+        # 注入候选清单整份文本 +
         # 本机已接入候选（config bake_off.candidates），供模型产出候选池；清单读不到时
         # 该节整块不渲染（空串），原因在后面写进 feasibility_report["candidate_pool_note"]
         catalog_text, catalog_note = _read_model_catalog(deps)
@@ -1033,7 +1002,7 @@ def make_feasibility_check(deps):
             try:
                 # 编排模型 chat.invoke 异常（网络/网关错误）同样走 interrupt，不冒泡崩节点。
                 # 探针级 llm_text 异常已在 _run_react_probes 内部标"执行失败"，不冒泡到这里。
-                # [C 2026-09-14 by codebuddy-ds41flash] S043 块3 缺口 B：编排模型 invoke 异常走 interrupt
+                # 缺口 B：编排模型 invoke 异常走 interrupt
                 evidence = _run_react_probes(probe_plan, chat_with_tools, llm_text)
             except Exception as exc:
                 interrupt(
@@ -1063,8 +1032,8 @@ def make_feasibility_check(deps):
             "feasibility_evidence": evidence,
             "model_candidates": model_candidates,
         }
-        # [C 2026-09-14 by S043-b3] 探针真跑：ReAct 循环 + 证据回填 + 绿色无证据降级
-        # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048：候选池前置（取价 + 接入状态 + 降级记原因）
+        # 探针真跑：ReAct 循环 + 证据回填 + 绿色无证据降级
+        # 候选池前置（取价 + 接入状态 + 降级记原因）
 
     return feasibility_check
 
@@ -1150,7 +1119,7 @@ def make_feasibility_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节�
         def escalation_stop(first_text: str) -> dict:
             """已重塑过 1 次（建议额度）：暂停问一次，按答复分流。
 
-            [MA 2026-09-19] S056：额度是建议不是闸门——用户坚持重塑就按其意思回第 1 段调范围
+            额度是建议不是闸门——用户坚持重塑就按其意思回第 1 段调范围
             （verdict=reshape，留痕写明已超过建议额度），不再改判为通过。
             人工驱动的暂停不是空转：每轮都在等真人输入、不调模型。
             """
@@ -1257,7 +1226,7 @@ def make_feasibility_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节�
                     f"证据不齐，经人工放行；原答复：{first_text}；二次答复：{text2}"
                 )
                 return decision_update("pass", note, "evidence-gap-pass")
-            # [C 2026-09-15 by codebuddy-glm-5.2 r2] S045 块4 r2：二次确认放行口径放宽
+            # r2：二次确认放行口径放宽
 
         # ── 首次中断：请用户审阅可行性报告并录入探针实测结论 ──
         draft_payload = {
@@ -1271,7 +1240,7 @@ def make_feasibility_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节�
         }
         first_answer = interrupt(draft_payload)
         kind, text = _normalize_answer(first_answer)
-        # [MA 2026-09-19] S056：空答复不当作通过、不当作意见，继续停在本节点等下一句
+        # 空答复不当作通过、不当作意见，继续停在本节点等下一句
         while not text.strip():
             first_answer = interrupt(
                 {**draft_payload, "note": "没收到答复，仍在这里等你的决定"}
@@ -1299,9 +1268,4 @@ def make_feasibility_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节�
         return evidence_gap_loop(text)
 
     return feasibility_confirm
-    # [C 2026-09-12 by codebuddy-ds41flash] 确认AI可行性门：四态分类/重塑限 1 次/升级暂停
-    # [C 2026-09-15 by codebuddy-glm-5.2] S045 块4：证据必填二次确认 + 段名落地
-    # [C 2026-09-15 by codebuddy-glm-5.2 r2] S045 块4 r2：闸门放宽（complete-only）+ 二次确认放行口径放宽
 
-
-# [C 2026-09-12 by codebuddy-ds41flash] nodes/feasibility.py 新增完成

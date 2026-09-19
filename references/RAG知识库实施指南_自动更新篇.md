@@ -422,4 +422,4 @@ python scripts/rag_weekly_update.py --filter-provider deepseek
 - 《RAG 知识库实施指南 — 骨架实现篇》—— 核心模块设计
 - 《飞书知识地图 — 目录结构设计》—— 飞书侧结构
 
-<!-- [W02 2026-09-12] RAG 知识库自动更新机制方案 -->
+<!-- RAG 知识库自动更新机制方案 -->

@@ -1,4 +1,4 @@
-# [C 2026-09-11] 拆研发工单 schema（issue_splitting 节点）
+# 拆研发工单 schema（issue_splitting 节点）
 """IssueSplittingSchema：研发工单拆解的模型输出结构。
 
 按 registry 命名约定：文件名 issue_splitting -> 类名 IssueSplittingSchema。
@@ -24,7 +24,7 @@ Readiness = Literal["pass", "needs_clarification", "blocked"]
 # 覆盖矩阵三态：covered=已被工单覆盖 / excluded=明确不做（须给原因）/ clarify=信息不足待澄清
 CoverageStatus = Literal["covered", "excluded", "clarify"]
 
-# [C 2026-09-13 by codebuddy-ds41flash] AI 特殊项类别：仅 AI 核心需求（ai_core=true）填写。
+# AI 特殊项类别：仅 AI 核心需求（ai_core=true）填写。
 # trace=调用链埋点（trace 可回看）/ fallback=兜底与转人工 /
 # eval_integration=评测接入（Promptfoo 配置与 CI）/ risk_mitigation=风险册缓解措施承接。
 AISpecialCategory = Literal["trace", "fallback", "eval_integration", "risk_mitigation"]
@@ -39,7 +39,7 @@ class IssueItem(BaseModel):
     decision_needed: str = Field(
         default="",
         description="待谁决定什么（业务语言：待谁、决定什么、不定挡住什么）；AFK 留空，HITL 必须非空",
-    )  # [C 2026-09-11] HITL 非空由 model_validator 强制
+    )  # HITL 非空由 model_validator 强制
     priority: str = Field(description="优先级（如 P0/P1/P2 或 高/中/低，口径在 readiness_notes 说明）")
     labels: list[str] = Field(default_factory=list, description="标签（模块/端等），没有给空数组")
     source_sections: list[str] = Field(
@@ -66,8 +66,6 @@ class IssueItem(BaseModel):
         if self.issue_type == "HITL" and not (self.decision_needed or "").strip():
             raise ValueError("issue_type=HITL 时 decision_needed 必须非空（写清待谁决定什么）")
         return self
-        # [C 2026-09-11] HITL 决策非空校验落点
-
 
 class CoverageItem(BaseModel):
     """覆盖矩阵一行：PRD 的一个需求点的去向（covered/excluded/clarify）。"""
@@ -81,7 +79,7 @@ class CoverageItem(BaseModel):
     notes: str = Field(
         default="",
         description="备注：excluded 时必须写排除原因；clarify 时写待澄清问题；covered 可留空",
-    )  # [C 2026-09-11] excluded 必填原因由 judge 二次硬判（schema 层不按 status 条件联动）
+    )  # excluded 必填原因由 judge 二次硬判（schema 层不按 status 条件联动）
 
 
 class VersionItem(BaseModel):
@@ -120,7 +118,7 @@ class AISpecialItem(BaseModel):
             "说明：fallback 类必须写清对应 PRD 哪一部分的失败/接管设计；其余类别可空串"
         ),
     )
-    # [C 2026-09-13 by codebuddy-ds41flash] 第 7 段 AI 特殊项声明（仅 AI 轨必填）
+    # 第 7 段 AI 特殊项声明（仅 AI 轨必填）
 
 
 class IssueSplittingSchema(BaseModel):
@@ -140,12 +138,12 @@ class IssueSplittingSchema(BaseModel):
     )
     issues: list[IssueItem] = Field(
         description="纵切工单列表；仅 readiness=blocked 且整份方案无法动手时允许空数组"
-    )  # [C 2026-09-11] 刻意不设 min_length：blocked+空列表合法，由 judge 联动 readiness 硬判
+    )  # 刻意不设 min_length：blocked+空列表合法，由 judge 联动 readiness 硬判
     coverage: list[CoverageItem] = Field(
         min_length=1, description="覆盖矩阵至少 1 行：PRD 每项需求都要有去向"
     )
     summary: str = Field(description="一句话总览：几张 AFK、几张 HITL、整体能否开工")
-    # [C 2026-09-13 by codebuddy-ds41flash] 第 7 段 AI 特殊项承接声明，仅 AI 核心需求
+    # 第 7 段 AI 特殊项承接声明，仅 AI 核心需求
     # （ai_core=true）必填并由 judge 纯函数硬判；普通需求给 null（不产出、不校验）。
     ai_special_items: Optional[list[AISpecialItem]] = Field(
         default=None,
@@ -156,5 +154,4 @@ class IssueSplittingSchema(BaseModel):
     )
 
 
-# [C 2026-09-11] schemas/issue_splitting.py 新增完成
-# [C 2026-09-13 by codebuddy-ds41flash] 新增 AISpecialItem 与 ai_special_items（仅 AI 轨）
+# AISpecialItem 与 ai_special_items（仅 AI 轨）

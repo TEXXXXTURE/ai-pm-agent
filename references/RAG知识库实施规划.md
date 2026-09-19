@@ -82,7 +82,7 @@
 | 组件 | 选型 | 理由 |
 |------|------|------|
 | 向量数据库 | ChromaDB（嵌入式） | 规模匹配（几千个 chunk）、零运维、Python 原生、支持 metadata 过滤 |
-| 嵌入模型 | 硅基流动 `Qwen/Qwen3-Embedding-8B`（4096 维） | MTEB 多语言榜第一（70.58）；S032 真机实测通过（4096 维、批量 32 条 0.84s、约 4 字符/token）；全量语料约 62 万 tokens，单轮嵌入成本约 ¥0.2，质量优先无成本负担 <!-- [MA 2026-09-12 S032] --> |
+| 嵌入模型 | 硅基流动 `Qwen/Qwen3-Embedding-8B`（4096 维） | MTEB 多语言榜第一（70.58）；S032 真机实测通过（4096 维、批量 32 条 0.84s、约 4 字符/token）；全量语料约 62 万 tokens，单轮嵌入成本约 ¥0.2，质量优先无成本负担 |
 | 分块策略 | 按层差异化（概念层 section-aware / 论文层整篇） | 不同内容性质适配不同分块方式 |
 | 检索策略 | 分层加权混合检索 | 兼顾语义和精确，高质量内容优先 |
 | 更新机制 | 按层差异化频率（季/月/周） | 各层变化速度不同，节奏匹配 |
@@ -167,11 +167,11 @@ class EmbeddingModel:
 ```
 
 **实现要点**：
-- 直接调用硅基流动 Embeddings API（OpenAI 兼容格式）<!-- [MA 2026-09-12 S031] 原方案 Doubao 弃用：项目 ARK_API_KEY 是火山 Agent Plan 专属 key，按量端点 /api/v3 不认（401），且 Agent Plan 向量模型禁止脚本裸调（合规红线） -->
-- 批量请求（每批上限 32 条，S032 实测通过）<!-- [MA 2026-09-12 S032] -->
+- 直接调用硅基流动 Embeddings API（OpenAI 兼容格式）<!-- 原方案 Doubao 弃用：项目 ARK_API_KEY 是火山 Agent Plan 专属 key，按量端点 /api/v3 不认（401），且 Agent Plan 向量模型禁止脚本裸调（合规红线） -->
+- 批量请求（每批上限 32 条，S032 实测通过）
 - 失败重试 2 次（指数退避）
 - API 端点：`https://api.siliconflow.cn/v1/embeddings`
-- 模型名：`Qwen/Qwen3-Embedding-8B`（4096 维；S032 真机实测通过：单条 0.32s、批量 32 条 0.84s，已定档，建库即用此模型）<!-- [MA 2026-09-12 S032] -->
+- 模型名：`Qwen/Qwen3-Embedding-8B`（4096 维；S032 真机实测通过：单条 0.32s、批量 32 条 0.84s，已定档，建库即用此模型）
 - 密钥环境变量：`SILICONFLOW_API_KEY`（已入项目 .env，2026-09-12）
 - 账户有余额：不锁免费档；模型已选定（Qwen3-Embedding-8B），可建库
 
@@ -377,7 +377,7 @@ chromadb>=0.5
 
 **精选层 abstract 补充策略**（S032 修订：从 40 篇扩为全量 514 篇，用户拍板）：
 - 全量 514 篇补 abstract（arXiv 免费，限速 3 秒/篇，约 27 分钟，`fetch_abstracts.py --limit 0` 后台跑，支持断点续传）
-- 脚本已就绪：`domain_kb/source/curated-papers/fetch_abstracts.py`（S032 去交互化改 `--limit` 参数）<!-- [MA 2026-09-12 S032] -->
+- 脚本已就绪：`domain_kb/source/curated-papers/fetch_abstracts.py`（S032 去交互化改 `--limit` 参数）
 
 ---
 
@@ -445,5 +445,5 @@ chromadb>=0.5
 - 《RAG知识库实施指南_自动更新篇》—— 持续更新机制（本期实现基础，留接口）
 - 《飞书知识地图_目录结构设计》—— 飞书侧结构（后续阶段）
 
-<!-- [W02 2026-09-12] RAG 知识库实施规划（最终版） -->
-<!-- [MA 2026-09-12] S031 用户拍板：嵌入模型 Doubao→硅基流动 bge-m3（SILICONFLOW_API_KEY 已入 .env）；实施派 CLI Agent（CodeBuddy hy3）做骨架、主 Agent 验收；与主线并行，RAG 会话开场词「rag」、主线会话开场词「继续」 -->
+<!-- RAG 知识库实施规划（最终版） -->
+<!-- 用户拍板：嵌入模型 Doubao→硅基流动 bge-m3（SILICONFLOW_API_KEY 已入 .env）；实施派 CLI Agent（CodeBuddy hy3）做骨架、主 Agent 验收；与主线并行，RAG 会话开场词「rag」、主线会话开场词「继续」 -->

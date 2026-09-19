@@ -1,4 +1,4 @@
-# [C 2026-09-08] M1 内核骨架 - State 定义
+# 内核骨架 - State 定义
 """LangGraph 全局状态定义，字段与 workflow-design.md 第二节完全一致。"""
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ class PMState(TypedDict, total=False):
     raw_requirement: str              # 用户原始需求描述
     info_completeness: dict           # 6 维度信息完整度评估
     confirmed_requirement: str        # 用户确认后的需求
-    # [C 2026-09-14 by codebuddy-ds41flash] S041 需求修订整合节点字段
+    # 需求修订整合节点字段
     requirement_draft: str              # 整合节点产出的当前草案
     requirement_refine_count: int       # 自动整合次数（只作记录，不再限制轮数）
     requirement_refine_feedback: str    # 上一轮用户修订意见（注入 prompt，消费即清零）
@@ -34,22 +34,22 @@ class PMState(TypedDict, total=False):
     requirement_refine_result: dict     # 整合确认门结论 {verdict, user_feedback}（confirm/reclassify/abandon/feedback）
     user_insights: dict               # 从用户脑中挖出的信息
     ai_feasibility: dict              # G5: 必须AI做/传统就能做/AI更差
-    capability_boundary: dict         # G8: 自动/工具/人工 三色表（[C 2026-09-12 by MA] S033 块2a：
+    capability_boundary: dict         # G8: 自动/工具/人工 三色表（
                                        #   确认门不再调用此组件，仅保留字段供旧检查点兼容；
                                        #   块 3 可行性门将重新设计为语义不同的产品能力三色表）
-    # [C 2026-09-12 by MA] S033 块2a：AI 适用性分流判定字段（v3.0 第 1 段分流）
+    # AI 适用性分流判定字段（v3.0 第 1 段分流）
     ai_triage: dict                   # 模型给出的分流建议 {suggestion, reason, signals}
     ai_core: bool | None              # 用户拍板的最终分流：True=AI 全轨 / False=普通轨 / None=未判定
     proceed_decision: bool | None     # 是否继续做（用户决策）
 
     # ─── 判断需求与 AI 的边界（feasibility_check + feasibility_confirm 确认门）───
-    # [C 2026-09-12 by codebuddy-ds41flash] 仅 AI 核心需求经过；普通轨字段恒空/恒 0
+    # 仅 AI 核心需求经过；普通轨字段恒空/恒 0
     feasibility_report: dict          # 可行性报告（三色表/探针方案/风险表/成本区间/初步结论）
     feasibility_confirm: dict         # 确认门结论 {verdict, user_feedback}（pass/reclassify/reshape/abandon）
     feasibility_reshape_count: int    # 重塑次数（全程限 1 次，第 2 次自动升级暂停）
-    # [C 2026-09-14 by S043-b3] 探针真跑证据列表（ReAct 循环采集，回填 capability_matrix）
+    # 探针真跑证据列表（ReAct 循环采集，回填 capability_matrix）
     feasibility_evidence: list        # [{probe_name, prompt, actual_output, expected, passed, reason}]
-    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 候选池前置：
+    # 候选池前置：
     # 第 2 段写（feasibility_check 补实时单价与接入状态），第 3 段 prd_generation / 第 6 段 bake_off 读
     model_candidates: list[dict]      # [{provider_id,label,role,why,access_hint,notes,price,price_source,price_fetched_at,price_note,access_status}]
 
@@ -57,54 +57,54 @@ class PMState(TypedDict, total=False):
     eval_cases: list                  # G2: 需求确认门后建立的评测用例
 
     # ─── 设计评测体系（eval_design + eval_confirm 确认门）───
-    # [C 2026-09-12 by codebuddy-ds41flash] 仅 AI 核心需求经过；普通轨字段恒空/恒 0
+    # 仅 AI 核心需求经过；普通轨字段恒空/恒 0
     eval_system: dict                 # 四层考题集 + 每题评分方式 + 及格线建议值（模型起草）
     eval_confirm: dict                # 确认门结论 {verdict, user_feedback}（pass/redraft）
     eval_revision_count: int          # 评测体系重起草次数（前 2 轮自动，第 3 版起升级暂停）
     eval_revision_feedback: str       # 评测体系上轮修改意见（注入 eval_design prompt，消费即清零）
     eval_yaml_draft: str              # 确认落盘时渲染的 Promptfoo YAML 草案文本（写 state 不落文件）
     eval_archive: dict                # 评测档案（预留第 11 段接口，本任务只构造 dict 写 state）
-    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 出题质量机械检查结果
+    # 出题质量机械检查结果
     # （guards/eval_quality.audit_exam_quality 产出，只提示不阻断；并入 eval_archive、进确认门停等材料）
     eval_quality: dict                # {errors: [], warnings: [], notes: []}
 
     # ─── 构建期跑评测（eval_run 节点）───
-    # [C 2026-09-12 by codebuddy-ds41flash] 第 8 段：仅 AI 核心需求经过；普通轨字段恒空/恒 0
+    # 第 8 段：仅 AI 核心需求经过；普通轨字段恒空/恒 0
     eval_report: dict                 # 评测报告（整体/关键题通过率、逐题结果、token/成本/耗时、达标结论与差距）
     eval_run_count: int               # 评测已执行次数（含失败重跑；await_prompt 阶段不计）
     eval_artifacts: dict              # 评测产物路径（config_path / results_path / report_path）
 
     # ─── PRD 阶段 ───
     section_plan: dict                # 章节裁剪计划
-    prd_markdown: str                 # 模型原生 Markdown PRD 全文 [C 2026-09-09] T1
+    prd_markdown: str                 # 模型原生 Markdown PRD 全文
     red_team_review: dict             # 红队审查反馈
     prd_revision_count: int           # PRD 修订次数（上限 3 轮）
 
     # ─── 工单拆解（issue_splitting + issue_confirm 确认门）───
-    # [C 2026-09-11] 块1：评审通过后拆研发工单；块2 在 issue_splitting 后插人工确认门
+    # 评审通过后拆研发工单；在 issue_splitting 后插人工确认门
     issue_plan: dict                  # 研发工单拆解方案（含 shape_errors/warnings/self_fixed）
     issue_revision_count: int         # 工单方案修订次数（确认门前 2 轮自动重拆，之后升级暂停）
     issue_revision_feedback: str      # 工单方案上轮修改意见（注入拆单 prompt，消费即清零）
-    # [C 2026-09-11] 块2：确认门"回PRD"回炉专用
+    # 确认门"回PRD"回炉专用
     issue_prd_redo_count: int         # 回炉重写 PRD 次数（硬上限 1 次）
     prd_rewrite_feedback: str         # 工单阶段发起的 PRD 回炉意见（注入 prd_generation，消费即清零）
-    # [C 2026-09-12 by pi-deepseek-flash] 第⑥项修复：升级暂停后再给意见的硬深度上限计数
+    # 升级暂停后再给意见的硬深度上限计数
     issue_escalation_depth: int       # 已批准的升级后重拆轮数（达上限后保持 escalated 暂停不自动空转）
 
     # ─── 发布计划（launch_plan 节点；块2 会插 launch_confirm HITL 门）───
-    # [C 2026-09-11] 块1：工单确认门通过后产发布计划；关键字段非空由 judge 硬判
+    # 工单确认门通过后产发布计划；关键字段非空由 judge 硬判
     launch_plan: dict                  # 发布计划 JSON（含 shape_errors/warnings/self_fixed）
     launch_plan_errors: list           # 发布计划字段自检 errors（随产物醒目展示）
     launch_plan_warnings: list         # 发布计划字段自检 warnings
-    # [C 2026-09-11] 块2 确认门预留字段（块1 恒空/恒 0，不写回全局 state）
+    # 确认门预留字段（恒空/恒 0，不写回全局 state）
     launch_revision_count: int         # 发布计划重调计数（块2 用）
     launch_revision_feedback: str      # 发布计划上轮修改意见（块2 注入，消费即清零）
     launch_issue_redo_count: int       # 发布计划回工单计数（块2 用）
-    # [C 2026-09-12 by pi-deepseek-flash] 第⑥项修复：升级暂停后再给意见的硬深度上限计数
+    # 升级暂停后再给意见的硬深度上限计数
     launch_escalation_depth: int       # 已批准的升级后重调轮数（达上限后保持 escalated 暂停不自动空转）
 
     # ─── 就绪度打分（readiness_assessment 节点，R11）───
-    # [C 2026-09-16] R11：11 维度 0-5 分 + 加权均分 + 6 档结论 + 三级阻断条件
+    # 11 维度 0-5 分 + 加权均分 + 6 档结论 + 三级阻断条件
     readiness_assessment: dict         # 就绪度评估记录（11 维度分数/证据/风险/责任人/下一步 + weighted_avg/level/blockers）
 
 
@@ -112,7 +112,7 @@ class PMState(TypedDict, total=False):
     model_selection: dict             # G1: 模型选型；第 6 段对比选型写 {status, recommended, candidates...}
 
     # ─── 对比选型模型（bake_off 节点）───
-    # [C 2026-09-13 by codebuddy-ds41flash] 第 6 段：仅 AI 核心需求经过；普通轨字段恒空
+    # 第 6 段：仅 AI 核心需求经过；普通轨字段恒空
     bakeoff_artifacts: dict           # 对比选型产物路径（report_path / config_paths / results_paths）
 
     # ─── 产物管理 ───
@@ -141,7 +141,7 @@ def default_state() -> dict[str, Any]:
         "raw_requirement": "",
         "info_completeness": {},
         "confirmed_requirement": "",
-        # [C 2026-09-14 by codebuddy-ds41flash] S041 需求修订整合节点字段默认值
+        # 需求修订整合节点字段默认值
         "requirement_draft": "",
         "requirement_refine_count": 0,
         "requirement_refine_feedback": "",
@@ -150,63 +150,63 @@ def default_state() -> dict[str, Any]:
         "user_insights": {},
         "ai_feasibility": {},
         "capability_boundary": {},
-        # [C 2026-09-12 by MA] S033 块2a：AI 分流字段（默认 None=未判定，prd_generation 视为普通轨）
+        # AI 分流字段（默认 None=未判定，prd_generation 视为普通轨）
         "ai_triage": {},
         "ai_core": None,
         "proceed_decision": None,
-        # 判断需求与 AI 的边界 [C 2026-09-12 by codebuddy-ds41flash]
+        # 判断需求与 AI 的边界
         "feasibility_report": {},
         "feasibility_confirm": {},
         "feasibility_reshape_count": 0,
-        "feasibility_evidence": [],  # [C 2026-09-14 by S043-b3] 探针真跑证据
-        # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 候选池（第 2 段写，第 3/6 段读）
+        "feasibility_evidence": [],  # 探针真跑证据
+        # 候选池（第 2 段写，第 3/6 段读）
         "model_candidates": [],
         # 评测集
         "eval_cases": [],
-        # 设计评测体系 [C 2026-09-12 by codebuddy-ds41flash]
+        # 设计评测体系
         "eval_system": {},
         "eval_confirm": {},
         "eval_revision_count": 0,
         "eval_revision_feedback": "",
         "eval_yaml_draft": "",
         "eval_archive": {},
-        # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 出题质量机械检查结果
+        # 出题质量机械检查结果
         "eval_quality": {},
-        # 构建期跑评测 [C 2026-09-12 by codebuddy-ds41flash]
+        # 构建期跑评测
         "eval_report": {},
         "eval_run_count": 0,
         "eval_artifacts": {},
         # PRD 阶段
         "section_plan": {},
-        "prd_markdown": "",  # [C 2026-09-09] T1 模型原生 Markdown PRD 全文
+        "prd_markdown": "",  # 模型原生 Markdown PRD 全文
         "red_team_review": {},
         "prd_revision_count": 0,
-        # 工单拆解 [C 2026-09-11]
+        # 工单拆解
         "issue_plan": {},
         "issue_revision_count": 0,
         "issue_revision_feedback": "",
-        # [C 2026-09-11] 块2 确认门回炉字段
+        # 确认门回炉字段
         "issue_prd_redo_count": 0,
         "prd_rewrite_feedback": "",
-        # [C 2026-09-12 by pi-deepseek-flash] 第⑥项修复：升级深度上限计数
+        # 升级深度上限计数
         "issue_escalation_depth": 0,
-        # 发布计划 [C 2026-09-11]
+        # 发布计划
         "launch_plan": {},
         "launch_plan_errors": [],
         "launch_plan_warnings": [],
-        # [C 2026-09-11] 块2 确认门预留字段
+        # 确认门预留字段
         "launch_revision_count": 0,
         "launch_revision_feedback": "",
         "launch_issue_redo_count": 0,
-        # [C 2026-09-12 by pi-deepseek-flash] 第⑥项修复：升级深度上限计数
+        # 升级深度上限计数
         "launch_escalation_depth": 0,
-        # 就绪度打分 [C 2026-09-16] R11
+        # 就绪度打分
         "readiness_assessment": {},
         # AI 专项
-        # [C 2026-09-13 by codebuddy-ds41flash] 第 6 段对比选型：model_selection 默认 {}（已预留），
+        # 第 6 段对比选型：model_selection 默认 {}（已预留），
         # 新增 bakeoff_artifacts 产物路径
         "model_selection": {},
-        # 对比选型模型 [C 2026-09-13 by codebuddy-ds41flash]
+        # 对比选型模型
         "bakeoff_artifacts": {},
         # 产物管理
         "artifacts": {},
@@ -214,4 +214,3 @@ def default_state() -> dict[str, Any]:
     }
 
 
-# [C 2026-09-08] state.py 实现完成

@@ -406,4 +406,4 @@ def _compute_final_score(self, chunk: dict, query: str, preset: str = "default")
 - 《RAG 知识库实施指南_自动更新篇》—— 持续更新机制
 - 《RAG 知识库_三层分类映射表》—— 统一分类体系
 
-<!-- [W02 2026-09-12] RAG 加权检索调优方案 -->
+<!-- RAG 加权检索调优方案 -->

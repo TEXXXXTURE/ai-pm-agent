@@ -1,4 +1,4 @@
-# [C 2026-09-12 by codebuddy-ds41flash] 设计评测体系节点 + 确认评测体系门 自测
+# 设计评测体系节点 + 确认评测体系门 自测
 """eval_design / eval_confirm 零 API 测试：patch 掉 nodes.eval_design.interrupt，
 假 LLM 回放预制响应，不发起任何真实模型调用。
 
@@ -290,7 +290,7 @@ class TestClassifyEvalAnswer(unittest.TestCase):
             "可以",
             "就这样",
             "落盘",
-            # [MA 2026-09-19] S056：补的日常肯定说法
+            # 补的日常肯定说法
             "行吧",
             "按这个来",
             "好的",
@@ -301,7 +301,7 @@ class TestClassifyEvalAnswer(unittest.TestCase):
             self.assertEqual(classify_eval_answer(word), "pass", msg=repr(word))
 
     def test_empty_and_none_are_not_pass(self):
-        # [MA 2026-09-19] S056：空串/None 不再算确认（节点在分类前拦空、继续停等）
+        # 空串/None 不再算确认（节点在分类前拦空、继续停等）
         for word in ("", "   ", None):
             self.assertEqual(classify_eval_answer(word), "feedback", msg=repr(word))
 
@@ -465,7 +465,7 @@ class TestEvalConfirmNode(unittest.TestCase):
         )
 
     def test_empty_answer_keeps_waiting_not_confirmed(self):
-        # [MA 2026-09-19] S056 用例 a：空答复再抛 interrupt、不放行（载荷仍是 draft）；
+        # 用例 a：空答复再抛 interrupt、不放行（载荷仍是 draft）；
         # 下一句「确认」才落盘
         state = eval_confirm_state()
         out, payloads = run_confirm_node(state, ["", "确认"])
@@ -477,7 +477,7 @@ class TestEvalConfirmNode(unittest.TestCase):
         self.assertIn("eval_yaml_draft", out)
 
     def test_escalation_limit_empty_answer_keeps_waiting(self):
-        # [MA 2026-09-19] S056 用例 a（上限暂停处）：空答复再抛 interrupt、不放行；
+        # 用例 a（上限暂停处）：空答复再抛 interrupt、不放行；
         # 下一句「确认」才落盘
         state = eval_confirm_state(eval_revision_count=MAX_EVAL_TOTAL_REVISIONS)
         out, payloads = run_confirm_node(
@@ -492,7 +492,7 @@ class TestEvalConfirmNode(unittest.TestCase):
         self.assertIn("eval_yaml_draft", out)
 
     def test_escalation_limit_opinion_redrafts(self):
-        # [MA 2026-09-19] S056 用例 b：超轮数后给具体意见 -> 按其意见再起草一轮
+        # 用例 b：超轮数后给具体意见 -> 按其意见再起草一轮
         # （计数 +1、意见写进 eval_revision_feedback、留痕）
         state = eval_confirm_state(eval_revision_count=MAX_EVAL_TOTAL_REVISIONS)
         out, payloads = run_confirm_node(
@@ -624,7 +624,7 @@ class TestRoutes(unittest.TestCase):
             route_after_eval_confirm({"eval_confirm": {"verdict": "pass"}}),
             "issue_splitting",
         )
-        # [MA 2026-09-19] S056：缺 verdict（没有答复）不再兜底放行，回本节点继续停等
+        # 缺 verdict（没有答复）不再兜底放行，回本节点继续停等
         self.assertEqual(route_after_eval_confirm({}), "eval_confirm")
         self.assertEqual(
             route_after_eval_confirm({"eval_confirm": {}}), "eval_confirm"
@@ -646,13 +646,13 @@ class TestGraphWiring(unittest.TestCase):
         "prd_review",
         "eval_design",
         "eval_confirm",
-        # [C 2026-09-13 by codebuddy-ds41flash] 第 6 段新增对比选型节点
+        # 第 6 段新增对比选型节点
         "bake_off",
         "issue_splitting",
         "issue_confirm",
-        # [C 2026-09-12 by codebuddy-ds41flash] 第 8 段新增构建期跑评测节点
+        # 第 8 段新增构建期跑评测节点
         "eval_run",
-        # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 第 8 段拆两步新增评测判定门
+        # 第 8 段拆两步新增评测判定门
         "eval_gate",
         "launch_plan",
         "launch_confirm",
@@ -667,10 +667,10 @@ class TestGraphWiring(unittest.TestCase):
             names = set(graph.get_graph().nodes.keys())
             for name in self.EXPECTED_NODES:
                 self.assertIn(name, names, msg=name)
-            # [C 2026-09-13 by codebuddy-ds41flash] 第 6 段新增 bake_off 后为 17 个真实节点
-            # [C 2026-09-14 by codebuddy-ds41flash] S041 新增 requirement_refine 后为 18 个真实节点
-            # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 新增 eval_gate 后为 19 个真实节点
-            # [C 2026-09-16] R11 新增 readiness_assessment 后为 20 个真实节点
+            # 第 6 段新增 bake_off 后为 17 个真实节点
+            # requirement_refine 后为 18 个真实节点
+            # eval_gate 后为 19 个真实节点
+            # readiness_assessment 后为 20 个真实节点
             # （另加 langgraph 内置 __start__/__end__）
             real_nodes = names - {"__start__", "__end__"}
             self.assertEqual(len(real_nodes), 20)
@@ -685,7 +685,7 @@ class TestGraphWiring(unittest.TestCase):
             self.assertIn("eval_confirm -.-> eval_design", drawn)
             self.assertIn("prd_review -.-> eval_design", drawn)
             self.assertIn("prd_review -.-> issue_splitting", drawn)
-            # [C 2026-09-13 by codebuddy-ds41flash] 第 6 段：eval_confirm 确认分支改去 bake_off，
+            # 第 6 段：eval_confirm 确认分支改去 bake_off，
             # bake_off 两态（issue_splitting / 自环重跑）
             self.assertTrue(
                 any(
@@ -967,4 +967,3 @@ if __name__ == "__main__":
     unittest.main(verbosity=2)
 
 
-# [C 2026-09-12 by codebuddy-ds41flash] tests/test_eval_design.py 新增完成

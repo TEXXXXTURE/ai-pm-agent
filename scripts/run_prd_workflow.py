@@ -21,7 +21,7 @@
 #
 # 退出码：0 = 正常（HITL 中断或完成）；1 = 运行错误；2 = argparse 参数错误。
 #
-# [C 2026-09-10] T4-5 PRD 流水线非交互包装器
+# PRD 流水线非交互包装器
 """PRD 流水线非交互包装器：HITL 中断输出问题退出，Pi 恢复。"""
 from __future__ import annotations
 
@@ -43,7 +43,7 @@ from kernel.model import build_llm
 from kernel.runner import NodeRunner
 from kernel.state import default_state
 from kb.store import KBStore
-from kb.rag import build_rag_store_if_available  # [C 2026-09-12 by codebuddy-ds41flash] R02
+from kb.rag import build_rag_store_if_available
 from nodes import NodeDeps
 
 # 复用 cli.hitl_cli 的中断收集逻辑与决策材料字段定义（不调用 handle_hitl，
@@ -167,18 +167,18 @@ def _build_graph_and_config(cfg: dict[str, Any]) -> tuple[Any, dict]:
         str(output_root), str(template_dir), str(assets_dir)
     )
     kb = KBStore(str(kb_store))
-    rag_store = build_rag_store_if_available(cfg)  # [C 2026-09-12 by codebuddy-ds41flash] R02：库不存在/为空返回 None
-    # [C 2026-09-12 by codebuddy-ds41flash] 第 8 段：装配外置评测工具配置（eval_tools 段）
+    rag_store = build_rag_store_if_available(cfg)  # 库不存在/为空返回 None
+    # 第 8 段：装配外置评测工具配置（eval_tools 段）
     # promptfoo_dir 用 _resolve_path 解析相对路径；缺失则 eval_tool 无 promptfoo_dir，
     # eval_run 节点会抛 NodeExecutionError 明确提示配置缺失（不静默失败）。
     eval_tools_cfg = cfg.get("eval_tools", {}) or {}
     eval_tool: dict = {}
     if eval_tools_cfg.get("promptfoo_dir"):
         eval_tool["promptfoo_dir"] = str(_resolve_path(eval_tools_cfg["promptfoo_dir"]))
-    # [C 2026-09-13 by codebuddy-ds41flash] 第 6 段：装配对比选型候选清单（bake_off 段），
+    # 第 6 段：装配对比选型候选清单（bake_off 段），
     # 直接传 dict（仿 cli.main）；缺失则 bake_off 节点抛 NodeExecutionError 明确提示配置缺失。
     bake_off_cfg = cfg.get("bake_off", {}) or {}
-    # [C 2026-09-14 by S043-b1] 工具能力清单（tool_catalog 段）
+    # 工具能力清单（tool_catalog 段）
     tool_catalog_cfg = cfg.get("tool_catalog", {}) or {}
     tool_catalog: list[dict] = []
     if tool_catalog_cfg.get("routing_md_path"):
@@ -186,7 +186,7 @@ def _build_graph_and_config(cfg: dict[str, Any]) -> tuple[Any, dict]:
         tool_catalog = load_tool_catalog(
             str(_resolve_path(tool_catalog_cfg["routing_md_path"]))
         )
-    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 候选池料件（model_catalog 段）：
+    # 候选池料件（model_catalog 段）：
     # 两处路径都解析为绝对路径（样式参照 tool_catalog）；缺失则 field 为 None，
     # feasibility_check 节点降级为空候选池并记原因（不报错）。
     model_catalog_cfg = cfg.get("model_catalog", {}) or {}
@@ -213,8 +213,6 @@ def _build_graph_and_config(cfg: dict[str, Any]) -> tuple[Any, dict]:
     graph = build_graph(deps, db_path=str(db_path))
     config: dict = {"configurable": {}}
     return graph, config
-    # [C 2026-09-10] T4-5 依赖装配复用 cli.main.main 的顺序
-
 
 # ────────────────────────── STATUS 块输出 ──────────────────────────
 
@@ -242,7 +240,7 @@ def _emit_hitl(
     question = _build_question(node_name, payload, state)
 
     materials_lines: list[str] = []
-    # [C 2026-09-11] 升级暂停三字段（status/reason/prior_feedbacks）仅对
+    # 升级暂停三字段（status/reason/prior_feedbacks）仅对
     # issue_confirm / launch_confirm 载荷追加：先从共用元组中剔除，再按节点显式补回，
     # 保证 ① STATUS 块不重复打印；② 绝不污染 requirement_confirm 等其他节点
     # （即便其载荷碰巧出现同名字段）。list/dict 由 _format_materials 走 JSON。
@@ -251,20 +249,20 @@ def _emit_hitl(
         f for f in PAYLOAD_RECAP_FIELDS if f not in escalation_fields
     )
     payload_lines = _format_materials(common_recap_fields, payload)
-    # [C 2026-09-12 by codebuddy-ds41flash] feasibility_confirm 升级暂停（重塑额度用尽）也
+    # feasibility_confirm 升级暂停（重塑额度用尽）也
     # 携带 status/reason/prior_feedbacks，一并透传；eval_confirm 升级暂停同此模式
     if node_name in (
         "issue_confirm",
         "launch_confirm",
         "feasibility_confirm",
         "eval_confirm",
-        # [C 2026-09-12 by codebuddy-ds41flash] 第 8 段评测执行门：透传 status/reason
+        # 第 8 段评测执行门：透传 status/reason
         #（await_prompt/tool_error/eval_failed 三态都带 status + reason；与 issue_confirm 等同处理）
         "eval_run",
-        # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048：第 8 段后半判定门
+        # 第 8 段后半判定门
         #（eval_failed 停等已搬到此节点，载荷同样带 status + reason）
         "eval_gate",
-        # [C 2026-09-13 by codebuddy-ds41flash] 第 6 段对比选型门：透传 status/reason
+        # 第 6 段对比选型门：透传 status/reason
         #（await_decision/await_prompt/tool_error 三态都带 status + reason）
         "bake_off",
     ) and isinstance(interrupt_value, dict):
@@ -324,7 +322,7 @@ def _build_question(node_name: str, payload: dict, state: dict) -> str:
             "其他文本作为需求修订意见处理（分流沿用模型建议，不二次中断）。"
         )
     if node_name == "feasibility_confirm":
-        # [C 2026-09-12 by codebuddy-ds41flash] 确认AI可行性门：提示四态选项
+        # 确认AI可行性门：提示四态选项
         if payload.get("status") == "escalated":
             # 重塑额度用尽后的升级暂停：明确已停、由人重新拍板三选一
             return (
@@ -342,7 +340,7 @@ def _build_question(node_name: str, payload: dict, state: dict) -> str:
             "回复「放弃」结束流程。自由文本作为补充意见，默认按通过处理。"
         )
     if node_name == "eval_confirm":
-        # [C 2026-09-12 by codebuddy-ds41flash] 第 5 段确认评测体系门：提示两选一选项
+        # 第 5 段确认评测体系门：提示两选一选项
         if payload.get("status") == "escalated":
             # 第 3 版仍提意见后的升级暂停：明确已停、由人重新拍板
             return (
@@ -362,8 +360,8 @@ def _build_question(node_name: str, payload: dict, state: dict) -> str:
             "可让 Pi 协助调查后带新决策再起草）。"
         )
     if node_name == "eval_run":
-        # [C 2026-09-12 by codebuddy-ds41flash] 第 8 段评测执行节点：按 status 两态给中文提示
-        # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048：第 8 段拆两步后，本节点只剩
+        # 第 8 段评测执行节点：按 status 两态给中文提示
+        # 第 8 段拆两步后，本节点只剩
         # 「跑」这一步的两种暂停（await_prompt / tool_error）；未达标的问句移到 eval_gate 分支。
         status = payload.get("status")
         if status == "await_prompt":
@@ -378,7 +376,7 @@ def _build_question(node_name: str, payload: dict, state: dict) -> str:
             "请修复环境或评测配置后回复任意内容重跑评测。"
         )
     if node_name == "eval_gate":
-        # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048：第 8 段后半判定门。
+        # 第 8 段后半判定门。
         # 文案沿用拆分前 eval_run 未达标那段，只把节点名改成 eval_gate。
         return (
             "节点「eval_gate」评测判定门：评测结果未达及格线，流水线暂停（不设自动放行）。"
@@ -387,7 +385,7 @@ def _build_question(node_name: str, payload: dict, state: dict) -> str:
             "回复任意内容重跑评测；达标前不会进入发布计划。"
         )
     if node_name == "bake_off":
-        # [C 2026-09-13 by codebuddy-ds41flash] 第 6 段对比选型门：按 status 三态给中文提示
+        # 第 6 段对比选型门：按 status 三态给中文提示
         status = payload.get("status")
         if status == "await_prompt":
             return (
@@ -402,7 +400,7 @@ def _build_question(node_name: str, payload: dict, state: dict) -> str:
                 "中断材料的 provider_id / reason。请修复环境或评测配置后回复任意内容重跑本节点。"
             )
         if payload.get("stop_reason") == "no_runnable":
-            # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048：选中候选一个都不能跑，再停一次
+            # 选中候选一个都不能跑，再停一次
             return (
                 "节点「bake_off」对比选型模型：你选的候选本机都没有接入，流水线再停一次等改选"
                 "（不自动放行、不替你改选）。本次可实跑的候选见下方中断材料的 runnable_candidates"
@@ -410,7 +408,7 @@ def _build_question(node_name: str, payload: dict, state: dict) -> str:
                 "若本次都不想实跑，回复「跳过」按默认模型记推荐。"
             )
         # await_decision：候选池全文见 model_candidates，由用户拍板跑哪几个
-        # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 第二块：答复方式改为点序号 / 全部 / 跳过
+        # 第二块：答复方式改为点序号 / 全部 / 跳过
         return (
             "节点「bake_off」对比选型模型（第 6 段，条件触发）：本版暂无历史选型记录。"
             "候选池见下方中断材料的 model_candidates（逐条含角色、提案理由、接入代价、已知限制、"
@@ -423,7 +421,7 @@ def _build_question(node_name: str, payload: dict, state: dict) -> str:
         )
     if node_name == "issue_confirm":
         if payload.get("status") == "escalated":
-            # [C 2026-09-11] 升级暂停特化文案：明确流水线已停、原因见 reason；
+            # 升级暂停特化文案：明确流水线已停、原因见 reason；
             # 三选一中"回PRD"是否仍可回炉以 reason 说明为准，额度用尽时不承诺可回炉
             return (
                 "节点「issue_confirm」工单确认门：流水线已升级暂停"
@@ -434,7 +432,7 @@ def _build_question(node_name: str, payload: dict, state: dict) -> str:
                 "③ 回复「回PRD」——是否还能回炉以 reason 的说明为准"
                 "（回炉额度用尽时不再承诺可以回炉重写 PRD）。"
             )
-        # [C 2026-09-11] 块2 工单确认门 draft 原文案（status 缺省也按 draft 处理）
+        # 工单确认门 draft 原文案（status 缺省也按 draft 处理）
         return (
             "节点「issue_confirm」工单确认门。请审阅工单清单草案："
             "回复「确认」落盘；回复「回PRD」回炉重写 PRD（限1次）；"
@@ -443,7 +441,7 @@ def _build_question(node_name: str, payload: dict, state: dict) -> str:
         )
     if node_name == "launch_confirm":
         if payload.get("status") == "escalated":
-            # [C 2026-09-11] 升级暂停特化文案：明确流水线已停、原因见 reason；
+            # 升级暂停特化文案：明确流水线已停、原因见 reason；
             # 三选一中"回工单"是否仍可回工单以 reason 说明为准，额度用尽时不承诺可回工单
             return (
                 "节点「launch_confirm」发布计划确认门：流水线已升级暂停"
@@ -454,8 +452,8 @@ def _build_question(node_name: str, payload: dict, state: dict) -> str:
                 "③ 回复「回工单」——是否还能回工单以 reason 的说明为准"
                 "（回工单额度用尽时不再承诺可以回 issue_splitting 重拆）。"
             )
-        # [C 2026-09-11] 块2 发布计划确认门 draft 原文案（status 缺省也按 draft 处理）
-        # [C 2026-09-16] R11：材料含就绪度打分（11 维度分数 + 加权均分 + 阻断项）
+        # 发布计划确认门 draft 原文案（status 缺省也按 draft 处理）
+        # 材料含就绪度打分（11 维度分数 + 加权均分 + 阻断项）
         return (
             "节点「launch_confirm」发布计划确认门。请审阅发布计划草案"
             "与发布前就绪度打分（11 个维度各 0-5 分、加权均分、档位、阻断项）："
@@ -541,7 +539,7 @@ def _run_resume(
     有待处理中断时空答复（answer 为 None / 空串）不放行：打印提示后重新输出当前节点的
     STATUS: HITL 块，退出码 0，等用户给出明确答复再恢复。
     """
-    # [C 2026-09-19 by codebuddy-ds41flash] S056：原 answer 兜底 confirmed 已删，空答复不放行
+    # 原 answer 兜底 confirmed 已删，空答复不放行
 
     # 先检查是否有待处理的中断
     interrupts = collect_interrupts(graph, config)
@@ -555,7 +553,7 @@ def _run_resume(
             _emit_done(thread_id, values)
             return 0
         if values and next_nodes:
-            # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 修复A：节点执行中途崩溃
+            # 节点执行中途崩溃
             # （如模型网关超时）后的中间态——next 非空、无待处理中断。此时从待执行节点
             # 继续跑到下一个停等点或跑完，行为与一次性脚本等价（graph.stream(None) 后检查中断）。
             for _chunk in graph.stream(None, config, stream_mode="updates"):
@@ -575,7 +573,7 @@ def _run_resume(
         return 1
 
     # 有待处理中断：空答复不放行，重新输出同一节点等你决定
-    # [C 2026-09-19 by codebuddy-ds41flash] S056：原 answer_text 兜底 confirmed 等于空答复照样放行
+    # 原 answer_text 兜底 confirmed 等于空答复照样放行
     if not answer or not answer.strip():
         print("未收到答复，仍停在本节点等你决定")
         _emit_hitl(graph, config, thread_id, interrupts[0])
@@ -595,8 +593,6 @@ def _run_resume(
     final_state = graph.get_state(config).values or {}
     _emit_done(thread_id, final_state)
     return 0
-    # [C 2026-09-10] T4-5 恢复流程：collect_interrupts -> Command(resume) -> 再检查
-
 
 # ────────────────────────── 主入口 ──────────────────────────
 
@@ -651,4 +647,3 @@ if __name__ == "__main__":
     sys.exit(main())
 
 
-# [C 2026-09-10] run_prd_workflow.py 实现完成

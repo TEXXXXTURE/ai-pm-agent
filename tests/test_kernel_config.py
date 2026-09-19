@@ -1,4 +1,4 @@
-# [C 2026-09-15 by codebuddy-ds41flash] S046 get_llm_config max_tokens 口径自测
+# get_llm_config max_tokens 口径自测
 """kernel.config.get_llm_config 的 max_tokens 口径测试（零网络、零 API 调用）。
 
 覆盖任务书第三节口径 1（config.yaml llm 段新增 max_tokens: 8192）与第二节接口约定
@@ -138,4 +138,3 @@ if __name__ == "__main__":
     unittest.main(verbosity=2)
 
 
-# [C 2026-09-15 by codebuddy-ds41flash] tests/test_kernel_config.py 新增完成

@@ -53,7 +53,6 @@
       调用时代理环境变量被清空，若直连不通会自动走本地备份回退。
     - `models` / `search` 里的单价读的是本地表，只作量级参考，实时值一律以 `price` 为准。
 
-署名：[C 2026-09-16 by codebuddy-deepseek-v4.1-flash]
 """
 
 from __future__ import annotations

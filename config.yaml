@@ -6,14 +6,14 @@ llm:
   temperature: 0.3
   max_retries: 2
 
-  # [C 2026-09-15 by codebuddy-ds41flash] S046 单次输出 token 上限：
+  # 单次输出 token 上限：
   # 长结构化产物（拆工单/评测体系/发布计划）输出长，留足上限防被截断成半个 JSON；
   # 未配置（删除本行）时不传该参数，保持 provider 默认。
-  # [MA 2026-09-15] 值按真机实测校准：第 7 段真机提示词（19,911 字符）实测输出 31,046 token，
+  # 值按真机实测校准：第 7 段真机提示词（19,911 字符）实测输出 31,046 token，
   # 其中隐藏思考占 16,805 token —— 8192 会被思考吃光、正文为空；32768 实测通过（117s，正文 29,429 字符）。
   max_tokens: 32768
 
-  # [C 2026-09-09] providers 改为 LiteLLM 模型串格式：
+  # providers 改为 LiteLLM 模型串格式：
   # litellm_model = "<provider>/<model>"，一个接口适配 OpenAI兼容/Anthropic/Gemini/Ollama 等协议；
   # api_key_env 为密钥所在环境变量名；本地模型（如 ollama）留空字符串 "" 即可。
   providers:
@@ -65,12 +65,12 @@ graph:
   max_prd_revisions: 3
   node_timeout: 120
 
-# [C 2026-09-12 by codebuddy-ds41flash] 第 8 段：外置评测工具（Promptfoo）路径
+# 第 8 段：外置评测工具（Promptfoo）路径
 # 相对路径以项目根为基准解析；缺失时 eval_run 节点抛 NodeExecutionError 提示配置缺失
 eval_tools:
   promptfoo_dir: ./工具与参考/Agent外置工具包/AI评测工具包/tools/promptfoo
 
-# [C 2026-09-13 by codebuddy-ds41flash] 第 6 段：对比选型候选模型清单（横跑范围）
+# 第 6 段：对比选型候选模型清单（横跑范围）
 # 第一版只放 DeepSeek 自家两个模型，零新密钥零第三方端点（产品渠道干净红线）；
 # 以后加厂商只在本清单加行（id/label/kind/api_key_env），代码零改。
 # key 只放 .env（api_key_env 为环境变量名，不硬编码）；Promptfoo deepseek provider 原生读该变量。
@@ -85,11 +85,11 @@ bake_off:
       kind: reasoner
       api_key_env: DEEPSEEK_API_KEY
 
-# [C 2026-09-14 by S043-b1] 工具能力清单路径（判断需求与AI的边界段注入 prompt）
+# 工具能力清单路径（判断需求与AI的边界段注入 prompt）
 tool_catalog:
   routing_md_path: ./references/外置工具路由.md
 
-# [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 候选池前置（第 2 段产出、第 3 段引用）：
+# 候选池前置（第 2 段产出、第 3 段引用）：
 # path = 候选清单整份文本（注入 feasibility_check prompt，模型据此挑 2–5 个候选）；读不到 → 空串、该节不渲染；
 # price_script = 实时取价脚本（节点调 sys.executable <脚本> <模型名...> --json，超时 30 秒）；取不到价 → 逐条记「未取到」。
 # 相对路径以项目根为基准解析（与 tool_catalog 同口径）。
@@ -97,7 +97,7 @@ model_catalog:
   path: ./references/模型候选清单.md
   price_script: ./scripts/model_catalog.py
 
-# [MA 2026-09-17] R13 行业追踪（scripts/industry_digest.py）：
+# 行业追踪（scripts/industry_digest.py）：
 # 数据只读复用信源库（source_db，SQLite，自行填入路径；不配则 industry_digest.py 不可用）；产物落 output/行业追踪/；
 # 模型走 llm.providers 统一层（判类/提炼用便宜模型，写总结用大模型）。
 # 出刊节奏（2026-09-17 用户拍板）：以周为单位（days=7），每期篇数由模型按内容自定（只挑最突出的写），无料不出刊。
@@ -109,7 +109,7 @@ industry_digest:
   provider_write: deepseek
   days: 7
 
-# [C 2026-09-12] RAG 领域知识库（AI 领域知识库，与业务档案库 kb 段独立）
+# RAG 领域知识库（AI 领域知识库，与业务档案库 kb 段独立）
 domain_kb:
   chroma_path: ./domain_kb/chroma
   source_path: ./domain_kb/source
@@ -132,11 +132,10 @@ domain_kb:
       tracked-paper: 1.0
     curated_bonus: 1.2
     feishu_ref_bonus: 1.3
-    # [MA 2026-09-17] S053/R03 检索条例参数：
+    # 检索条例参数：
     # min_vector_sim = 相关性阈值（vector_sim 低于此值过滤掉；0 = 不过滤，默认宽容）
     # max_per_source = 同一 source 文档最多保留几条（1 = 去重，保证 top_k 覆盖不同来源；
     #                  治 S047 实测「5 条里 4 条同一文档」）
     min_vector_sim: 0.0
     max_per_source: 1
 
-# [MA 2026-09-08]

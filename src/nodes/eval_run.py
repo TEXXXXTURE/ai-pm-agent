@@ -1,4 +1,4 @@
-# [C 2026-09-12 by codebuddy-ds41flash] 构建期跑评测节点（eval_run，第 8 段）
+# 构建期跑评测节点（eval_run，第 8 段）
 """构建期跑评测：把 S035 产出的评测体系 YAML 草案变成真实执行 + 代码硬判结论。
 
 图位置（第 8 段拆两步，仅 AI 核心需求经过；插在「确认工单」确认分支之后、「写发布计划」之前）：
@@ -44,7 +44,7 @@ from langgraph.types import interrupt
 from kernel.exceptions import NodeExecutionError
 from nodes.eval_design import PROMPTFOO_JUDGE_PROVIDER
 
-# Promptfoo 退出码（见 AI 评测工具包 skills/ai-eval/SKILL.md） [C 2026-09-12 by codebuddy-ds41flash]
+# Promptfoo 退出码（见 AI 评测工具包 skills/ai-eval/SKILL.md）
 EXIT_OK = 0            # 全部断言通过
 EXIT_CONTENT_FAIL = 100  # 工具跑通，至少一条断言失败（内容问题，非工具错误）
 EXIT_TOOL_ERROR = 1    # 工具/配置/网络错误
@@ -153,8 +153,6 @@ def finalize_eval_config(eval_yaml_draft: str) -> str:
     ensure_judge_provider(document)
 
     return yaml.safe_dump(document, allow_unicode=True, sort_keys=False)
-    # [C 2026-09-12 by codebuddy-ds41flash] 评测配置归一纯函数
-
 
 def parse_promptfoo_results(results: dict) -> dict:
     """纯函数：解析 Promptfoo 0.123.0 的 results.json 顶层 dict（缺字段安全降级）。
@@ -242,7 +240,7 @@ def parse_promptfoo_results(results: dict) -> dict:
         "cost": cost,
         "duration_ms": stats.get("durationMs") or 0,
     }
-    # [C 2026-09-12 by codebuddy-ds41flash] results.json 解析纯函数（缺字段安全降级）
+    # results.json 解析纯函数（缺字段安全降级）
 
 
 def _to_int(value: object) -> int:
@@ -296,8 +294,6 @@ def collect_critical_exams(exam_sets: list) -> list[dict]:
             if is_critical:
                 critical.append({**exam, "_layer": layer})
     return critical
-    # [C 2026-09-13 by codebuddy-ds41flash] 由 _collect_critical_exams 提升为公共件，供 bake_off 复用
-
 
 def collect_critical_descriptions(exam_sets: list) -> list[str]:
     """公共：收集关键题的标签列表（description 优先，其次 id）。
@@ -308,7 +304,7 @@ def collect_critical_descriptions(exam_sets: list) -> list[str]:
         str(exam.get("description") or exam.get("id") or "").strip()
         for exam in collect_critical_exams(exam_sets)
     ]
-    # [C 2026-09-13 by codebuddy-ds41flash] 关键题标签收集公共件
+    # 关键题标签收集公共件
 
 
 def critical_pass_stats(exam_sets: list, per_exam: list) -> dict:
@@ -341,7 +337,7 @@ def critical_pass_stats(exam_sets: list, per_exam: list) -> dict:
         "rate": (passed / total) if total > 0 else 1.0,
         "failed_descriptions": failed_descriptions,
     }
-    # [C 2026-09-13 by codebuddy-ds41flash] 关键题通过统计公共件（eval_run/bake_off 共用）
+    # 关键题通过统计公共件（eval_run/bake_off 共用）
 
 
 def judge_eval_report(parsed: dict, pass_lines: dict, exam_sets: list) -> dict:
@@ -368,7 +364,7 @@ def judge_eval_report(parsed: dict, pass_lines: dict, exam_sets: list) -> dict:
     total = _to_int(data.get("total"))
     overall_rate = (successes / total) if total > 0 else 0.0
 
-    # [C 2026-09-13 by codebuddy-ds41flash] 关键题通过统计抽公共件（eval_run/bake_off 共用），
+    # 关键题通过统计抽公共件（eval_run/bake_off 共用），
     # 口径与原内联循环逐字一致：匹配不到的关键题视为失败。
     critical_stats = critical_pass_stats(
         exam_sets if isinstance(exam_sets, list) else [], per_exam
@@ -393,7 +389,7 @@ def judge_eval_report(parsed: dict, pass_lines: dict, exam_sets: list) -> dict:
             "critical": f"{critical_rate:.1%} vs {critical_threshold:.1%}",
         },
     }
-    # [C 2026-09-12 by codebuddy-ds41flash] 评测达标硬判纯函数（双及格线，模型不参与）
+    # 评测达标硬判纯函数（双及格线，模型不参与）
 
 
 # 判定结论字段：eval_report 是「judge_eval_report 结论 + 逐题解析数据 + run_count」的合并字典；
@@ -409,7 +405,7 @@ _JUDGE_REPORT_FIELDS = (
 )
 
 
-# [MA 2026-09-19] S056：第 8 段未达标门的答复口径
+# 第 8 段未达标门的答复口径
 # 放行意思（仍进发布计划/继续/放行/强制放行/我知道未达标…）-> 用户明确放行，记 forced_pass；
 # 重跑意思（再跑/我改好了…）-> 不改判定，回 eval_run 重跑；
 # 空答复 -> 继续停等；其余非空读不出意图 -> 追问一句。
@@ -449,7 +445,7 @@ def classify_eval_gate_answer(text: str) -> str:
     3. 含重跑意思（``_EVAL_GATE_RERUN_KEYWORDS``，如「再跑」「我改好了」）-> rerun；
     4. 其余非空文本 -> unclear（节点追问一句，不替用户判成放行或重跑）。
 
-    [MA 2026-09-19] S056：空串不由本函数表达（节点在分类前拦空，继续停等）。
+    空串不由本函数表达（节点在分类前拦空，继续停等）。
     """
     stripped = str(text if text is not None else "").strip()
     compact = stripped.lower().replace(" ", "").replace("\u3000", "")
@@ -534,7 +530,7 @@ def eval_gate(state: dict) -> dict:
             return {}
         # 非空但读不出意图：追问一句，不替用户判成放行或重跑
         payload = {**payload, "reason": _UNREADABLE_ANSWER_REASON}
-    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 第 8 段拆两步：判定与停等独立成节点
+    # 第 8 段拆两步：判定与停等独立成节点
 
 
 def route_after_eval_gate(state: dict) -> str:
@@ -547,8 +543,6 @@ def route_after_eval_gate(state: dict) -> str:
     if isinstance(report, dict) and report.get("passed") is True:
         return "launch_plan"
     return "eval_run"
-    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 由 route_after_eval_run 改名，判定规则未改
-
 
 def _stderr_tail(proc: object) -> str:
     """取 subprocess 结果的 stderr 尾部（stderr 为空时退回 stdout），上限 500 字符。"""
@@ -589,8 +583,6 @@ def _resolve_promptfoo_entry(promptfoo_dir: Path) -> Path:
     if legacy.exists():
         return legacy
     return package_dir / "dist" / "src" / "entrypoint.js"
-    # [C 2026-09-12 by codebuddy-ds41flash] Promptfoo 入口版本无关解析（task 书 bin/promptfoo 为候选之一）
-
 
 def run_promptfoo_eval(
     promptfoo_dir: object,
@@ -661,8 +653,6 @@ def run_promptfoo_eval(
     except (ValueError, TypeError):
         return returncode, stderr_tail, None
     return returncode, stderr_tail, results_json
-    # [C 2026-09-13 by codebuddy-ds41flash] Promptfoo 执行公共件（eval_run/bake_off 共用）
-
 
 def make_eval_run(deps):
     """构建期跑评测节点工厂：返回签名 (state: dict) -> dict 的节点函数（不调模型）。
@@ -730,7 +720,7 @@ def make_eval_run(deps):
         raw_results_path = eval_dir / "results.json"
 
         # 5~8. 执行循环：工具错误中断重跑；跑通后解析 + 硬判 + 落盘并一律 return（判定停等在 eval_gate）
-        # [C 2026-09-13 by codebuddy-ds41flash] 入口解析/env/subprocess/results 读取抽到
+        # 入口解析/env/subprocess/results 读取抽到
         # run_promptfoo_eval（与 bake_off 共用）；退出码与 results.json 的提示文案逐字不变。
         while True:
             returncode, stderr_tail, results_json = run_promptfoo_eval(
@@ -818,8 +808,4 @@ def make_eval_run(deps):
             }
 
     return eval_run
-    # [C 2026-09-12 by codebuddy-ds41flash] eval_run 节点主体完成（四步 + 三种暂停，不自动空转）
-    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048：达标/未达标一律 return，停等移交 eval_gate
 
-
-# [C 2026-09-12 by codebuddy-ds41flash] nodes/eval_run.py 新增完成

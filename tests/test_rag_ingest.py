@@ -1,4 +1,4 @@
-# [C 2026-09-12] RAG 入库器自测 - 真实临时 ChromaDB + 假 embedder（零真实 API）
+# RAG 入库器自测 - 真实临时 ChromaDB + 假 embedder（零真实 API）
 """RAGIngest 零成本自测：ChromaDB 用 tmp_path 下的真实嵌入式实例，嵌入全部走假 embedder。
 
 覆盖：
@@ -387,4 +387,3 @@ def test_progress_every_one_prints_progress_lines(tmp_path, capsys):
     assert "已处理 3/3 条，入库 2 chunk，跳过 1 条" in paper_err
 
 
-# [C 2026-09-12 by pi-deepseek-v4-flash]

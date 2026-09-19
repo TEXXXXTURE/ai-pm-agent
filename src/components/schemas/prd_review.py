@@ -1,4 +1,4 @@
-# [C 2026-09-10] PRD 评审门 schema（prd_review 节点）
+# PRD 评审门 schema（prd_review 节点）
 """PrdReviewSchema：PRD 评审门模型输出结构（只审不改，结论由代码硬判）。
 
 按 registry 命名约定：文件名 prd_review -> 类名 PrdReviewSchema。
@@ -19,9 +19,9 @@ class ScoreItem(BaseModel):
     """五维评分中的一维：维度名 + 1-5 分 + 必须引用 PRD 具体章节的锚点理由。"""
 
     dimension: str = Field(description="评分维度名（五维之一，按 prompt 指定的名称）")
-    score: int = Field(ge=1, le=5, description="1-5 整数评分")  # [C 2026-09-10] 分数硬边界
+    score: int = Field(ge=1, le=5, description="1-5 整数评分")  # 分数硬边界
     rationale: str = Field(description="锚点理由：必须引用 PRD 具体章节/原文，不许只写空泛形容词")
-    # [C 2026-09-16 by MA] R10 证据分级：本维度评分所依据的关键证据的来源等级 [T1]-[T5]。
+    # 证据分级：本维度评分所依据的关键证据的来源等级 [T1]-[T5]。
     # 可空——模型没把握时不硬标；缺省 None 模板跳过渲染，普通轨零变化。
     evidence_tier: Literal["T1", "T2", "T3", "T4", "T5"] | None = Field(
         default=None,
@@ -60,7 +60,7 @@ class PrdReviewSchema(BaseModel):
         min_length=5,
         max_length=5,
         description="五维评分，恰好 5 条：结构完整/需求可验证SMART/逻辑一致/真人感/信息缺口显式标注",
-    )  # [C 2026-09-10] 恰好 5 条由 schema 强制
+    )  # 恰好 5 条由 schema 强制
     blockers: list[FindingItem] = Field(
         default_factory=list, description="打回项：必须修后复审的问题"
     )
@@ -71,7 +71,7 @@ class PrdReviewSchema(BaseModel):
         min_length=3,
         max_length=5,
         description="承重墙假设红队质询，3-5 条，按 影响×可能性×验证便宜度 排序",
-    )  # [C 2026-09-10] 3-5 条由 schema 强制
+    )  # 3-5 条由 schema 强制
     strengths: str = Field(description="论证扎实的地方（如实写出，不为挑毛病制造怀疑）")
     unassessable: list[str] = Field(
         default_factory=list, description="PRD 没给够信息、评审无法下结论的点"
@@ -79,4 +79,3 @@ class PrdReviewSchema(BaseModel):
     summary: str = Field(description="总评：PRD 当前状态、最关键问题、放行/打回的核心理由")
 
 
-# [C 2026-09-10] schemas/prd_review.py 新增完成

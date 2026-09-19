@@ -1,4 +1,4 @@
-# [C 2026-09-10] T4-4 模板吸收程序
+# 模板吸收程序
 """ingest_template.py — 模板吸收 CLI（compress / extract 两种模式）。
 
 用途：把 PRD 模板、决策记录模板等"写作规矩"吸收进知识库，

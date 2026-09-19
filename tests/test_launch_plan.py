@@ -1,4 +1,4 @@
-# [C 2026-09-11] 块1 发布计划节点（launch_plan）自测
+# 发布计划节点（launch_plan）自测
 """launch_plan 节点零成本自测：全部使用可编排 FakeLLM，不发起任何真实模型调用。
 
 覆盖：
@@ -102,7 +102,7 @@ def valid_tier1_extension():
 def valid_ai_guardrails():
     """合法的 AI 在线 kill 阈值列表（含质量类 + 接管率类，各指标均带数字）。
 
-    [C 2026-09-13 by codebuddy-ds41flash] 第 9 段 AI 轨夹具。
+     第 9 段 AI 轨夹具。
     """
     return [
         {
@@ -125,7 +125,7 @@ def valid_ai_guardrails():
 def valid_cohort_rollout():
     """合法的 AI cohort 分批晋级规则（至少 2 批，末批全量 GA/100%）。
 
-    [C 2026-09-13 by codebuddy-ds41flash] 第 9 段 AI 轨夹具。
+     第 9 段 AI 轨夹具。
     """
     return [
         {
@@ -294,7 +294,6 @@ class TestJudgeLaunchPlan(unittest.TestCase):
         self.assertTrue(any("risks 为空" in e for e in errors))
 
     def test_plan_none_no_raise_counts_as_missing(self):
-        # [C 2026-09-12 by codebuddy-hy3] 第⑤项修复：
         # plan 为 None 不得抛异常，一律按关键字段缺失计入 errors
         errors, _ = judge_launch_plan(None)
         self.assertTrue(errors)
@@ -303,7 +302,6 @@ class TestJudgeLaunchPlan(unittest.TestCase):
         self.assertTrue(any("on_call 为空" in e for e in errors))
 
     def test_plan_empty_dict_no_raise_counts_as_missing(self):
-        # [C 2026-09-12 by codebuddy-hy3] 第⑤项修复：
         # plan 为空 dict 不得抛异常，一律按关键字段缺失计入 errors
         errors, _ = judge_launch_plan({})
         self.assertTrue(errors)
@@ -312,7 +310,6 @@ class TestJudgeLaunchPlan(unittest.TestCase):
         self.assertTrue(any("risks 为空" in e for e in errors))
 
     def test_nested_none_field_no_raise(self):
-        # [C 2026-09-12 by codebuddy-hy3] 第⑤项修复：
         # 嵌套字段为 None（如 on_call=None）不得抛异常，按缺失计入 errors
         errors, _ = judge_launch_plan(valid_plan(on_call=None))
         self.assertTrue(any("on_call 为空" in e for e in errors))
@@ -369,7 +366,7 @@ class TestJudgeLaunchPlan(unittest.TestCase):
 
 
 # ─────────────── 1b. judge AI 轨专属硬判（ai_core=True）───────────────
-# [C 2026-09-13 by codebuddy-ds41flash] 第 9 段：kill 阈值 + cohort 晋级两组字段
+# 第 9 段：kill 阈值 + cohort 晋级两组字段
 
 
 class TestJudgeLaunchPlanAiTrack(unittest.TestCase):
@@ -550,7 +547,7 @@ class TestLaunchPlanNode(unittest.TestCase):
             self.assertEqual(plan["shape_errors"], [])
             self.assertFalse(plan["self_fixed"])
             self.assertEqual(plan["tier"], "2")
-            # [C 2026-09-11] 块2 补丁：launch_plan 节点返回时清零 launch_revision_feedback
+            # 补丁：launch_plan 节点返回时清零 launch_revision_feedback
             # （消费即清零，确认门条件边才不会把已消化的意见再次路由回 launch_plan；
             #   同构 issue_splitting 返回时清零 issue_revision_feedback 的模式）
             self.assertEqual(out["launch_revision_feedback"], "")
@@ -646,7 +643,7 @@ class TestLaunchSchema(unittest.TestCase):
 
 
 class TestLaunchSchemaAiFields(unittest.TestCase):
-    """schema 两组 AI 专属字段：普通轨缺省 None，AI 轨可校验。 [C 2026-09-13 by codebuddy-ds41flash]"""
+    """schema 两组 AI 专属字段：普通轨缺省 None，AI 轨可校验。"""
 
     def test_optional_default_none_for_normal_track(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -681,7 +678,7 @@ class TestLaunchSchemaAiFields(unittest.TestCase):
 
 class TestGraphWiring(unittest.TestCase):
     def test_graph_has_ten_nodes_with_launch_plan(self):
-        # [C 2026-09-11] 块1 后图为 10 节点：issue_confirm 确认分支经 launch_plan 到 artifact_persist
+        # 后图为 10 节点：issue_confirm 确认分支经 launch_plan 到 artifact_persist
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             tmp_path = Path(tmp)
             deps = make_deps(tmp_path, FakeLLM())
@@ -696,7 +693,7 @@ class TestGraphWiring(unittest.TestCase):
                 "prd_review",
                 "issue_splitting",
                 "issue_confirm",
-                "launch_plan",  # [C 2026-09-11] 块1 新增发布计划节点（第 10 个）
+                "launch_plan",  # 新增发布计划节点（第 10 个）
                 "artifact_persist",
             ]:
                 self.assertIn(n, names)
@@ -710,7 +707,7 @@ class TestGraphWiring(unittest.TestCase):
 
 
 def render_launch(deps, plan, prd_filename="launch-smoke-prd.md"):
-    # [C 2026-09-12 by pi-deepseek-flash] 第①项修复：渲染上下文补 prd_filename
+    # 渲染上下文补 prd_filename
     return deps.artifacts.render(
         "launch_plan.md.j2",
         {
@@ -740,19 +737,19 @@ class TestLaunchPlanTemplate(unittest.TestCase):
             self.assertIn("Top", md)
             self.assertIn("错误率 > 2%", md)
             self.assertIn("【CP】是", md)  # 关键路径标注
-            # [C 2026-09-12 by codebuddy-hy3] 第②项修复：first_retro_date 字段值只写日期本身，
+            # first_retro_date 字段值只写日期本身，
             # 括注由模板统一追加，渲染结果只出现一次括注（不应出现双括注）
             self.assertIn("首次复盘日期：T+7（届时调用 retro 技能", md)
             self.assertNotIn("对照 D7 目标做首次复盘）", md)
             self.assertIn("prd.md", md)  # 来源标注
-            self.assertIn("launch-smoke-prd.md", md)  # [C 2026-09-12 by pi-deepseek-flash] 来源用真实文件名
+            self.assertIn("launch-smoke-prd.md", md)  # 来源用真实文件名
             # Tier2 不渲染 Tier1 扩展段（用段标题与滩头市场判断，避免误命中署名注释）
             self.assertNotIn("## Tier1 扩展", md)
             self.assertNotIn("滩头市场", md)
             self.assertNotIn("ICP（理想客户画像）", md)
 
     def test_render_missing_prd_filename_falls_back(self):
-        # [C 2026-09-12 by pi-deepseek-flash] 第①项修复：缺 prd_filename 直接渲染不炸，容错为「未知」
+        # 缺 prd_filename 直接渲染不炸，容错为「未知」
         with tempfile.TemporaryDirectory() as tmp:
             deps = make_deps(Path(tmp))
             plan = dict(valid_plan())
@@ -794,7 +791,7 @@ class TestLaunchPlanTemplate(unittest.TestCase):
 
 
 class TestLaunchPlanTemplateAiFields(unittest.TestCase):
-    """模板 AI 轨两节（kill 阈值 / cohort 晋级）容错渲染。 [C 2026-09-13 by codebuddy-ds41flash]"""
+    """模板 AI 轨两节（kill 阈值 / cohort 晋级）容错渲染。"""
 
     def test_ai_sections_rendered_when_present(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -944,7 +941,7 @@ class TestLaunchPromptConditional(unittest.TestCase):
 
 
 class TestLaunchPromptAiConditional(unittest.TestCase):
-    """prompt ai_core 条件块：AI 轨渲染两组字段，普通轨不渲染。 [C 2026-09-13 by codebuddy-ds41flash]"""
+    """prompt ai_core 条件块：AI 轨渲染两组字段，普通轨不渲染。"""
 
     def _render(self, ai_core):
         with tempfile.TemporaryDirectory() as tmp:
@@ -973,7 +970,7 @@ class TestLaunchPromptAiConditional(unittest.TestCase):
 
 
 # ────────────────────────── R10 证据分级 ──────────────────────────
-# [C 2026-09-16 by MA] R10：为 D7/D30 目标数字与 Top3 风险标注证据来源等级 [T1]-[T5]。
+# 为 D7/D30 目标数字与 Top3 风险标注证据来源等级 [T1]-[T5]。
 
 
 class TestR10EvidenceTier(unittest.TestCase):
@@ -1028,8 +1025,7 @@ class TestR10EvidenceTier(unittest.TestCase):
 if __name__ == "__main__":
     unittest.main(verbosity=2)
 
-# [C 2026-09-11] tests/test_launch_plan.py 块1 新增完成
-# [C 2026-09-12 by codebuddy-hy3] 修正过期条数注释：原写 28 条，实际 33 条；
+# 修正过期条数注释：原写 28 条，实际 33 条；
 # 第⑤项新增 plan=None/空dict/嵌套None 三个用例后，现共 36 条假 LLM 自测
-# [C 2026-09-13 by codebuddy-ds41flash] 第 9 段 AI 轨：新增 21 条用例（judge AI 轨 14 +
+# 第 9 段 AI 轨：新增 21 条用例（judge AI 轨 14 +
 # schema 两组字段 3 + 模板两节 2 + prompt 条件块 2），全量 434 passed / 0 failed

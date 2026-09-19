@@ -1,4 +1,4 @@
-# [C 2026-09-11] 发布计划节点（launch_plan）块1
+# 发布计划节点（launch_plan）
 """发布计划：模型输出 7 步骨架 + Tier1 扩展 JSON，关键字段非空由 Python 硬判。
 
 图位置（块1 临时形态）：issue_confirm 确认分支 -> launch_plan -> artifact_persist
@@ -30,16 +30,16 @@ from langgraph.types import interrupt
 
 from kernel.spec import NodeSpec
 
-# 结构错误后的最大自检重调次数（首轮错误 -> 最多再调 1 次） [C 2026-09-11]
+# 结构错误后的最大自检重调次数（首轮错误 -> 最多再调 1 次）
 SELF_FIX_MAX = 1
 
 # 工作流矩阵条数告警阈值（Tier3 不该有这么多线）
 TOO_MANY_WORKSTREAMS = 15
 
-# go/no-go 模糊词黑名单：命中即告警（非二元判断） [C 2026-09-11]
+# go/no-go 模糊词黑名单：命中即告警（非二元判断）
 _VAGUE_WORDS_RE = re.compile(r"基本|差不多|大概|大致|凑合|可能好|也许|或许")
 
-# [C 2026-09-13 by codebuddy-ds41flash] AI 轨（ai_core=true）专属校验关键词。
+# AI 轨（ai_core=true）专属校验关键词。
 # 质量类 / 接管率类各须至少一条命中，否则告警（不阻断）。
 _AI_QUALITY_KEYWORDS: tuple[str, ...] = ("准确率", "满意度", "通过率", "正确率")
 _AI_HANDOFF_KEYWORDS: tuple[str, ...] = ("接管率", "转人工率", "人工介入率")
@@ -66,7 +66,7 @@ def judge_launch_plan(plan: dict, ai_core: bool = False) -> tuple[list[str], lis
     errors: list[str] = []
     warnings: list[str] = []
 
-    # [C 2026-09-12 by codebuddy-hy3] 第⑤项修复：plan 为 None 或非 dict 时一律按缺失计入
+    # plan 为 None 或非 dict 时一律按缺失计入
     # errors，不得抛异常；嵌套 dict/列表内字段为 None 时各取值链路均已用 `or 默认值` 兜底
     if not isinstance(plan, dict):
         plan = {}
@@ -136,7 +136,7 @@ def judge_launch_plan(plan: dict, ai_core: bool = False) -> tuple[list[str], lis
                 )
 
     # ── AI 轨专属校验：仅 ai_core is True 生效（普通轨默认 False，逐字零变化）──
-    # [C 2026-09-13 by codebuddy-ds41flash] 第 9 段 AI 轨增补：kill 阈值 + cohort 晋级
+    # 第 9 段 AI 轨增补：kill 阈值 + cohort 晋级
     if ai_core is True:
         guardrails = plan.get("ai_guardrails")
         if not isinstance(guardrails, list) or len(guardrails) < 2:
@@ -213,9 +213,6 @@ def judge_launch_plan(plan: dict, ai_core: bool = False) -> tuple[list[str], lis
                 warnings.append("cohort 末批应为全量（100% 或 GA）")
 
     return errors, warnings
-    # [C 2026-09-11] 发布计划关键字段非空硬判纯函数，便于零 API 单测
-    # [C 2026-09-13 by codebuddy-ds41flash] 追加 ai_core=True 时的 AI 轨专属硬判
-
 
 def build_launch_self_fix_feedback(
     errors: list[str], warnings: list[str]
@@ -257,14 +254,14 @@ def make_launch_plan(deps):
         )
 
         # 1. 首轮模型产出（runner 内部已含 schema 校验重试，关键字段非空在此判）
-        # [C 2026-09-13 by codebuddy-ds41flash] 第 9 段：AI 核心需求追加 kill 阈值/cohort 校验
+        # 第 9 段：AI 核心需求追加 kill 阈值/cohort 校验
         is_ai_core = state.get("ai_core") is True
         result = deps.runner.run_raw(spec, state)
         errors, warnings = judge_launch_plan(result, ai_core=is_ai_core)
         first_had_errors = bool(errors)
 
         # 2. 关键字段缺失 -> 带中文反馈自检重调（最多 SELF_FIX_MAX 次）。
-        #    launch_revision_feedback 只注入本轮局部 state，不写回全局 state。 [C 2026-09-11]
+        # launch_revision_feedback 只注入本轮局部 state，不写回全局 state。
         if first_had_errors:
             for _ in range(SELF_FIX_MAX):
                 feedback = build_launch_self_fix_feedback(errors, warnings)
@@ -283,18 +280,18 @@ def make_launch_plan(deps):
             "launch_plan": plan,
             "launch_plan_errors": errors,
             "launch_plan_warnings": warnings,
-            # [C 2026-09-11] 块2：消费即清零。重调跑完后把意见字段写空，
+            # 消费即清零。重调跑完后把意见字段写空，
             # 确认门条件边才不会把已消化的意见再次路由回 launch_plan
             # （同构 issue_splitting 返回时清零 issue_revision_feedback 的模式；
             #   不改 judge/自检重调逻辑，仅补一个清零字段）
             "launch_revision_feedback": "",
         }
-        # [C 2026-09-11] self_fixed=首轮是否曾被字段判错（含重调后修好/未修好两种情形）
+        # self_fixed=首轮是否曾被字段判错（含重调后修好/未修好两种情形）
 
     return launch_plan
 
 
-# [C 2026-09-11] 块2：发布计划确认门（launch_confirm，HITL，不调模型）
+# 发布计划确认门（launch_confirm，HITL，不调模型）
 
 
 # 回工单关键词（统一小写匹配，命中即回 issue_splitting 重拆；优先级高于确认精确匹配）
@@ -311,7 +308,7 @@ _REDO_ISSUES_KEYWORDS: tuple[str, ...] = (
 )
 
 # 确认精确集合：归一化（strip + lower）后恰好属于其中才算确认。
-# [MA 2026-09-19] S056：去空串（空答复不算确认，节点在分类前拦空并继续停等），
+# 去空串（空答复不算确认，节点在分类前拦空并继续停等），
 # 补日常肯定说法；"可以，但要改"不是精确匹配，不判确认。
 # 在 issue_confirm 确认词基础上追加"发布""发布吧"（发布计划语境的天然确认语）。
 _LAUNCH_CONFIRM_WORDS: frozenset[str] = frozenset(
@@ -357,28 +354,28 @@ _LAUNCH_CONFIRM_WORDS: frozenset[str] = frozenset(
 # 计数达到该值后仍有意见 -> 升级暂停，额外重调只能由人在升级中断里主动发起）
 MAX_LAUNCH_REVISIONS = 2
 
-# [C 2026-09-12 by pi-deepseek-flash] 第⑥项修复：升级暂停后继续喂意见的硬深度上限。
+# 升级暂停后继续喂意见的硬深度上限。
 # 升级后再给意见最多 1 轮；超过则保持 escalated 暂停、不再自动重调，防理论无限递归。
 MAX_ESCALATION_DEPTH = 1
 
-# [C 2026-09-12 by pi-deepseek-flash] 第⑥项修复：已达升级深度硬上限的暂停说明。
-# [MA 2026-09-19] S056：不再写「只认确认」——给意见照跑、坚持回工单照回、空答复继续等。
+# 已达升级深度硬上限的暂停说明。
+# 不再写「只认确认」——给意见照跑、坚持回工单照回、空答复继续等。
 _ESCALATION_LIMIT_REASON = (
     "已超过建议的人工介入上限（初版 + 2 轮重调 + 升级后 1 轮）。"
     "你可以继续给具体意见，我按意见再调一轮；也可以坚持回工单，我按你的意思回重拆工单；"
     "或回复「确认」按当前版落盘；不答复我就停在这里等。"
 )
 
-# 回工单额度用尽后仍要求回工单的暂停说明 [C 2026-09-11]
-# [MA 2026-09-19] S056：用户坚持回工单就按他的意思回，文案不再写「不再自动空转」当挡箭牌
+# 回工单额度用尽后仍要求回工单的暂停说明
+# 用户坚持回工单就按他的意思回，文案不再写「不再自动空转」当挡箭牌
 _REDO_ESCALATION_REASON = (
     "已回工单重拆 1 次，你仍要求回工单。你可以继续给具体发布计划意见，我按意见再调一轮；"
     "也可以坚持回工单，我按你的意思回重拆工单；"
     "或回复「确认」按当前版落盘。"
 )
 
-# 第 3 版仍提修改意见的暂停说明（三个选项） [C 2026-09-11]
-# [MA 2026-09-19] S056：轮数是建议不是闸门
+# 第 3 版仍提修改意见的暂停说明（三个选项）
+# 轮数是建议不是闸门
 _REVISION_ESCALATION_REASON = (
     "发布计划已出到第 3 版（初版 + 2 轮重调），你仍有修改意见。请三选一："
     "① 给出具体意见（如「把 T-3 的灰度比例从 10% 调到 5%」），我按意见再调一轮；"
@@ -387,7 +384,7 @@ _REVISION_ESCALATION_REASON = (
 )
 
 # 回工单关键词命中位置前 2~3 字内出现这些否定语时，视为"不想回工单"，落 feedback。
-# 单字"不/别/勿"兜底，双字词优先在 endswith 判定中自然命中。 [C 2026-09-11]
+# 单字"不/别/勿"兜底，双字词优先在 endswith 判定中自然命中。
 _REDO_ISSUES_NEGATIONS: tuple[str, ...] = (
     "不用",
     "不要",
@@ -395,7 +392,7 @@ _REDO_ISSUES_NEGATIONS: tuple[str, ...] = (
     "不会",
     "不想",
     "不需要",
-    "无需",  # [C 2026-09-12 by pi-deepseek-flash] 第③项修复：补齐否定词（「无需回工单」）
+    "无需",  # 补齐否定词（「无需回工单」）
     "别",
     "勿",
     "不",
@@ -435,20 +432,18 @@ def classify_launch_answer(text: str) -> str:
        "可以，但要改"不是精确匹配，落 feedback；
     4. 其余一律 feedback（打回重调 launch_plan）。
 
-    [MA 2026-09-19] S056：空串不属于确认词集合，本函数对空串返回 feedback；
+    空串不属于确认词集合，本函数对空串返回 feedback；
     空答复由节点在调用本函数之前拦下（不当作确认、不当作意见），继续停等下一句。
     """
     stripped = str(text if text is not None else "").strip()
     lowered = stripped.lower()
-    # [C 2026-09-11] 包含判定在去空白（含全角空格）文本上做，并排除紧邻否定前缀
+    # 包含判定在去空白（含全角空格）文本上做，并排除紧邻否定前缀
     compact = re.sub(r"[\s\u3000]+", "", lowered)
     if _matches_redo_issues(compact):
         return "redo_issues"
     if lowered in _LAUNCH_CONFIRM_WORDS:
         return "confirm"
     return "feedback"
-    # [C 2026-09-11] 发布计划答复分类纯函数，确认门节点与零 API 单测共用
-
 
 def route_after_launch_confirm(state: dict) -> str:
     """条件边路由：不新增 decision 字段，全凭既有状态推断下一步。
@@ -466,12 +461,10 @@ def route_after_launch_confirm(state: dict) -> str:
         return "issue_splitting"
     if launch_revision_feedback:
         return "launch_plan"
-    # [MA 2026-09-19] S056：没有发布计划草案就不往下走（原兜底放行会让空的计划落盘）
+    # 没有发布计划草案就不往下走（原兜底放行会让空的计划落盘）
     if not plan:
         return "launch_confirm"
     return "artifact_persist"
-    # [C 2026-09-11] 发布计划确认门三分支条件边路由纯函数
-
 
 def _normalize_answer(answer: object) -> tuple[str, str]:
     """resume 值归一化：返回 (分类, strip 后原文)；None/非字符串安全转空串。"""
@@ -528,8 +521,8 @@ def make_launch_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节点保�
       写 issue_revision_feedback（注入 issue_splitting）-> 条件边回 issue_splitting；
       redo_issues（redo>=1）-> 暂停问一次，二次答复坚持回工单就按用户意思回重拆（留痕），
       不再降级成发布计划意见。
-    - [C 2026-09-12 by pi-deepseek-flash] 第⑥项：升级深度上限（建议 1 轮），
-      超限进上限暂停循环；[MA 2026-09-19] S056：该循环对非空答复一律按字面意思执行，
+    - 第⑥项：升级深度上限（建议 1 轮），
+      超限进上限暂停循环；：该循环对非空答复一律按字面意思执行，
       空答复继续等（轮数上限只是建议，不是闸门）。
     """
 
@@ -541,7 +534,7 @@ def make_launch_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节点保�
             for item in (state.get("human_feedback") or [])
             if isinstance(item, dict)
         ]
-        # [C 2026-09-12 by pi-deepseek-flash] 第⑥项修复：入口读已批准的升级后重调轮数，
+        # 入口读已批准的升级后重调轮数，
         # 供本次是否触达硬上限判断（升级后再给意见最多 MAX_ESCALATION_DEPTH 轮）
         escalation_depth = int(state.get("launch_escalation_depth") or 0)
 
@@ -572,13 +565,13 @@ def make_launch_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节点保�
                 "human_feedback": feedback_log,
             }
             if depth is not None:
-                # [C 2026-09-12 by pi-deepseek-flash] 第⑥项：记录已批准的升级后重调轮数
+                # 记录已批准的升级后重调轮数
                 update["launch_escalation_depth"] = depth
             return update
 
         def escalation_interrupt(reason: str):
             """升级暂停：抛出第二个 interrupt 请人主动决策（不自动空转）。"""
-            # [C 2026-09-16] R11：载荷携带就绪度打分
+            # 载荷携带就绪度打分
             readiness = state.get("readiness_assessment") or {}
             return interrupt(
                 {
@@ -618,8 +611,8 @@ def make_launch_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节点保�
             人工驱动的反复暂停不是空转：空转指无人值守自动调模型重调，
             本循环每轮都在等真人输入、不调模型。
 
-            [C 2026-09-12 by pi-deepseek-flash] 第⑥项修复：硬深度上限落点。
-            [MA 2026-09-19] S056：轮数上限改建议——非空答复一律按字面意思执行，
+             硬深度上限落点。
+            轮数上限改建议——非空答复一律按字面意思执行，
             空答复不当作确认也不当作意见，继续停在本节点等下一句。
             """
             seq = 0
@@ -650,12 +643,12 @@ def make_launch_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节点保�
         ) -> dict:
             """第 3 版仍有意见：暂停问一次，按二次答复分流。"""
             if depth >= MAX_ESCALATION_DEPTH:
-                # [C 2026-09-12 by pi-deepseek-flash] 第⑥项：超限进上限暂停循环
+                # 超限进上限暂停循环
                 return escalation_limit_stop(f"{round_label}-escalation-limit")
             while True:
                 second_answer = escalation_interrupt(_REVISION_ESCALATION_REASON)
                 kind2, text2 = _normalize_answer(second_answer)
-                # [MA 2026-09-19] S056：空答复不当作确认也不当作意见，继续等下一句
+                # 空答复不当作确认也不当作意见，继续等下一句
                 if not text2.strip():
                     continue
                 if kind2 == "confirm":
@@ -672,13 +665,13 @@ def make_launch_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节点保�
             redo = int(state.get("launch_issue_redo_count") or 0)
             if redo >= 1:
                 if depth >= MAX_ESCALATION_DEPTH:
-                    # [C 2026-09-12 by pi-deepseek-flash] 第⑥项：超限进上限暂停循环
+                    # 超限进上限暂停循环
                     return escalation_limit_stop("redo-escalation-limit")
                 # 回工单额度已用尽：暂停问一次，按答复分流
                 while True:
                     second_answer = escalation_interrupt(_REDO_ESCALATION_REASON)
                     kind2, text2 = _normalize_answer(second_answer)
-                    # [MA 2026-09-19] S056：空答复不当作确认也不当作意见，继续等下一句
+                    # 空答复不当作确认也不当作意见，继续等下一句
                     if not text2.strip():
                         continue
                     if kind2 == "confirm":
@@ -703,7 +696,7 @@ def make_launch_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节点保�
             return redo_issues_update(text, "redo-1")
 
         # ── 首次中断：请用户审阅发布计划草案 ──
-        # [C 2026-09-16] R11：载荷携带就绪度打分（launch_plan 之后由 readiness_assessment 节点产出）
+        # 载荷携带就绪度打分（launch_plan 之后由 readiness_assessment 节点产出）
         readiness = state.get("readiness_assessment") or {}
         draft_payload = {
             "node": "launch_confirm",
@@ -714,7 +707,7 @@ def make_launch_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节点保�
         }
         first_answer = interrupt(draft_payload)
         kind, text = _normalize_answer(first_answer)
-        # [MA 2026-09-19] S056：空答复不当作确认、不当作意见，继续停在本节点等下一句
+        # 空答复不当作确认、不当作意见，继续停在本节点等下一句
         while not text.strip():
             first_answer = interrupt(
                 {**draft_payload, "note": "没收到答复，仍在这里等你的决定"}
@@ -725,7 +718,7 @@ def make_launch_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节点保�
             return confirm_update(kind, text, "draft-confirm")
 
         if kind == "redo_issues":
-            # [C 2026-09-11] 不在 draft 分支留痕：redo=0 由 handle_redo_issues
+            # 不在 draft 分支留痕：redo=0 由 handle_redo_issues
             # 统一记 redo-1；redo>=1 进入升级暂停，留痕按二次答复的最终动作记录，
             # 与 ask_then_route 改选回工单路径保持"恰好一次"约定
             return handle_redo_issues(text, escalation_depth)
@@ -740,7 +733,4 @@ def make_launch_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节点保�
         return feedback_update(text, count)
 
     return launch_confirm
-    # [C 2026-09-11] 块2 发布计划确认门：分类协议/2 轮保险丝/回工单限 1 次/双升级暂停
 
-
-# [C 2026-09-11] nodes/launch_plan.py 块2（launch_confirm 确认门）新增完成

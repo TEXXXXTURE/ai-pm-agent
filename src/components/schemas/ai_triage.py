@@ -1,4 +1,4 @@
-# [C 2026-09-12 by MA] S033 块2a - AI 适用性分流判定 schema
+# AI 适用性分流判定 schema
 """AiTriageSchema：需求确认门的 AI 适用性分流判定（ai_core / non_ai / uncertain）。
 
 输出由模型给出建议（{suggestion, reason, signals}），最终 ai_core 布尔值由用户在
@@ -39,4 +39,3 @@ class AiTriageSchema(BaseModel):
     )
 
 
-# [C 2026-09-12 by MA] schemas/ai_triage.py 新增完成

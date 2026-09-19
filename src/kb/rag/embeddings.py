@@ -1,4 +1,4 @@
-# [C 2026-09-12] RAG 子库 - 嵌入模型封装（硅基流动 OpenAI 兼容 Embeddings API）
+# RAG 子库 - 嵌入模型封装（硅基流动 OpenAI 兼容 Embeddings API）
 """EmbeddingModel：把文本批量转成向量，供领域知识库建库与检索使用。
 
 - 配置来自 config.yaml 的 domain_kb.embedding 段：provider / model / api_key_env /
@@ -120,4 +120,3 @@ class EmbeddingModel:
         return vectors[0] if vectors else []
 
 
-# [C 2026-09-12 by pi-deepseek-v4-flash]

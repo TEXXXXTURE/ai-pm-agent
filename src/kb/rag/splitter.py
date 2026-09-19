@@ -1,4 +1,4 @@
-# [C 2026-09-12] RAG 子库 - 分块器（概念层按 Markdown 标题切 / 论文整篇一块）
+# RAG 子库 - 分块器（概念层按 Markdown 标题切 / 论文整篇一块）
 """split_document：把一篇文档切成带元数据的 chunk 列表。
 
 分块策略：
@@ -155,4 +155,3 @@ def split_document(text: str, doc_type: str, metadata: dict) -> list[dict]:
     return chunks
 
 
-# [C 2026-09-12 by pi-deepseek-v4-flash]

@@ -1,5 +1,5 @@
-# [C 2026-09-14 by S043-b2] 判断需求与 AI 的边界节点 + 确认AI可行性门 自测
-# [C 2026-09-14 by S043-b3] 新增 TestProbeExecution：探针真跑 ReAct 循环零 API 测试
+# 判断需求与 AI 的边界节点 + 确认AI可行性门 自测
+# TestProbeExecution：探针真跑 ReAct 循环零 API 测试
 """feasibility_check / feasibility_confirm 零 API 测试：patch 掉 nodes.feasibility.interrupt,
 假 LLM 回放预制响应，不发起任何真实模型调用。
 
@@ -180,7 +180,7 @@ def make_deps(tmp_dir: Path, fake_llm=None) -> NodeDeps:
 def feasibility_state(**overrides):
     """确认AI可行性门入口 state。
 
-    [C 2026-09-15 by codebuddy-glm-5.2] S045 块4：默认带完整证据（一条 passed=True
+    默认带完整证据（一条 passed=True
     且 actual_output 非空），让 audit_probe_evidence 判 complete=True 且无 failed，
     使四态测试走「证据齐全直接 pass」路径（需答明确通过词，空答复不再放行）。
     新测试可通过 feasibility_evidence=... 覆盖默认值构造不齐证据。
@@ -238,7 +238,7 @@ def run_confirm_collect_payloads(state, answers):
     - ``out_or_None`` 为 None 表示节点未返回（仍在 evidence_gap 循环等 interrupt）；
     - 非 None 表示节点正常返回了 verdict。
 
-    [C 2026-09-15 by codebuddy-glm-5.2] S045 块4：原 run_confirm_node 在 node 抛 IndexError 时
+    原 run_confirm_node 在 node 抛 IndexError 时
     不返回 payloads，无法断言二次 interrupt 载荷；本辅助补全这个能力，专测"节点不返回"
     的 evidence_gap 行为。
     """
@@ -352,7 +352,7 @@ class TestFeasibilitySchema(unittest.TestCase):
         self.assertEqual(obj.cost_estimate.low, 300.0)
 
     def test_invalid_model_status_rejected(self):
-        # [C 2026-09-14 by S043-b2] model_status 非枚举必须硬拒
+        # model_status 非枚举必须硬拒
         for bad in ("green", "红黄", "", "OK"):
             report = {**VALID_REPORT}
             report["capability_matrix"] = [
@@ -369,7 +369,7 @@ class TestFeasibilitySchema(unittest.TestCase):
                 FeasibilitySchema(**report)
 
     def test_invalid_final_status_rejected(self):
-        # [C 2026-09-14 by S043-b2] final_status 非枚举必须硬拒
+        # final_status 非枚举必须硬拒
         for bad in ("green", "红黄", "", "OK"):
             report = {**VALID_REPORT}
             report["capability_matrix"] = [
@@ -404,7 +404,7 @@ class TestFeasibilitySchema(unittest.TestCase):
             FeasibilitySchema(**report)
 
     def test_probe_plan_missing_target_capability_rejected(self):
-        # [C 2026-09-14 by S043-b2] ProbeStep 必填 target_capability
+        # ProbeStep 必填 target_capability
         report = {**VALID_REPORT}
         report["probe_plan"] = [
             {
@@ -424,7 +424,7 @@ class TestFeasibilitySchema(unittest.TestCase):
             FeasibilitySchema(**report)
 
     def test_tool_supplement_defaults_to_empty(self):
-        # [C 2026-09-14 by S043-b2] tool_supplement 有默认值，缺省时为空字符串
+        # tool_supplement 有默认值，缺省时为空字符串
         report = {**VALID_REPORT}
         report["capability_matrix"] = [
             {
@@ -521,7 +521,7 @@ class TestClassifyFeasibilityAnswer(unittest.TestCase):
             "可行",
             "确认",
             "放行",
-            # [MA 2026-09-19] S056：补的日常肯定说法
+            # 补的日常肯定说法
             "行吧",
             "按这个来",
             "好的",
@@ -532,7 +532,7 @@ class TestClassifyFeasibilityAnswer(unittest.TestCase):
             self.assertEqual(classify_feasibility_answer(word), "pass", msg=repr(word))
 
     def test_empty_and_none_are_not_pass(self):
-        # [MA 2026-09-19] S056：空串/None 不再算通过（节点在分类前拦空、继续停等）
+        # 空串/None 不再算通过（节点在分类前拦空、继续停等）
         for word in ("", "   ", None):
             self.assertEqual(
                 classify_feasibility_answer(word), "feedback", msg=repr(word)
@@ -616,7 +616,7 @@ class TestFeasibilityCheckNode(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             fake = FakeLLM(json_queue=[VALID_REPORT])
             deps = make_deps(Path(tmp), fake)
-            # [C 2026-09-14 by S043-b3] 探针循环走 build_chat/build_llm（patch 为 no-op，不调 runner.llm）
+            # 探针循环走 build_chat/build_llm（patch 为 no-op，不调 runner.llm）
             with patch("nodes.feasibility.build_chat", return_value=_noop_chat()), \
                  patch("nodes.feasibility.build_llm", return_value=_noop_llm()):
                 out = make_feasibility_check(deps)(feasibility_state())
@@ -629,12 +629,12 @@ class TestFeasibilityCheckNode(unittest.TestCase):
             self.assertEqual(len(fake.calls), 1)
             self.assertFalse(fake.calls[0]["as_text"])
             self.assertIn("PoL 探针方案", fake.calls[0]["prompt"])
-            # [C 2026-09-14 by S043-b3] 探针证据字段写入 state（_noop_chat 不跑探针，全标"未执行"）
+            # 探针证据字段写入 state（_noop_chat 不跑探针，全标"未执行"）
             self.assertIn("feasibility_evidence", out)
             self.assertTrue(out["feasibility_evidence"])  # VALID_REPORT 有 2 条 probe_plan
 
     def test_invalid_then_valid_retry(self):
-        # [C 2026-09-14 by S043-b2] 首轮 model_status 非枚举 -> Pydantic 硬拒 -> NodeRunner 带反馈重试一次
+        # 首轮 model_status 非枚举 -> Pydantic 硬拒 -> NodeRunner 带反馈重试一次
         bad = {**VALID_REPORT}
         bad["capability_matrix"] = [
             {
@@ -649,7 +649,7 @@ class TestFeasibilityCheckNode(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             fake = FakeLLM(json_queue=[bad, VALID_REPORT])
             deps = make_deps(Path(tmp), fake)
-            # [C 2026-09-14 by S043-b3] 探针循环走 patched build_chat/build_llm
+            # 探针循环走 patched build_chat/build_llm
             with patch("nodes.feasibility.build_chat", return_value=_noop_chat()), \
                  patch("nodes.feasibility.build_llm", return_value=_noop_llm()):
                 out = make_feasibility_check(deps)(feasibility_state())
@@ -666,7 +666,7 @@ class TestFeasibilityCheckNode(unittest.TestCase):
 
 class TestFeasibilityConfirmNode(unittest.TestCase):
     def test_empty_answer_keeps_waiting_not_pass(self):
-        # [MA 2026-09-19] S056 用例 a：空答复不当作通过、不当作意见，再抛 interrupt；
+        # 用例 a：空答复不当作通过、不当作意见，再抛 interrupt；
         # 下一句「通过」才放行
         out, payloads = run_confirm_node(feasibility_state(), ["", "通过"])
         self.assertEqual(len(payloads), 2)
@@ -691,7 +691,7 @@ class TestFeasibilityConfirmNode(unittest.TestCase):
         self.assertEqual(out["feasibility_confirm"]["verdict"], "pass")
 
     def test_colloquial_confirm_words_pass(self):
-        # [MA 2026-09-19] S056 用例 f：措辞「行吧」「按这个来」在边界门也按通过处理
+        # 用例 f：措辞「行吧」「按这个来」在边界门也按通过处理
         for word in ("行吧", "按这个来"):
             out, payloads = run_confirm_node(feasibility_state(), [word])
             self.assertEqual(len(payloads), 1, msg=word)
@@ -722,7 +722,7 @@ class TestFeasibilityConfirmNode(unittest.TestCase):
         )
 
     def test_reshape_limit_insist_keeps_reshape(self):
-        # [MA 2026-09-19] S056 用例 c：已重塑过 1 次（count=1），再次要求重塑 ->
+        # 用例 c：已重塑过 1 次（count=1），再次要求重塑 ->
         # 暂停问一次；二次答复仍坚持重塑 -> 按其意思回第 1 段调范围（verdict=reshape），
         # 不再改判为通过
         state = feasibility_state(feasibility_reshape_count=1)
@@ -792,7 +792,7 @@ class TestGraphWiring(unittest.TestCase):
                 self.assertIn(token, drawn, msg=token)
 
     def test_graph_edges_after_route_shift(self):
-        # [C 2026-09-14 by codebuddy-ds41flash] S040 块1：分流点后移的边事实硬断言
+        # 分流点后移的边事实硬断言
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             tmp_path = Path(tmp)
             deps = make_deps(tmp_path, FakeLLM())
@@ -855,7 +855,7 @@ class TestAiTrackGraphFlow(unittest.TestCase):
             }
 
             executed: list[str] = []
-            # [C 2026-09-14 by S043-b3] feasibility_check 节点会调 build_chat/build_llm，
+            # feasibility_check 节点会调 build_chat/build_llm，
             # patch 为 no-op 防止真实模型调用（图流期间持续生效，覆盖 resume 二次 stream）
             with patch("nodes.feasibility.build_chat", return_value=_noop_chat()), \
                  patch("nodes.feasibility.build_llm", return_value=_noop_llm()):
@@ -982,7 +982,7 @@ class TestWorkflowQuestionAndFields(unittest.TestCase):
         self.assertIn("参考结论-FFF", out)
 
     def test_payload_recap_fields_contain_evidence_audit(self):
-        # [C 2026-09-15 by codebuddy-glm-5.2 r3] S045 块4：证据缺口提示字段接入渲染白名单
+        # 证据缺口提示字段接入渲染白名单
         # run_prd_workflow.PAYLOAD_RECAP_FIELDS 是从 cli.hitl_cli 导入的同一常量，
         # 同步覆盖 hitl_cli 源头与 run_prd_workflow 导入侧两处字段表
         module = self._load_workflow_module()
@@ -993,7 +993,7 @@ class TestWorkflowQuestionAndFields(unittest.TestCase):
         self.assertIn("evidence_audit_hint", HITL_RECAP)
 
     def test_emit_hitl_recap_carries_evidence_audit(self):
-        # [C 2026-09-15 by codebuddy-glm-5.2 r3] S045 块4：feasibility_confirm 中断载荷
+        # feasibility_confirm 中断载荷
         # 携带 evidence_audit dict / evidence_audit_hint 文本 -> STATUS 块按 JSON / 标量渲染出来
         module = self._load_workflow_module()
         payload = {
@@ -1063,7 +1063,7 @@ class TestProbeToolSchema(unittest.TestCase):
     """S043 块3 真机修复：bind_tools 注册名必须是 run_probe（与 tc_name 判定一致）。"""
 
     def test_probe_tool_schema_name(self):
-        # [C 2026-09-14 by codebuddy-ds41flash] 修前注册名是类名 RunProbeTool，
+        # 修前注册名是类名 RunProbeTool，
         # DeepSeek 按此名回调导致每轮判"未知工具"；显式 title 后注册名=run_probe
         from langchain_core.utils.function_calling import convert_to_openai_tool
 
@@ -1169,7 +1169,7 @@ class TestProbeExecution(unittest.TestCase):
         self.assertEqual(cap["final_note"], "模型做不到且无工具可补")
 
     def test_green_downgraded_when_probe_unexecuted_or_failed(self):
-        # [C 2026-09-14 by codebuddy-ds41flash] S043 块3 真机修复：
+        # 真机修复：
         # 只有 actual_output 非空且不以"[执行失败]"开头的证据才算有效证据。
         # 场景 a：探针未执行（actual_output=""）→ 绿点降黄
         ev_unexecuted = [{
@@ -1259,7 +1259,7 @@ class TestProbeExecution(unittest.TestCase):
         self.assertIn("feasibility_evidence", out2)
 
     def test_results_parsed_from_block_content(self):
-        # [C 2026-09-14 by codebuddy-ds41flash] S043 块3 真机修复2：
+        # 真机修复2：
         # 循环级复刻真机——DeepSeek 思考模式第 2 轮 AIMessage.content 为
         # [{"type":"thinking",...}, {"type":"text","text":判定 JSON}] 分段列表。
         # 修复前 _parse_react_results 直接 str(list) 得 Python repr，解析失败，
@@ -1294,7 +1294,7 @@ class TestProbeExecution(unittest.TestCase):
         self.assertEqual(by_name["p1"]["reason"], "被诱导")
 
     def test_parse_react_results_accepts_plain_str_and_blocks(self):
-        # [C 2026-09-14 by codebuddy-ds41flash] S043 块3 真机修复2：
+        # 真机修复2：
         # _parse_react_results 纯函数三形态：纯字符串 / thinking+text 块列表 /
         # 仅 thinking 块列表。
         payload = (
@@ -1320,7 +1320,7 @@ class TestProbeExecution(unittest.TestCase):
 
 
 # ────────────────────────── 11. S045 块4：证据审计 + 二次确认协议 ──────────────────────────
-# [C 2026-09-15 by codebuddy-glm-5.2] S045 块4 新增：证据必填二次确认门
+# 证据必填二次确认门
 
 
 class TestAuditProbeEvidence(unittest.TestCase):
@@ -1541,7 +1541,7 @@ class TestEvidenceGapProtocol(unittest.TestCase):
         self.assertEqual(out["feasibility_confirm"]["verdict"], "abandon")
 
     def test_complete_evidence_empty_answer_keeps_waiting(self):
-        # [MA 2026-09-19] S056 用例 a：证据齐全 + 空答复也不再直接放行，
+        # 用例 a：证据齐全 + 空答复也不再直接放行，
         # 节点停在原地等下一句；下一句「通过」才放行（不进二次确认）
         state = feasibility_state(feasibility_evidence=self._complete_evidence())
         out, payloads = run_confirm_node(state, ["", "通过"])
@@ -1585,7 +1585,7 @@ class TestEvidenceGapProtocol(unittest.TestCase):
         # 第 5 次 interrupt 时 queue 空 → 节点仍在等用户明确答复
 
     def test_failed_probe_empty_answer_keeps_waiting(self):
-        # [MA 2026-09-19] S056 用例 a：证据齐全但有 failed 探针 + 空答复 -> 不再直接 pass，
+        # 用例 a：证据齐全但有 failed 探针 + 空答复 -> 不再直接 pass，
         # 节点停在原地等下一句；「通过」才放行（complete=True 即不进二次确认）
         state = feasibility_state(feasibility_evidence=self._failed_evidence())
         out, payloads = run_confirm_node(state, ["", "通过"])
@@ -1614,7 +1614,6 @@ class TestEvidenceGapProtocol(unittest.TestCase):
 
 
 # ────────────────────────── 12. S048 候选池前置 ──────────────────────────
-# [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 新增：
 # 候选池 schema（2–5 条）/ 候选清单读取降级 / 接入状态判定 / 价格脚本合并
 # （成功·本地备份·退出码·JSON 非法·超时·未配置六条）/ 节点级候选池写回 /
 # PRD 模板九项与模型要求节 / config+state+NodeDeps+两处装配接线。
@@ -2296,15 +2295,14 @@ if __name__ == "__main__":
     unittest.main(verbosity=2)
 
 
-# [C 2026-09-12 by codebuddy-ds41flash] tests/test_feasibility.py 新增完成
-# [C 2026-09-14 by codebuddy-ds41flash] S040 块1：路由用例改挂 route_after_needs_discovery,
+# 路由用例改挂 route_after_needs_discovery,
 #     新增边事实硬断言、AI 轨图流零 API 回归用例、普通轨节点链接力用例
-# [C 2026-09-14 by S043-b2] CapabilityItem 改三方对照结构：VALID_REPORT/feasibility_state/bad 报告
+# CapabilityItem 改三方对照结构：VALID_REPORT/feasibility_state/bad 报告
 #     均改用新字段；新增 TestCapabilityThreeWayLogic 五种合法组合 schema 校验；
 #     TestFeasibilitySchema 拆 test_invalid_model_status_rejected / test_invalid_final_status_rejected，
 #     新增 target_capability 必填校验与 tool_supplement 默认值校验
-# [C 2026-09-15 by codebuddy-glm-5.2 r2] S045 块4 r2：闸门放宽后测试同步
+# r2：闸门放宽后测试同步
 #     （test_failed_probe_guidance_suggests_reshape 改断言、新增 2 例验证放宽行为）
-# [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048：新增第 12 节候选池前置用例
+# 新增第 12 节候选池前置用例
 #     （schema 2–5 条约束 / 候选清单读取降级 / 已接入判定 / 价格脚本六条失败与成功
 #      / 节点级候选池写回 / PRD 九项与模型要求节渲染 / config+state+NodeDeps+两处装配接线）

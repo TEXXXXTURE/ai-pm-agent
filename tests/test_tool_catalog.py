@@ -1,4 +1,4 @@
-# [C 2026-09-14 by S043-b1] 工具能力清单加载器自测
+# 工具能力清单加载器自测
 """tool_catalog 加载器零依赖测试：用项目实际路由表 + 临时文件覆盖四类场景。
 
 覆盖：
@@ -174,4 +174,3 @@ if __name__ == "__main__":
     unittest.main(verbosity=2)
 
 
-# [C 2026-09-14 by S043-b1] tests/test_tool_catalog.py 新增完成

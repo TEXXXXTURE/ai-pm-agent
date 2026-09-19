@@ -1,4 +1,4 @@
-# [C 2026-09-14 by S043-b2] 判断需求与 AI 的边界 schema（feasibility_check 节点）
+# 判断需求与 AI 的边界 schema（feasibility_check 节点）
 """FeasibilitySchema：可行性报告（能力三方对照表 + PoL 探针方案 + 风险扫描 + 成本粗估 + 初步结论）。
 
 按 registry 命名约定：文件名 feasibility -> 类名 FeasibilitySchema。
@@ -120,7 +120,7 @@ class FeasibilitySchema(BaseModel):
     conclusion: str = Field(
         description="初步结论（仅供参考，最终由人工在确认门拍板，不是放行结论）"
     )
-    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048：候选池前置（2–5 条）。
+    # 候选池前置（2–5 条）。
     # 缺省为空列表（老检查点/降级不报错，节点记 candidate_pool_note）；
     # 模型显式给出列表时受 2–5 条约束（pydantic 不校验 default，故缺省可放行）。
     model_candidates: list[ModelCandidate] = Field(
@@ -131,7 +131,6 @@ class FeasibilitySchema(BaseModel):
     )
 
 
-# [C 2026-09-12 by codebuddy-ds41flash] schemas/feasibility.py 新增完成
-# [C 2026-09-14 by S043-b2] CapabilityItem 扩三方对照（model_status/model_note/tool_supplement/final_status/final_note）
+# CapabilityItem 扩三方对照（model_status/model_note/tool_supplement/final_status/final_note）
 #     + ProbeStep 加 target_capability 关联第 1 步能力点
-# [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048：新增 ModelCandidate + FeasibilitySchema.model_candidates（2–5 条）
+# ModelCandidate + FeasibilitySchema.model_candidates（2–5 条）

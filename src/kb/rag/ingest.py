@@ -1,4 +1,4 @@
-# [C 2026-09-12] RAG 子库 - 入库器（概念层 Markdown + 论文层 JSON → 分块 → 嵌入 → ChromaDB）
+# RAG 子库 - 入库器（概念层 Markdown + 论文层 JSON → 分块 → 嵌入 → ChromaDB）
 """RAGIngest：把概念层文档与论文层数据写进 ChromaDB 的 agent_knowledge collection。
 
 设计要点（对应《RAG知识库实施规划》4.3 / 5.3）：
@@ -263,7 +263,7 @@ class RAGIngest:
                     f"[已处理 {processed}/{len(paper_list)} 条，入库 {total} chunk，跳过 {skipped} 条]",
                     file=sys.stderr,
                 )
-        # [C 2026-09-12 by pi-deepseek-v4-flash] 入库进度参数
+        # 入库进度参数
         return total
 
     def _ingest_paper(self, paper: dict, layer: str, prefix: str) -> int:
@@ -342,4 +342,3 @@ class RAGIngest:
         )
 
 
-# [C 2026-09-12 by pi-deepseek-v4-flash]

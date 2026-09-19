@@ -1,4 +1,4 @@
-# [C 2026-09-12] RAG 基础框架自测 - 分块器（纯假文本，零 API）
+# RAG 基础框架自测 - 分块器（纯假文本，零 API）
 """split_document 零成本自测：只喂假文本，不触发任何网络/模型调用。
 
 覆盖：
@@ -177,4 +177,3 @@ def test_empty_text_returns_no_chunk():
     assert split_document("   \n\n", "paper", {}) == []
 
 
-# [C 2026-09-12 by pi-deepseek-v4-flash]

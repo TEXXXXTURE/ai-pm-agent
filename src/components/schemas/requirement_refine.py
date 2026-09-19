@@ -1,4 +1,4 @@
-# [C 2026-09-14 by codebuddy-ds41flash] S041 需求修订整合 schema
+# 需求修订整合 schema
 """RequirementRefineSchema：需求修订整合节点的输出结构（整合后的完整需求 + 变更说明）。"""
 from __future__ import annotations
 
@@ -23,4 +23,3 @@ class RequirementRefineSchema(BaseModel):
     )
 
 
-# [C 2026-09-14 by codebuddy-ds41flash] schemas/requirement_refine.py 新增完成

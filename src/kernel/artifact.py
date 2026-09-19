@@ -1,5 +1,5 @@
-# [C 2026-09-09] M4 产物系统 - HTML 产物渲染与按需求名分文件夹落盘
-# [C 2026-09-09] T1 产物改 Markdown 原生 - save() 增加 ext 参数支持 .md 落盘；
+# 产物系统 - HTML 产物渲染与按需求名分文件夹落盘
+# 产物改 Markdown 原生 - save 增加 ext 参数支持 .md 落盘；
 #     render() 与 HTML 相关逻辑原样保留（prd.html.j2 / insights.html.j2 + assets 退役为演示导出器）。
 """ArtifactManager：Jinja2 模板渲染 + 按需求名分文件夹落盘（T1 起主产物为 Markdown）。
 
@@ -21,21 +21,21 @@ from jinja2 import Environment, FileSystemLoader
 _DOC_DIR_MAP = {
     "prd": "需求文档",
     "insights": "需求洞察",
-    # [C 2026-09-11] 研发工单清单落「研发工单」子目录；review 目录维持英文原样不动
+    # 研发工单清单落「研发工单」子目录；review 目录维持英文原样不动
     "issues": "研发工单",
-    # [C 2026-09-11] 发布计划落「发布计划」子目录
+    # 发布计划落「发布计划」子目录
     "launch_plan": "发布计划",
-    # [C 2026-09-12 by codebuddy-ds41flash] 第 8 段评测产物统一落「评测」子目录
+    # 第 8 段评测产物统一落「评测」子目录
     "eval_config": "评测",
     "eval_results": "评测",
     "eval_report": "评测",
-    # [C 2026-09-13 by codebuddy-ds41flash] 第 6 段对比选型产物统一落「评测」子目录
+    # 第 6 段对比选型产物统一落「评测」子目录
     "bakeoff_config": "评测",
     "bakeoff_results": "评测",
     "bakeoff_report": "评测",
 }
 
-# [C 2026-09-13 by codebuddy-ds41flash] 第 6 段逐模型产物 doc_type 带 provider 后缀
+# 第 6 段逐模型产物 doc_type 带 provider 后缀
 # （bakeoff-<safe_id>-eval_config / bakeoff-<safe_id>-results），前缀命中即归「评测」子目录
 _BAKEOFF_DOC_PREFIXES = ("bakeoff-", "bakeoff_")
 
@@ -48,7 +48,7 @@ def sanitize_name(name: str) -> str:
     return _ILLEGAL_CHARS.sub("_", str(name)).strip()
 
 
-# [C 2026-09-15] 成本列渲染过滤：Python 对小于 1e-4 的浮点用科学计数法（1.2e-05），
+# 成本列渲染过滤：Python 对小于 1e-4 的浮点用科学计数法（1.2e-05），
 #     直接塞进模板不美观。按数量级选小数位、去掉末尾多余的零、至少保留 2 位小数。
 def format_cost(value: object) -> str:
     """把成本数值渲染成固定小数文本，避免浮点科学计数法（如 1.2e-05）。
@@ -88,7 +88,7 @@ class ArtifactManager:
             autoescape=False,
             keep_trailing_newline=True,
         )
-        # [C 2026-09-15] 注册成本格式化过滤，模板里写 {{ x|cost }} 即可
+        # 注册成本格式化过滤，模板里写 {{ x|cost }} 即可
         self._env.filters["cost"] = format_cost
 
     def _load_asset(self, name: str) -> str:
@@ -136,7 +136,7 @@ class ArtifactManager:
         safe_name = sanitize_name(requirement_name)
         sub_dir = _DOC_DIR_MAP.get(doc_type)
         if sub_dir is None:
-            # [C 2026-09-13 by codebuddy-ds41flash] 逐模型 bakeoff 产物（doc_type 带 provider 后缀）
+            # 逐模型 bakeoff 产物（doc_type 带 provider 后缀）
             # 前缀命中统一归「评测」；其余未知 doc_type 保持原行为（直接用其本身作目录名）
             if str(doc_type).startswith(_BAKEOFF_DOC_PREFIXES):
                 sub_dir = "评测"
@@ -147,12 +147,9 @@ class ArtifactManager:
         out_path = out_dir / f"{safe_name}-{doc_type}{ext}"
         out_path.write_text(content, encoding="utf-8")
         return out_path
-        # [C 2026-09-09] T1 save() 增加 ext 参数，文件名改为 {name}-{doc_type}{ext}
-
     def load(self, path: Union[str, Path]) -> str:
         """读回已保存的产物文件内容。"""
         return Path(path).read_text(encoding="utf-8")
 
 
-# [C 2026-09-09] artifact.py 实现完成
-# [C 2026-09-09] T1 save() 支持 .md 落盘；render()/HTML 逻辑原样保留
+# save 支持 .md 落盘；render/HTML 逻辑原样保留

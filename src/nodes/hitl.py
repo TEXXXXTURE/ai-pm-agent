@@ -1,5 +1,5 @@
-# [C 2026-09-09] M6 纵切联调 - HITL 节点（requirement_confirm 需求确认门）
-# [C 2026-09-12 by MA] S033 块2a：确认门 capability_boundary 调用换成 ai_triage 分流判定；
+# 纵切联调 - HITL 节点（requirement_confirm 需求确认门）
+# 确认门 capability_boundary 调用换成 ai_triage 分流判定；
 #     interrupt 载荷携带 ai_triage；resume 协议四态（确认/「非AI」改判/「AI核心」改判/自由文本修订）；
 #     旧 capability_boundary 字段保留供旧检查点兼容，本节点不再写入。
 """需求确认门节点：AI 适用性分流建议 -> interrupt 请用户确认/改判 -> 初始化评测用例。
@@ -23,7 +23,7 @@ from components.tools.init_eval_cases import init_eval_cases
 from kernel.spec import NodeSpec
 
 
-# [C 2026-09-12 by MA] S033 块2a：分流答复分类常量
+# 分流答复分类常量
 # "非AI" 关键词命中即判 non_ai（不做否定前缀排除——用户不会说"不非AI"）
 _NON_AI_KEYWORDS: tuple[str, ...] = (
     "非ai",
@@ -56,8 +56,8 @@ _AI_CORE_NEGATIONS: tuple[str, ...] = (
     "不是",
 )
 
-# [C 2026-09-14 by codebuddy-ds41flash] S041 小块1：确认词集合对齐工单门（issues.py _CONFIRM_WORDS）
-# [MA 2026-09-19] S056：去空串（空答复不再算确认，节点在分类前拦空并继续停等），
+# 确认词集合对齐工单门（issues.py _CONFIRM_WORDS）
+# 去空串（空答复不再算确认，节点在分类前拦空并继续停等），
 # 补日常肯定说法，措辞不在词表不再被丢弃。
 _REQUIREMENT_CONFIRM_WORDS: frozenset[str] = frozenset(
     {
@@ -126,7 +126,7 @@ def _matches_non_ai(compact: str) -> bool:
     return False
 
 
-# [C 2026-09-14 by codebuddy-ds41flash] S041 小块1：剥离改判关键词+标点，判断纯改判 vs 带附言
+# 剥离改判关键词+标点，判断纯改判 vs 带附言
 def _strip_reclassify_keywords(text: str) -> str:
     """剥离改判关键词和首尾标点后的剩余文本；空串=纯改判无附言。"""
     compact = re.sub(r"[\s\u3000]+", "", text.lower())
@@ -148,7 +148,7 @@ def classify_requirement_answer(text: str) -> str:
     3. **再做确认精确判定**：归一化后恰好属于 ``_REQUIREMENT_CONFIRM_WORDS`` 才算 confirm；
     4. 其余文本 -> feedback（需求修订意见，分流沿用模型建议，confirmed_requirement 用用户文本）。
 
-    [MA 2026-09-19] S056：空串不在确认词集合里，本函数对空串返回 feedback；
+    空串不在确认词集合里，本函数对空串返回 feedback；
     空答复由节点在调用本函数之前拦下（不当作确认、不当作意见），继续停等下一句。
 
     Returns:
@@ -162,12 +162,10 @@ def classify_requirement_answer(text: str) -> str:
         return "non_ai"
     if _matches_ai_core(compact):
         return "ai_core"
-    # [C 2026-09-14 by codebuddy-ds41flash] S041 小块1：确认词集合对齐工单门
+    # 确认词集合对齐工单门
     if lowered in _REQUIREMENT_CONFIRM_WORDS:
         return "confirm"
     return "feedback"
-    # [C 2026-09-12 by MA] 需求确认门答复分类纯函数
-
 
 def _resolve_ai_core(kind: str, model_suggestion: str) -> bool:
     """根据用户答复 kind 与模型建议 suggestion 推断最终 ai_core 布尔值。
@@ -190,7 +188,7 @@ def make_requirement_confirm(deps):
 
     def requirement_confirm(state: dict) -> dict:
         # 1. AI 适用性分流建议（替换旧 capability_boundary 调用）
-        # [C 2026-09-12 by MA] S033 块2a：旧 capability_boundary 字段保留不写，
+        # 旧 capability_boundary 字段保留不写，
         # 块 3 可行性门会重新设计为语义不同的产品能力三色表
         prompt = deps.registry.read_prompt("ai_triage")
         schema = deps.registry.load_schema("ai_triage")
@@ -211,7 +209,7 @@ def make_requirement_confirm(deps):
             "ai_triage": ai_triage,
         }
         user_input = interrupt(value=payload)
-        # [MA 2026-09-19] S056：空答复不当作确认、不当作意见，继续停在本节点等下一句
+        # 空答复不当作确认、不当作意见，继续停在本节点等下一句
         while not str(user_input if user_input is not None else "").strip():
             user_input = interrupt(
                 value={**payload, "note": "没收到答复，仍在这里等你的决定"}
@@ -224,7 +222,7 @@ def make_requirement_confirm(deps):
         ai_core = _resolve_ai_core(kind, model_suggestion)
 
         # 4. confirmed_requirement 解析 + refine_pending 标志
-        #    [C 2026-09-14 by codebuddy-ds41flash] S041 整合节点接入：
+        # 整合节点接入：
         #    - confirm：confirmed=raw_requirement, pending=False
         #    - non_ai / ai_core 纯改判（remaining 为空）：confirmed=raw_requirement, pending=False
         #    - non_ai / ai_core 改判带附言（remaining 非空）：confirmed=raw_requirement,
@@ -254,7 +252,7 @@ def make_requirement_confirm(deps):
             refine_feedback = text
 
         # 5. 初始化评测用例（纯确定性模板生成）
-        #    [C 2026-09-14 by codebuddy-ds41flash] S041：pending=True 时跳过初始化，
+        # pending=True 时跳过初始化，
         #    整合节点确认后再初始化（避免用过时的 confirmed_requirement 生成 eval_cases）
         if not refine_pending:
             eval_cases = init_eval_cases({**state, "confirmed_requirement": confirmed})
@@ -280,4 +278,4 @@ def make_requirement_confirm(deps):
     return requirement_confirm
 
 
-# [C 2026-09-12 by MA] S033 块2a：确认门接入 ai_triage 分流 + resume 四态协议
+# 确认门接入 ai_triage 分流 + resume 四态协议

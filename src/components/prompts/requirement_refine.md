@@ -1,4 +1,4 @@
-# [C 2026-09-14 by codebuddy-ds41flash] S041 需求修订整合 prompt
+# 需求修订整合 prompt
 你是一位资深产品经理。用户在需求确认环节提出了修订意见，请把"当前需求"和"修订意见"整合成一版完整的新需求。
 
 ## 输入
@@ -29,4 +29,3 @@
 }
 ```
 
-<!-- [C 2026-09-14 by codebuddy-ds41flash] prompts/requirement_refine.md 新增 -->

@@ -1,11 +1,11 @@
-# [C 2026-09-10] PRD 评审门节点（prd_review）
+# PRD 评审门节点（prd_review）
 """PRD 评审门：模型按五维 rubric 评审 PRD，**三档结论由 Python 代码硬性判定**。
 
 图位置：prd_generation -> prd_review ->（条件边）-> prd_generation（打回重写）
                                             └─> artifact_persist（通过/带警告通过/强制放行）
 
 硬判规则（项目硬约束，模型不决定走向）：
-- blockers 中存在严重程度「阻断」的项 -> "reject"（一票否决，不看分数） [C 2026-09-12]
+- blockers 中存在严重程度「阻断」的项 -> "reject"（一票否决，不看分数）
 - avg < 3.5                       -> "reject"（打回重写）
 - avg >= 3.5 且任一维 <= 2        -> "pass_with_warning"（带警告通过）
 - avg >= 3.5 且全部维 >= 3        -> "pass"（通过）
@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from kernel.spec import NodeSpec
 
-# 最大修订轮数（计数达到该值后仍不达标的评审强制放行） [C 2026-09-10]
+# 最大修订轮数（计数达到该值后仍不达标的评审强制放行）
 MAX_REVISIONS = 3
 
 # 通过线：五维均分阈值
@@ -28,7 +28,7 @@ PASS_AVG = 3.5
 WARN_DIM_MAX = 2
 # 反馈文本中列入"评分短板"的维度分数线（低于该分的维度逐条点名）
 WEAK_DIM_MAX = 3
-# 一票否决严重度：blockers 中存在该严重程度的项直接判 reject（不看分数） [C 2026-09-12]
+# 一票否决严重度：blockers 中存在该严重程度的项直接判 reject（不看分数）
 VETO_SEVERITY = "阻断"
 
 
@@ -41,7 +41,7 @@ def judge_scores(
         scores: 每条至少含 {"score": int 1-5}，由 PrdReviewSchema 保证恰好 5 条。
         blockers: 模型评审的打回项列表（FindingItem 同构 dict），可空。
             存在 severity == "阻断" 的项时直接判 reject（对齐 prd-review 技能
-            「存在阻断级问题 -> 打回」与业界 critical 断言惯例）。 [C 2026-09-12]
+            「存在阻断级问题 -> 打回」与业界 critical 断言惯例）。
 
     Returns:
         (avg, minimum, verdict)：均分（保留 1 位小数）、最低分、结论
@@ -49,19 +49,19 @@ def judge_scores(
 
     Note:
         verdict 用未四舍五入的原始均分与阈值比较，避免边界值被舍入影响；
-        返回的 avg 仅用于展示/落盘。 [C 2026-09-10]
+        返回的 avg 仅用于展示/落盘。
         一票否决只在首轮判定时生效；第 3 轮仍 reject 时节点层强制放行逻辑
-        （forced pass_with_warning 交人工裁决）不受影响。 [C 2026-09-12]
+        （forced pass_with_warning 交人工裁决）不受影响。
     """
     # 生产路径分数由 PrdReviewSchema 保证为 1-5 的 int；此处不做 int() 强转，
-    # 以便单测可直接用浮点构造均分边界（如恰好 3.5）。 [C 2026-09-10]
+    # 以便单测可直接用浮点构造均分边界（如恰好 3.5）。
     nums = [item["score"] for item in scores]
     if not nums:
         raise ValueError("scores 为空，无法判定评审结论")
     avg_raw = sum(nums) / len(nums)
     minimum = min(nums)
     avg = round(avg_raw, 1)
-    # 阻断一票否决：优先于任何分数组合 [C 2026-09-12]
+    # 阻断一票否决：优先于任何分数组合
     has_veto = any(
         item.get("severity") == VETO_SEVERITY for item in (blockers or [])
     )
@@ -72,16 +72,13 @@ def judge_scores(
     else:
         verdict = "pass"
     return avg, minimum, verdict
-    # [C 2026-09-10] 三档硬判规则落点，纯函数便于单测
-    # [C 2026-09-12] 增加阻断一票否决（建议1落地，对齐参考方法论与业界惯例）
-
 
 def build_revision_feedback(review: dict, round_no: int) -> str:
     """纯函数：把模型评审内容拼成中文可行动的打回意见，供 prd_generation prompt 注入。
 
     内容 = 轮次说明 + blockers 逐条清单（严重程度/位置/问题/改法方向）
            + 评分短板维度（score <= 3 的维度逐条点名，覆盖"纯分数打回、blockers 为空"的情况）。
-    复审约定：复审只复验这些项（修订引入的新问题除外）。 [C 2026-09-10]
+    复审约定：复审只复验这些项（修订引入的新问题除外）。
     """
     lines: list[str] = [
         f"【第 {round_no} 轮修订要求】以下是独立评审门打回的问题，"
@@ -138,8 +135,8 @@ def make_prd_review(deps):
         )
         result = deps.runner.run_raw(spec, state)
 
-        # 2. 代码硬判三档结论（模型不决定走向） [C 2026-09-10]
-        #    [C 2026-09-12] 传入 blockers：阻断级项一票否决
+        # 2. 代码硬判三档结论（模型不决定走向）
+        # 传入 blockers：阻断级项一票否决
         avg, minimum, verdict = judge_scores(
             result["scores"], result.get("blockers") or []
         )
@@ -190,9 +187,4 @@ def route_after_review(state: dict) -> str:
     if state.get("ai_core") is True:
         return "eval_design"
     return "issue_splitting"
-    # [C 2026-09-10] 评审门条件边路由函数
-    # [C 2026-09-11] 块1：通过分支由 artifact_persist 改走 issue_splitting（拆单后再落盘）
-    # [C 2026-09-12 by codebuddy-ds41flash] 第 5 段：非 reject 且 ai_core=True 先走 eval_design
 
-
-# [C 2026-09-10] nodes/review.py 新增完成

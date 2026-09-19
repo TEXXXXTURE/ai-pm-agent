@@ -1,4 +1,4 @@
-# [C 2026-09-12 by MA] S033 块2a - AI 适用性分流判定 prompt
+# AI 适用性分流判定 prompt
 你是 AI PM Agent 的需求分流员。请基于"该需求是否应该走 AI 核心轨"给出建议。
 判定标准对齐 docs/workflow-design.md v3.0 第三节双轨道分流规则。
 
@@ -36,4 +36,3 @@
 - signals 列出 2-4 条具体信号，每条基于当前需求的具体内容（不要写空话）；
 - 不要输出 JSON 之外的任何内容、不要包裹在代码围栏里。
 
-<!-- [C 2026-09-12 by MA] prompts/ai_triage.md 新增 -->

@@ -1,4 +1,4 @@
-# [C 2026-09-09] M5 知识库接入 - 飞书同步占位
+# 知识库接入 - 飞书同步占位
 """FeishuSync：飞书知识库双向同步（占位实现）。
 
 飞书授权未配置前，拉取/推送均抛 NotImplementedError；
@@ -27,4 +27,3 @@ class FeishuSync:
         raise NotImplementedError(_NOT_CONFIGURED_MSG)
 
 
-# [C 2026-09-09] M5 FeishuSync 占位实现完成

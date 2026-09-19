@@ -95,4 +95,4 @@ bash scripts/run-tool.sh scripts/kb_query.py --query "路线图 规划 已承诺
 - [ ] 评审节奏与计划外调整的触发条件已写明；采用的假设已在开头标注
 - [ ] 产物为 markdown；未自制 HTML / PPT 等演示物
 
-<!-- [C 2026-09-10] T3第2批：路线图+指标树技能 -->
+<!-- 路线图+指标树技能 -->

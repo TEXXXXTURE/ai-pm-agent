@@ -75,5 +75,5 @@ description: 模型选型与规格问答技能。当用户问"这类需求该选
 - [ ] 给了候选的取舍，明确"最终选择由人拍板"，没有替用户定
 - [ ] 报人民币时说明了汇率日期与来源，并提醒以厂商账单为准
 
-<!-- [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S047 块：模型选型轻活入口，指向 references/模型候选清单.md -->
-<!-- [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S047 块：价格实时化——价格改走 `model_catalog.py price` 实时取数，清单不再存价 -->
+<!-- 模型选型轻活入口，指向 references/模型候选清单.md -->
+<!-- 价格实时化——价格改走 `model_catalog.py price` 实时取数，清单不再存价 -->

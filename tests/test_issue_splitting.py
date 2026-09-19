@@ -1,4 +1,4 @@
-# [C 2026-09-11] 拆研发工单（issue_splitting）块1自测
+# 拆研发工单（issue_splitting）自测
 """issue_splitting 节点零成本自测：全部使用可编排 FakeLLM，不发起任何真实模型调用。
 
 覆盖：
@@ -262,7 +262,7 @@ class TestJudgeIssuePlan(unittest.TestCase):
         self.assertEqual(judged["errors"], [])
         self.assertTrue(any("共同覆盖" in w for w in judged["warnings"]))
 
-    # ── [C 2026-09-12 by pi-deepseek-flash] 第④项修复：summary 自报计数校验 ──
+    # summary 自报计数校验
 
     def test_parse_summary_counts(self):
         # 常见写法：N 张 AFK / AFK N 张 / 共 N 张 / N 张工单
@@ -337,7 +337,7 @@ class TestIssueSplittingNode(unittest.TestCase):
             self.assertEqual(plan["shape_errors"], [])
             self.assertFalse(plan["self_fixed"])
             self.assertEqual(len(plan["issues"]), 1)
-            # [C 2026-09-11] 块2：消费即清零——节点返回两个清零字段，
+            # 消费即清零——节点返回两个清零字段，
             # 保证确认门条件边不会把已消化的意见再次路由回重拆/回炉（取代块1"不写回"契约）
             self.assertEqual(out["issue_revision_feedback"], "")
             self.assertEqual(out["prd_rewrite_feedback"], "")
@@ -431,7 +431,7 @@ class TestIssueSchema(unittest.TestCase):
 
 class TestGraphWiring(unittest.TestCase):
     def test_graph_has_nine_nodes_and_confirm_gate(self):
-        # [C 2026-09-11] 块2 后图为 9 节点：issue_splitting 后接 issue_confirm 确认门
+        # 后图为 9 节点：issue_splitting 后接 issue_confirm 确认门
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             tmp_path = Path(tmp)
             deps = make_deps(tmp_path, FakeLLM())
@@ -463,7 +463,7 @@ class TestGraphWiring(unittest.TestCase):
 
 
 def render_issues(deps, plan, prd_filename="launch-smoke-prd.md"):
-    # [C 2026-09-12 by pi-deepseek-flash] 第①项修复：渲染上下文补 prd_filename
+    # 渲染上下文补 prd_filename
     return deps.artifacts.render(
         "issues.md.j2",
         {
@@ -490,11 +490,11 @@ class TestIssuesTemplate(unittest.TestCase):
             self.assertIn("覆盖矩阵", md)
             self.assertIn("无", md)  # 空依赖显示"无"
             self.assertIn("gh issue create", md)  # 末尾发布提示
-            self.assertIn("launch-smoke-prd.md", md)  # [C 2026-09-12 by pi-deepseek-flash] 来源标注用真实文件名
+            self.assertIn("launch-smoke-prd.md", md)  # 来源标注用真实文件名
             self.assertNotIn("来源 PRD：prd.md", md)  # 不再写死 prd.md
 
     def test_render_missing_prd_filename_falls_back(self):
-        # [C 2026-09-12 by pi-deepseek-flash] 第①项修复：缺 prd_filename 直接渲染不炸，容错为「未知」
+        # 缺 prd_filename 直接渲染不炸，容错为「未知」
         with tempfile.TemporaryDirectory() as tmp:
             deps = make_deps(Path(tmp))
             plan = dict(plan_payload())
@@ -665,7 +665,7 @@ class TestIssuePromptConditional(unittest.TestCase):
 
 
 # ────────────────────────── 9. AI 轨特殊项承接（块2 S038）──────────────────────────
-# [C 2026-09-13 by codebuddy-ds41flash] 第 7 段：仅 AI 核心需求（ai_core=True）校验
+# 第 7 段：仅 AI 核心需求（ai_core=True）校验
 # ai_special_items（trace/fallback/eval_integration/risk_mitigation 四类齐全 +
 # covered_by 引用真实工单）；普通轨不产出、不校验。全部零 API（纯函数/模板渲染）。
 

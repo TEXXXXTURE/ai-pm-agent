@@ -1,4 +1,4 @@
-# [C 2026-09-10] T4-3 联网搜索工具（DuckDuckGo HTML）
+# 联网搜索工具（DuckDuckGo HTML）
 """web_search.py — 联网搜索 CLI（基于 DuckDuckGo HTML 接口，零 API key）。
 
 用途：Pi 在需求调研时，用关键词联网检索资料，返回标题/URL/摘要列表。

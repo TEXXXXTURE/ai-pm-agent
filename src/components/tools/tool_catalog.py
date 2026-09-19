@@ -1,4 +1,4 @@
-# [C 2026-09-14 by S043-b1] 工具能力清单加载器
+# 工具能力清单加载器
 """tool_catalog：读外置工具路由.md，解析出已装工具的能力清单。
 
 纯函数、不调模型、不依赖网络；feasibility_check 节点据此把工具能力注入 prompt，
@@ -123,4 +123,3 @@ def load_tool_catalog(routing_md_path: str | Path) -> list[dict[str, Any]]:
     return catalog
 
 
-# [C 2026-09-14 by S043-b1]

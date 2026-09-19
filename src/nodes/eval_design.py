@@ -1,4 +1,4 @@
-# [C 2026-09-12 by codebuddy-ds41flash] 设计评测体系节点（eval_design + eval_confirm HITL）
+# 设计评测体系节点（eval_design + eval_confirm HITL）
 """设计评测体系：流水线起草四层考题集 -> 人工在确认门拍板及格线并落 Promptfoo YAML 草案。
 
 图位置（第 5 段，仅 AI 核心需求经过；插在 PRD 评审通过之后、拆研发工单之前）：
@@ -50,8 +50,8 @@ MAX_EVAL_ESCALATED_REVISIONS = 1
 # 无需额外 state 字段，用 eval_revision_count 本身作深度界，达上限保持 escalated。
 MAX_EVAL_TOTAL_REVISIONS = MAX_EVAL_REVISIONS + MAX_EVAL_ESCALATED_REVISIONS
 
-# 第 3 版仍提修改意见的暂停说明（三选一） [C 2026-09-12 by codebuddy-ds41flash]
-# [MA 2026-09-19] S056：轮数是建议不是闸门——给具体意见就按其再起草一轮
+# 第 3 版仍提修改意见的暂停说明（三选一）
+# 轮数是建议不是闸门——给具体意见就按其再起草一轮
 _REVISION_ESCALATION_REASON = (
     "评测体系已出到第 3 版（初版 + 2 轮重起草），你仍有修改意见。"
     "请三选一："
@@ -61,7 +61,7 @@ _REVISION_ESCALATION_REASON = (
 )
 
 # 已超过建议轮数的暂停说明（意见照跑、确认照落盘、空答复继续等）
-# [MA 2026-09-19] S056：不再写「只认确认」，也不再用线下核实当唯一出路
+# 不再写「只认确认」，也不再用线下核实当唯一出路
 _ESCALATION_LIMIT_REASON = (
     "已超过建议的人工介入上限（初版 + 2 轮重起草 + 升级后 1 轮），"
     "我不会自己接着改。你可以继续给具体意见，我按你的意见再起草一轮；"
@@ -69,7 +69,7 @@ _ESCALATION_LIMIT_REASON = (
 )
 
 # 确认精确集合：归一化（strip + lower）后恰好属于其中才算确认。
-# [MA 2026-09-19] S056：去空串（空答复不算确认，节点在分类前拦空并继续停等），
+# 去空串（空答复不算确认，节点在分类前拦空并继续停等），
 # 补日常肯定说法；"可以，但要改"不是精确匹配，不判确认（落 feedback 打回重起草）。
 _EVAL_CONFIRM_WORDS: frozenset[str] = frozenset(
     {
@@ -122,7 +122,7 @@ _PROMPTFOO_DEFAULT_PROVIDERS: dict[str, str] = {
 # 通道，本机该通道配置失效会导致评分器报错、题被误判失败。固定复用项目自有 DeepSeek，
 # 同一把 DEEPSEEK_API_KEY、零新密钥；横跑时所有候选也统一由它阅卷，避免候选自评。
 PROMPTFOO_JUDGE_PROVIDER = "deepseek:deepseek-v4-flash"
-# [C 2026-09-13] S039 端到端真机修复：llm-rubric 必须显式指定阅卷模型
+# 端到端真机修复：llm-rubric 必须显式指定阅卷模型
 
 # 四层考题的层名（评测档案 exam_summary 恒定包含这四键）
 _ALL_LAYERS: tuple[str, ...] = ("typical", "boundary", "adversarial", "replay")
@@ -137,7 +137,7 @@ def classify_eval_answer(text: str) -> str:
     3. 其余一律 feedback（打回重新起草）——本门没有回退上游分支，
        否定式（"不确认""先放一放"）与任意自由文本自然落 feedback。
 
-    [MA 2026-09-19] S056：空串不属于确认词集合，本函数对空串返回 feedback；
+    空串不属于确认词集合，本函数对空串返回 feedback；
     空答复由节点在调用本函数之前拦下（不当作确认、不当作意见），继续停等下一句。
 
     Returns:
@@ -148,8 +148,6 @@ def classify_eval_answer(text: str) -> str:
     if lowered in _EVAL_CONFIRM_WORDS:
         return "pass"
     return "feedback"
-    # [C 2026-09-12 by codebuddy-ds41flash] 确认评测体系门答复分类纯函数
-
 
 def route_after_eval_confirm(state: dict) -> str:
     """条件边路由：按 eval_confirm.verdict 两态映射。
@@ -164,10 +162,8 @@ def route_after_eval_confirm(state: dict) -> str:
         return "eval_design"
     if verdict == "pass":
         return "issue_splitting"
-    # [MA 2026-09-19] S056：缺 verdict（没有答复）不再兜底放行，回本节点继续停等
+    # 缺 verdict（没有答复）不再兜底放行，回本节点继续停等
     return "eval_confirm"
-    # [C 2026-09-12 by codebuddy-ds41flash] 确认评测体系门两态条件边路由纯函数
-
 
 def _assertion_to_assert(assertion: str) -> dict:
     """把 assertion 文本按前缀映射为 Promptfoo 断言条目。
@@ -189,7 +185,7 @@ def _assertion_to_assert(assertion: str) -> dict:
 def _build_promptfoo_test(exam: dict, layer: str) -> dict:
     """把一道考题映射成一条 Promptfoo test 条目（description + vars + assert）。"""
     scorer = str(exam.get("scorer") or "")
-    # [C 2026-09-12 by codebuddy-ds41flash] 第 8 段：vars.critical 供评测达标硬判筛关键题；
+    # 第 8 段：vars.critical 供评测达标硬判筛关键题；
     # 对抗层题本就视为关键（无论 exam.critical 值如何一律 true），其他层取 exam.critical。
     critical = True if layer == "adversarial" else bool(exam.get("critical", False))
     test: dict = {
@@ -264,8 +260,6 @@ def render_promptfoo_yaml(eval_system: dict, provider: str = "deepseek") -> str:
         "tests": tests,
     }
     return yaml.safe_dump(document, allow_unicode=True, sort_keys=False)
-    # [C 2026-09-12 by codebuddy-ds41flash] Promptfoo YAML 渲染纯函数（只出草案，不跑真工具）
-
 
 def _normalize_answer(answer: object) -> tuple[str, str]:
     """resume 值归一化：返回 (分类, strip 后原文)；None/非字符串安全转空串。"""
@@ -313,7 +307,7 @@ def _build_eval_archive(state: dict) -> dict:
         "created_at": datetime.now().strftime("%Y-%m-%d"),
         "exam_summary": exam_summary,
         "pass_lines": eval_system.get("pass_lines") or {},
-        # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 出题质量机械检查结果并入评测档案
+        # 出题质量机械检查结果并入评测档案
         "eval_quality": state.get("eval_quality") or {},
         "archive_version": 1,
         "replay_badcases": [],
@@ -346,7 +340,7 @@ def _audit_eval_quality(eval_system: dict) -> dict:
         "warnings": result.get("warnings") or [],
         "notes": result.get("notes") or [],
     }
-    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 出题质量检查接线（不阻断）
+    # 出题质量检查接线（不阻断）
 
 
 def make_eval_design(deps):
@@ -375,8 +369,8 @@ def make_eval_design(deps):
             "eval_revision_feedback": "",
             "eval_quality": eval_quality,
         }
-        # [C 2026-09-12 by codebuddy-ds41flash] 起草即清零意见，确认门条件边据此正确路由
-        # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 起草后追加出题质量检查写回
+        # 起草即清零意见，确认门条件边据此正确路由
+        # 起草后追加出题质量检查写回
 
     return eval_design
 
@@ -447,7 +441,7 @@ def make_eval_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节点保持
                     "reason": reason,
                     "requirement_name": requirement_name,
                     "eval_system": eval_system,
-                    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 出题质量检查结果随载荷展示
+                    # 出题质量检查结果随载荷展示
                     "eval_quality": state.get("eval_quality") or {},
                     "prior_feedbacks": _prior_eval_feedbacks(state),
                 }
@@ -456,7 +450,7 @@ def make_eval_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节点保持
         def escalation_limit_stop(round_label: str) -> dict:
             """已超过建议轮数：确认落盘 / 具体意见按其再跑一轮 / 空答复继续等。
 
-            [MA 2026-09-19] S056：轮数上限是建议不是闸门。
+            轮数上限是建议不是闸门。
             - 确认词 -> 写 verdict=pass 落盘；
             - 具体意见 -> 按其意见再起草一轮（计数照常 +1，留痕；材料写明已超建议轮数）；
             - 空答复 -> 不当作确认、不当作意见，继续停在本节点等下一句。
@@ -495,14 +489,14 @@ def make_eval_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节点保持
             "status": "draft",
             "requirement_name": requirement_name,
             "eval_system": eval_system,
-            # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 出题质量检查结果随载荷展示
+            # 出题质量检查结果随载荷展示
             # （用户在确认评测体系时即可看到哪道题的材料或评分方式可能有问题；只提示不阻断）
             "eval_quality": state.get("eval_quality") or {},
             "eval_revision_count": count,
         }
         first_answer = interrupt(draft_payload)
         kind, text = _normalize_answer(first_answer)
-        # [MA 2026-09-19] S056：空答复不当作确认、不当作意见，继续停在本节点等下一句
+        # 空答复不当作确认、不当作意见，继续停在本节点等下一句
         while not text.strip():
             first_answer = interrupt(
                 {**draft_payload, "note": "没收到答复，仍在这里等你的决定"}
@@ -522,8 +516,4 @@ def make_eval_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节点保持
         return feedback_update(text, count)
 
     return eval_confirm
-    # [C 2026-09-12 by codebuddy-ds41flash] 确认评测体系门：二分类/2 轮保险丝/升级暂停
-    # [C 2026-09-12 by codebuddy-ds41flash] 用 eval_revision_count 自身作升级深度界（不新增 state 字段）
 
-
-# [C 2026-09-12 by codebuddy-ds41flash] nodes/eval_design.py 新增完成

@@ -1,4 +1,4 @@
-# [C 2026-09-09] M0 LiteLLM 统一模型层
+# LiteLLM 统一模型层
 """模型工厂：基于 LiteLLM 统一适配各协议模型（OpenAI 兼容 / Anthropic / Gemini / Ollama 等）。
 
 用法:
@@ -7,7 +7,7 @@
 
     llm = build_llm(load_config())
     result = llm("只返回JSON：{\"status\":\"ok\"}")  # -> dict（JSON 通道）
-    text = llm("写一首短诗", as_text=True)          # -> str（文本通道，[C 2026-09-09] T1）
+    text = llm("写一首短诗", as_text=True)          # -> str（文本通道
     smoke_test(llm)  # -> {"status": "ok"}
 
 llm 契约与 NodeRunner 约定一致：
@@ -29,7 +29,7 @@ from kernel.exceptions import NodeExecutionError
 # 系统提示词：约束模型只输出 JSON
 SYSTEM_PROMPT = "你是AI产品经理助手，只输出JSON，不要输出任何多余文字、解释或Markdown代码围栏。"
 
-# 文本通道系统提示词（[C 2026-09-09] T1）：温和中文约束，不强制 JSON，
+# 文本通道系统提示词：温和中文约束，不强制 JSON，
 # 用于模型原生输出 Markdown 全文等"文本即产物"的场景
 SYSTEM_PROMPT_TEXT = "你是AI产品经理助手，用中文回答，严格按用户要求的格式输出。"
 
@@ -57,7 +57,7 @@ def _join_text_blocks(content: Any) -> str:
 def _looks_truncated(text: str) -> bool:
     """判断待解析的 JSON 文本是否疑似被 max_tokens 截断。
 
-    [C 2026-09-15 by codebuddy-ds41flash] S046 两个特征任一命中即判「疑似截断」：
+    两个特征任一命中即判「疑似截断」：
     1. ``{`` 与 ``}`` 数量不配对（对象结构未闭合）；
     2. 字符串引号未闭合（逐字符扫描到末尾仍停在字符串内部，已处理 ``\\`` 转义）。
 
@@ -83,7 +83,7 @@ def _looks_truncated(text: str) -> bool:
     return in_string
 
 
-# [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 修复B：空正文的可执行提示。
+# 空正文的可执行提示。
 # 与 _looks_truncated 同一种情况——输出被长度上限吃掉（S046 真机：单次输出 31,046 token 中
 # 隐藏思考占 16,805，把 8,192 额度吃光，可见正文为空）。空正文没有可扫描的文本，
 # 故改用响应元数据里的等价信号（finish_reason=length，或带 reasoning 段而正文为空），
@@ -124,11 +124,11 @@ def extract_json(content: str, empty_hint: str = "") -> dict[str, Any]:
     2. 若仍有多余说明文字，取第一个 ``{`` 到最后一个 ``}`` 之间的内容；
     3. json.loads 解析，失败抛 NodeExecutionError(node="llm")。
 
-    解析失败时（[C 2026-09-15 by codebuddy-ds41flash] S046）错误信息区分两类：
+    解析失败时错误信息区分两类：
     满足截断特征（括号不配对 / 引号未闭合）报「疑似被 max_tokens 截断，原始长度 N」，
     否则报常规格式错；二者均为 NodeExecutionError(node="llm")。
 
-    [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 修复B：内容为空时，
+    内容为空时，
     原句「模型返回非JSON: 响应内容为空」保留，并在 ``empty_hint`` 非空时追加可执行提示
     （由调用方按 _empty_content_hint 判据给出；缺省空串 = 原文案不变）。
 
@@ -164,7 +164,7 @@ def extract_json(content: str, empty_hint: str = "") -> dict[str, Any]:
     except json.JSONDecodeError as exc:
         preview = str(content)[:200].replace("\n", " ")
         if _looks_truncated(text):
-            # [C 2026-09-15 by codebuddy-ds41flash] S046 截断与格式错分开报，便于 runner 定向重试
+            # 截断与格式错分开报，便于 runner 定向重试
             raise NodeExecutionError(
                 "llm",
                 f"模型返回非JSON（疑似被 max_tokens 截断，原始长度 {len(str(content))}）: {preview}",
@@ -193,7 +193,7 @@ def build_llm(
     Returns:
         llm 闭包：
         - llm(prompt) -> dict：JSON 通道（默认），已完成 JSON 解析；
-        - llm(prompt, as_text=True) -> str：文本通道（[C 2026-09-09] T1），
+        - llm(prompt, as_text=True) -> str：文本通道，
           模型原文 strip 后直接返回，不做 JSON 解析。
     """
     if config is None:
@@ -212,7 +212,7 @@ def build_llm(
     # 可选：OpenAI 兼容自定义端点（config.yaml 中的 api_base）
     if cfg.get("api_base"):
         chat_kwargs["api_base"] = cfg["api_base"]
-    # [C 2026-09-15 by codebuddy-ds41flash] S046 max_tokens 非 None 才透传（未配置时保持 provider 默认）
+    # max_tokens 非 None 才透传（未配置时保持 provider 默认）
     if cfg.get("max_tokens") is not None:
         chat_kwargs["max_tokens"] = cfg["max_tokens"]
 
@@ -222,7 +222,7 @@ def build_llm(
         """调用模型。
 
         - as_text=False（默认）：系统消息固定约束 JSON 输出，返回 extract_json 解析后的 dict；
-        - as_text=True（[C 2026-09-09] T1）：用温和中文系统提示，不做 JSON 解析，
+        - as_text=True：用温和中文系统提示，不做 JSON 解析，
           内容块拼接后 strip 直接返回 str（模型原生 Markdown 全文走此通道）。
         """
         system_prompt = SYSTEM_PROMPT_TEXT if as_text else SYSTEM_PROMPT
@@ -234,11 +234,9 @@ def build_llm(
         content = _join_text_blocks(response.content)
         if as_text:
             return content.strip()
-        # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 修复B：提示只在内容为空时
+        # 提示只在内容为空时
         # 生效（extract_json 的为空分支），内容非空时该参数不影响任何解析行为
         return extract_json(content, empty_hint=_empty_content_hint(response))
-        # [C 2026-09-09] T1 llm 增加 as_text 文本通道：JSON 通道行为保持不变
-
     return llm
 
 
@@ -271,13 +269,11 @@ def build_chat(
         chat_kwargs["api_key"] = cfg["api_key"]
     if cfg.get("api_base"):
         chat_kwargs["api_base"] = cfg["api_base"]
-    # [C 2026-09-15 by codebuddy-ds41flash] S046 与 build_llm 同口径：max_tokens 非 None 才透传
+    # 与 build_llm 同口径：max_tokens 非 None 才透传
     if cfg.get("max_tokens") is not None:
         chat_kwargs["max_tokens"] = cfg["max_tokens"]
 
     return ChatLiteLLM(**chat_kwargs)
-    # [C 2026-09-14 by S043-b3] 新增 build_chat：返回裸 ChatLiteLLM 供节点自行 bind_tools + invoke
-
 
 def smoke_test(llm: Callable[[str], dict]) -> dict[str, Any]:
     """连通性冒烟测试：要求模型只返回 ``{"status": "ok"}``。
@@ -291,4 +287,3 @@ def smoke_test(llm: Callable[[str], dict]) -> dict[str, Any]:
     return llm('只返回JSON：{"status":"ok"}，不要输出任何其他内容。')
 
 
-# [C 2026-09-09] model.py 实现完成

@@ -21,7 +21,7 @@ if (-not (Test-Path $EnvFile)) {
 
 # 通用解析 .env：逐行注入所有 KEY=VALUE 到当前进程环境变量
 # 兼容 KEY=value 与 KEY="value" / KEY='value'；# 开头的注释行与空行跳过
-# [MA 2026-09-10] S019：从"只解析 DEEPSEEK_API_KEY"升级为通用注入（新增 ARK_API_KEY 等）
+# 从"只解析 DEEPSEEK_API_KEY"升级为通用注入（新增 ARK_API_KEY 等）
 foreach ($line in Get-Content $EnvFile) {
     if ($line -match '^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$') {
         $envName = $Matches[1]
@@ -54,11 +54,11 @@ $piArgs = @('-ne')
 # 加载演示工具包中"环境已就绪"的技能（T5；工具清单与状态见 references/外置工具路由.md）
 # 说明：技能实体不复制进项目 .pi/skills，pi 通过 --skill <目录> 直接加载（工具包不在则跳过，不影响启动）；
 # 只登记环境已就绪的技能——未就绪的不加载，避免 Agent 误以为可用；环境配好后在此追加一行即可。
-# [C 2026-09-10] T5-1 技能加载接线；T5-2 追加 diagram-mermaid
-# [MA 2026-09-10] T5-3 追加 ppt-master（技能在仓库嵌套目录 skills\ppt-master 内）
-# [MA 2026-09-12] S028：工具包随参考库迁入项目内 工具与参考\Agent外置工具包\，路径改为基于 $ProjectRoot 推算
+# 技能加载接线；追加 diagram-mermaid
+# 追加 ppt-master（技能在仓库嵌套目录 skills\ppt-master 内）
+# 工具包随参考库迁入项目内 工具与参考\Agent外置工具包\，路径改为基于 $ProjectRoot 推算
 $DemoToolkit = Join-Path $ProjectRoot '工具与参考\Agent外置工具包\演示工具包'
-# [MA 2026-09-12] S031 块1：AI 评测工具包（Promptfoo 执行器外置），薄技能 ai-eval
+# AI 评测工具包（Promptfoo 执行器外置），薄技能 ai-eval
 $AiEvalToolkit = Join-Path $ProjectRoot '工具与参考\Agent外置工具包\AI评测工具包'
 $ExtSkillPaths = @(
     (Join-Path $DemoToolkit 'skills\frontend-slides'),
@@ -76,7 +76,6 @@ foreach ($skillDir in $ExtSkillPaths) {
 # T5-3：ppt-master 独立 venv（Python 3.12，依赖装于此外置包内，与 hermes venv 隔离）。
 # 若该 venv 存在，将其 Scripts 前置到 PATH——技能脚本中的 python3/python 命令即命中本 venv
 # （Scripts 下有 python.exe 与 python3.cmd 别名）；不影响 run-tool.sh（它用 hermes 绝对路径）。
-# [MA 2026-09-10]
 $PptVenvScripts = Join-Path $DemoToolkit 'tools\ppt-master-venv\Scripts'
 if (Test-Path (Join-Path $PptVenvScripts 'python.exe')) {
     $env:PATH = "$PptVenvScripts;$env:PATH"
@@ -90,4 +89,4 @@ if (Test-Path (Join-Path $PptVenvScripts 'python.exe')) {
 $piArgs += $args
 & pi @piArgs
 
-# [C 2026-09-09] T2 启动脚本
+# 启动脚本

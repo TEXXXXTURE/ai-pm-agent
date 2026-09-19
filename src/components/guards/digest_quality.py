@@ -1,4 +1,4 @@
-# [MA 2026-09-17] R13 总结质量机械检查（纯函数，只提示不阻断）
+# 总结质量机械检查（纯函数，只提示不阻断）
 """行业追踪产物的机械质量检查（纯函数，只提示不阻断）。
 
 检查对象两类：
@@ -226,4 +226,3 @@ def audit_entry_fields(entry: dict) -> dict:
     return {"errors": [], "warnings": warnings, "notes": notes}
 
 
-# [MA 2026-09-17] guards/digest_quality.py 新增完成

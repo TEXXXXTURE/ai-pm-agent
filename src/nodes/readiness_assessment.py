@@ -1,4 +1,4 @@
-# [C 2026-09-16] 就绪度打分节点（readiness_assessment）
+# 就绪度打分节点（readiness_assessment）
 """发布前就绪度打分（R11）：模型对 11 维度各打 0-5 分，代码硬算加权均分与三级阻断。
 
 图位置（第 9 段，launch_plan 与 launch_confirm 之间）：
@@ -184,4 +184,3 @@ def make_readiness_assessment(deps):
     return readiness_assessment
 
 
-# [C 2026-09-16] nodes/readiness_assessment.py 新增

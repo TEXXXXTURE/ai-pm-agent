@@ -1,6 +1,6 @@
-{# [C 2026-09-11] 拆研发工单 prompt（issue_splitting 节点）：
+{# 拆研发工单 prompt（issue_splitting 节点）：
    输入：已通过评审门的 PRD 全文（prd_markdown）+ 评审 dict（red_team_review，注意其 warnings/blockers）
-   + 上轮结构自检反馈（issue_revision_feedback，块1恒空，块2确认门复用，先写条件块）。
+   + 上轮结构自检反馈（issue_revision_feedback，恒空，确认门复用，先写条件块）。
    模型只产出工单方案事实（JSON），不产出"通过/放行"类 verdict；走向由代码与人工确认门决定。 #}
 你是研发工单拆解人（Issue Splitter）。上游的 PRD 已经通过独立评审门，你的任务是把它拆成一份**研发拿过去就能动手**的工单清单。你不重新评审 PRD、不增删需求范围，只做"切分 + 说清楚"。
 
@@ -31,8 +31,8 @@
 
 {{ issue_revision_feedback }}
 {% endif %}
-{# [C 2026-09-11] issue_revision_feedback 块1恒空不渲染；块2确认门打回时注入人工意见 #}
-{%- if ai_core %}{# [C 2026-09-13 by codebuddy-ds41flash] ai_core 条件块：AI 轨四类特殊项承接声明 #}
+{# issue_revision_feedback恒空不渲染；确认门打回时注入人工意见 #}
+{%- if ai_core %}{# ai_core 条件块：AI 轨四类特殊项承接声明 #}
 ## 本需求为 AI 核心需求（ai_core=true）：必须声明四类 AI 特殊项承接
 本需求走 AI 全轨。除通用工单外，你必须在 `ai_special_items` 里**显式声明**下列四类 AI 特殊项分别由哪几张工单承接（每条 `covered_by` 引用本清单真实存在的工单 id），且**每一类都至少要有一张真实工单承接**——不允许任何一类特殊项没有工单：
 - **trace（调用链埋点）**：有工单把线上调用链埋点做出来，使线上每次调用可回看（输入、输出、中间步骤可追溯），便于定位问题；
@@ -158,10 +158,10 @@ PRD 里写了的东西，不允许在覆盖矩阵里"消失"。
 - acceptance_criteria 每张工单 2-6 条；
 - version_map 仅大需求分期时填写，小需求给 []；
 - 只输出 JSON，不要输出 JSON 之外的任何字符。
-{%- if ai_core %}{# [C 2026-09-13 by codebuddy-ds41flash] AI 轨必填约束条目 #}
+{%- if ai_core %}{# AI 轨必填约束条目 #}
 - **本需求为 AI 核心需求，ai_special_items 必填**：trace（调用链埋点）/ fallback（兜底转人工）/ eval_integration（评测接入）/ risk_mitigation（风险册承接）四类必须齐全，每类至少一张真实工单承接；
 - ai_special_items 每条的 covered_by 必须引用本清单真实存在的工单 id，不许悬空；
 - fallback 类的 note 必须写清对应 PRD 哪一部分的失败/接管设计。
 {%- endif %}
 
-<!-- [C 2026-09-11] prompts/issue_splitting.md 新增：纵切拆单 + AFK/HITL + 覆盖矩阵三态 + readiness 三态，严格 JSON -->
+<!-- prompts/issue_splitting.md 新增：纵切拆单 + AFK/HITL + 覆盖矩阵三态 + readiness 三态，严格 JSON -->

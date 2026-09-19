@@ -1,4 +1,4 @@
-# [C 2026-09-12] R3 知识库检索命令行工具
+# 知识库检索命令行工具
 """rag_query.py — 领域知识库检索 CLI（分层加权混合检索）。
 
 用途：把问题文本交给 RAGStore 做分层加权混合检索（向量召回 + 候选内关键词分），
@@ -159,4 +159,3 @@ def main(argv: list[str] | None = None) -> int:
 if __name__ == "__main__":
     sys.exit(main())
 
-# [C 2026-09-12 by pi-deepseek-v4-flash]

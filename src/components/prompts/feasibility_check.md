@@ -1,4 +1,4 @@
-{# [C 2026-09-12 by codebuddy-ds41flash] 可行性报告 prompt（feasibility_check 节点）：
+{# 可行性报告 prompt（feasibility_check 节点）：
    输入：已确认为 AI 核心的需求（confirmed_requirement）+ AI 适用性分流建议（ai_triage）；
    另有模型候选清单整份文本（model_catalog，清单缺失时该节不渲染）与本机已接入候选（configured_candidates）。
    模型只产出可行性事实、探针方案与模型候选池（JSON），不产出"通过/放弃"类结论；
@@ -169,12 +169,12 @@ conclusion 写一两句初步判断（如"核心能力点以绿/黄为主，风�
   why 必须挂到第 1 步的某个能力点；notes 转写清单里的「已知限制与坑」，不编造实测数据；
 - 只输出 JSON，不要输出 JSON 之外的任何字符。
 
-<!-- [C 2026-09-12 by codebuddy-ds41flash] prompts/feasibility_check.md 新增：三色表 + PoL 探针方案 + 四类风险 + 成本区间，严格 JSON -->
-<!-- [C 2026-09-12 by codebuddy-ds41flash] R02：注入领域知识库检索结果 -->
-<!-- [C 2026-09-14 by S043-b1] 注入工具能力清单变量（tool_catalog），用于三色判断时查工具可补能力 -->
-<!-- [C 2026-09-14 by S043-b2] 第 1 步改三方对照（model_status→tool_supplement→final_status）；
+<!-- prompts/feasibility_check.md 新增：三色表 + PoL 探针方案 + 四类风险 + 成本区间，严格 JSON -->
+<!-- 注入领域知识库检索结果 -->
+<!-- 注入工具能力清单变量（tool_catalog），用于三色判断时查工具可补能力 -->
+<!-- 第 1 步改三方对照（model_status→tool_supplement→final_status）；
      第 2 步 ProbeStep 加 target_capability 关联能力点；输出示例与约束同步更新 -->
-<!-- [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048：新增输入变量 model_catalog
+<!-- 新增输入变量 model_catalog
      与 configured_candidates（清单/名单缺失时该节整块不渲染）；新增第 5 步模型候选池
      （2–5 条，六字段），初步结论顺延为第 6 步；第 4 步成本口径改按候选池已给单价的候选算，
      删掉示例里写死的 deepseek-chat 单价与调用表述 -->

@@ -1,4 +1,4 @@
-# [C 2026-09-12] RAG 基础框架自测 - 嵌入封装（httpx 全假，零真实 API）
+# RAG 基础框架自测 - 嵌入封装（httpx 全假，零真实 API）
 """EmbeddingModel 零成本自测：monkeypatch httpx.post 造假响应，不发起任何真实请求。
 
 覆盖：
@@ -274,4 +274,3 @@ def test_config_yaml_domain_kb_embedding():
     assert embedding["batch_size"] == 32
 
 
-# [C 2026-09-12 by pi-deepseek-v4-flash]

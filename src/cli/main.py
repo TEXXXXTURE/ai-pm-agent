@@ -1,4 +1,4 @@
-# [C 2026-09-08] M3 CLI 前端 - 命令行入口
+# CLI 前端 - 命令行入口
 """AI PM Agent CLI 入口：启动 Agent、多轮对话、HITL 交互、断点恢复。"""
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from kernel.model import build_llm
 from kernel.runner import NodeRunner
 from kernel.state import default_state
 from kb.store import KBStore
-from kb.rag import build_rag_store_if_available  # [C 2026-09-12 by codebuddy-ds41flash] R02
+from kb.rag import build_rag_store_if_available
 from nodes import NodeDeps
 
 from cli.hitl_cli import collect_interrupts, handle_hitl
@@ -32,8 +32,6 @@ def _resolve_path(path: str) -> Path:
     """相对路径以 PROJECT_ROOT 为基准解析，绝对路径原样返回。"""
     p = Path(path)
     return p if p.is_absolute() else PROJECT_ROOT / p
-    # [C 2026-09-09] M6 路径统一以 kernel.config.PROJECT_ROOT 为基准
-
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """解析命令行参数。"""
@@ -183,18 +181,18 @@ def main(argv: list[str] | None = None) -> int:
         str(output_root), str(template_dir), str(assets_dir)
     )
     kb = KBStore(str(kb_store))
-    rag_store = build_rag_store_if_available(cfg)  # [C 2026-09-12 by codebuddy-ds41flash] R02
-    # [C 2026-09-12 by codebuddy-ds41flash] 第 8 段：装配外置评测工具配置（eval_tools 段）
+    rag_store = build_rag_store_if_available(cfg)
+    # 第 8 段：装配外置评测工具配置（eval_tools 段）
     # promptfoo_dir 用 _resolve_path 解析相对路径；缺失则 eval_tool 无 promptfoo_dir，
     # eval_run 节点会抛 NodeExecutionError 明确提示配置缺失。
     eval_tools_cfg = cfg.get("eval_tools", {}) or {}
     eval_tool: dict = {}
     if eval_tools_cfg.get("promptfoo_dir"):
         eval_tool["promptfoo_dir"] = str(_resolve_path(eval_tools_cfg["promptfoo_dir"]))
-    # [C 2026-09-13 by codebuddy-ds41flash] 第 6 段：装配对比选型候选清单（bake_off 段）
+    # 第 6 段：装配对比选型候选清单（bake_off 段）
     # 直接传 dict（不含路径，无需 _resolve_path）；缺失则 bake_off 节点抛 NodeExecutionError。
     bake_off_cfg = cfg.get("bake_off", {}) or {}
-    # [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048 候选池料件（model_catalog 段）：
+    # 候选池料件（model_catalog 段）：
     # 与 scripts/run_prd_workflow.py 保持一致，两处路径解析为绝对路径；缺失则 None，
     # feasibility_check 节点降级为空候选池并记原因（不报错）。
     model_catalog_cfg = cfg.get("model_catalog", {}) or {}
@@ -226,7 +224,7 @@ def main(argv: list[str] | None = None) -> int:
     # 3. 构建 graph（真实节点接线 + SQLite 断点持久化）
     graph = build_graph(deps, db_path=str(db_path))
     config: dict = {"configurable": {}}
-    # [C 2026-09-09] M6 真实依赖接线：build_llm + ComponentRegistry + ArtifactManager + KBStore
+    # 真实依赖接线：build_llm + ComponentRegistry + ArtifactManager + KBStore
 
     try:
         # 4/5. 分支：新建 or 恢复
@@ -256,4 +254,3 @@ if __name__ == "__main__":
     sys.exit(main())
 
 
-# [C 2026-09-08] main.py 实现完成

@@ -1,4 +1,4 @@
-# [C 2026-09-11] 块2 发布计划确认门（launch_confirm）自测
+# 发布计划确认门（launch_confirm）自测
 """launch_confirm 节点零成本自测：patch 掉 nodes.launch_plan.interrupt，不发起任何真实模型调用。
 
 覆盖（同构 tests/test_issue_confirm.py）：
@@ -230,7 +230,7 @@ class TestClassifyLaunchAnswer(unittest.TestCase):
             "发布",
             "发布吧",
             "可以发布",
-            # [MA 2026-09-19] S056：补的日常肯定说法
+            # 补的日常肯定说法
             "行吧",
             "按这个来",
             "好的",
@@ -241,7 +241,7 @@ class TestClassifyLaunchAnswer(unittest.TestCase):
             self.assertEqual(classify_launch_answer(word), "confirm", msg=word)
 
     def test_empty_string_is_not_confirm(self):
-        # [MA 2026-09-19] S056：空串不再算确认（节点在分类前拦空、继续停等）
+        # 空串不再算确认（节点在分类前拦空、继续停等）
         self.assertEqual(classify_launch_answer(""), "feedback")
         self.assertEqual(classify_launch_answer("   "), "feedback")
 
@@ -276,11 +276,11 @@ class TestClassifyLaunchAnswer(unittest.TestCase):
         self.assertEqual(
             classify_launch_answer("T-3 的灰度比例从 10% 调到 5%"), "feedback"
         )
-        # [MA 2026-09-19] S056：None 归一为空串，空串不再算确认
+        # None 归一为空串，空串不再算确认
         self.assertEqual(classify_launch_answer(None), "feedback")
 
     def test_negated_redo_issues_is_feedback(self):
-        # [C 2026-09-11] 紧邻否定语的"回工单/重拆工单"是"不回工单"，不得判 redo_issues
+        # 紧邻否定语的"回工单/重拆工单"是"不回工单"，不得判 redo_issues
         self.assertEqual(
             classify_launch_answer("不用回工单，直接改计划"), "feedback"
         )
@@ -293,7 +293,7 @@ class TestClassifyLaunchAnswer(unittest.TestCase):
         self.assertEqual(classify_launch_answer("先别回工单"), "feedback")
 
     def test_negated_redo_issues_expanded_words(self):
-        # [C 2026-09-12 by pi-deepseek-flash] 第③项修复：此前漏配「无需」，
+        # 此前漏配「无需」，
         # 「无需回工单」被误判为 redo_issues；补词后一律落 feedback
         for word in (
             "无需回工单",
@@ -306,7 +306,7 @@ class TestClassifyLaunchAnswer(unittest.TestCase):
         self.assertEqual(classify_launch_answer("需要回工单"), "redo_issues")
 
     def test_spaced_redo_issues_keywords(self):
-        # [C 2026-09-11] 关键词内部带空格（含全角空格）归一化后仍判 redo_issues
+        # 关键词内部带空格（含全角空格）归一化后仍判 redo_issues
         self.assertEqual(classify_launch_answer("回 工单"), "redo_issues")
         self.assertEqual(classify_launch_answer("重拆 工单"), "redo_issues")
         self.assertEqual(classify_launch_answer("回\u3000工单"), "redo_issues")
@@ -344,7 +344,7 @@ class TestLaunchConfirmNode(unittest.TestCase):
             )
 
     def test_empty_answer_keeps_waiting_not_confirmed(self):
-        # [MA 2026-09-19] S056 用例 a：draft 阶段空答复再抛 interrupt、不放行；
+        # 用例 a：draft 阶段空答复再抛 interrupt、不放行；
         # 下一句「确认」才只留痕、路由落盘
         out, payloads = run_confirm_node(confirm_state(), ["", "确认"])
         self.assertEqual(len(payloads), 2)
@@ -435,7 +435,7 @@ class TestLaunchConfirmNode(unittest.TestCase):
         self.assertIn("工单 I1 粒度太粗需要重新拆-CCC", redo_text)
         self.assertIn("完整的工单拆解方案", redo_text)
         self.assertIn("重新生成发布计划", redo_text)
-        # [C 2026-09-11] 阻断1回归：原话只由 handle_redo_issues 统一留痕一次，
+        # 阻断1回归：原话只由 handle_redo_issues 统一留痕一次，
         # draft 分支不得再 append 一遍
         self.assertEqual(len(out["human_feedback"]), 1)
         log = out["human_feedback"][0]
@@ -471,7 +471,7 @@ class TestLaunchConfirmNode(unittest.TestCase):
         self.assertNotIn("issue_revision_feedback", out)
 
     def test_redo_issues_insist_twice_goes_upstream(self):
-        # [MA 2026-09-19] S056 用例 d：redo=1 暂停后二次仍要求回工单
+        # 用例 d：redo=1 暂停后二次仍要求回工单
         # -> 按其意思再回重拆工单（留痕 redo_issues），不再降级成"仍需回工单："前缀意见
         out, payloads = run_confirm_node(
             confirm_state(launch_issue_redo_count=1),
@@ -501,7 +501,7 @@ class TestLaunchConfirmNode(unittest.TestCase):
         self.assertEqual(out["launch_issue_redo_count"], 1)
         self.assertEqual(out["launch_revision_count"], 0)
         self.assertTrue(out["issue_revision_feedback"])
-        # [C 2026-09-11] 阻断1回归：首次意见 1 条 + 回工单由 handle_redo_issues
+        # 阻断1回归：首次意见 1 条 + 回工单由 handle_redo_issues
         # 统一留痕 1 条（round=redo-1），同一原话不得出现两条 redo_issues
         self.assertEqual(len(out["human_feedback"]), 2)
         kinds = [item["kind"] for item in out["human_feedback"]]
@@ -509,10 +509,10 @@ class TestLaunchConfirmNode(unittest.TestCase):
         rounds = [item["round"] for item in out["human_feedback"]]
         self.assertEqual(rounds, ["draft-feedback-3", "redo-1"])
 
-    # ── [C 2026-09-12 by pi-deepseek-flash] 第⑥项修复：升级深度硬上限 ──
+    # 升级深度硬上限
 
     def test_escalation_limit_opinion_redrafts(self):
-        # [MA 2026-09-19] S056 用例 b：已超建议轮数后给具体意见
+        # 用例 b：已超建议轮数后给具体意见
         # -> 按其意见再调一轮（计数 +1、意见写进 launch_revision_feedback、留痕）
         state = confirm_state(
             launch_revision_count=MAX_LAUNCH_REVISIONS,
@@ -533,7 +533,7 @@ class TestLaunchConfirmNode(unittest.TestCase):
         )
 
     def test_escalation_limit_empty_answer_keeps_waiting(self):
-        # [MA 2026-09-19] S056 用例 a：上限暂停时空答复再抛 interrupt、不放行；
+        # 用例 a：上限暂停时空答复再抛 interrupt、不放行；
         # 下一句「确认」才按当前版落盘
         state = confirm_state(
             launch_revision_count=MAX_LAUNCH_REVISIONS,
@@ -549,7 +549,7 @@ class TestLaunchConfirmNode(unittest.TestCase):
         self.assertEqual(out["human_feedback"][-1]["kind"], "confirm")
 
     def test_redo_limit_insist_goes_upstream(self):
-        # [MA 2026-09-19] S056 用例 d：回工单额度用尽 + 3 版建议线，
+        # 用例 d：回工单额度用尽 + 3 版建议线，
         # 二次答复换意见后又坚持回工单 -> 按其意思回 issue_splitting（留痕）
         state = confirm_state(
             launch_issue_redo_count=1,
@@ -604,7 +604,7 @@ class TestRouteAfterLaunchConfirm(unittest.TestCase):
         )
 
     def test_empty_state_goes_back_to_confirm(self):
-        # [MA 2026-09-19] S056：缺字段（None/缺键）不炸，也不再兜底落盘——回本节点继续停等
+        # 缺字段（None/缺键）不炸，也不再兜底落盘——回本节点继续停等
         self.assertEqual(route_after_launch_confirm({}), "launch_confirm")
         self.assertEqual(
             route_after_launch_confirm({"launch_plan": None, "issue_revision_feedback": None}),
@@ -617,7 +617,7 @@ class TestRouteAfterLaunchConfirm(unittest.TestCase):
 
 class TestConsumeAndClearContracts(unittest.TestCase):
     def test_launch_plan_returns_clearing_field(self):
-        # [C 2026-09-11] 块2 补丁：launch_plan 节点返回时清零 launch_revision_feedback，
+        # 补丁：launch_plan 节点返回时清零 launch_revision_feedback，
         # 确认门条件边才不会把已消化的意见再次路由回 launch_plan
         with tempfile.TemporaryDirectory() as tmp:
             fake = FakeLLM(json_queue=[valid_launch_plan()])
@@ -635,7 +635,7 @@ class TestConsumeAndClearContracts(unittest.TestCase):
             self.assertTrue(out["launch_plan"]["workstreams"])
 
     def test_issue_splitting_clears_launch_redo_feedback(self):
-        # [C 2026-09-11] launch_confirm 回工单写入的 issue_revision_feedback
+        # launch_confirm 回工单写入的 issue_revision_feedback
         # 由 issue_splitting 消费即清零（issue_splitting 已在 S023 块2 实现清零，
         # 此处验证 launch_confirm → issue_splitting 的回工单意见链条闭环）
         with tempfile.TemporaryDirectory() as tmp:
@@ -698,7 +698,7 @@ class TestConsumeAndClearContracts(unittest.TestCase):
 
 class TestGraphWiring(unittest.TestCase):
     def test_graph_compiles_with_eleven_nodes_and_launch_confirm(self):
-        # [C 2026-09-11] 块2 新增 launch_confirm：launch_plan -> launch_confirm
+        # launch_confirm：launch_plan -> launch_confirm
         # -> 条件边三分支（确认落盘 / 意见回 launch_plan 重调 / 回工单回 issue_splitting）
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             tmp_path = Path(tmp)
@@ -715,7 +715,7 @@ class TestGraphWiring(unittest.TestCase):
                 "issue_splitting",
                 "issue_confirm",     # 块2 工单确认门
                 "launch_plan",       # 块1 发布计划节点
-                "launch_confirm",    # [C 2026-09-11] 块2 发布计划确认门
+                "launch_confirm",    # 发布计划确认门
                 "artifact_persist",
             ):
                 self.assertIn(name, names)
@@ -764,7 +764,7 @@ class TestWorkflowQuestionAndAgentsDoc(unittest.TestCase):
         self.assertIn("回工单", agents_md)
 
     def test_build_question_draft_vs_escalated_copy(self):
-        # [C 2026-09-11] 阻断2b：draft 与 escalated 文案不同；
+        # 阻断2b：draft 与 escalated 文案不同；
         # escalated（含回工单额度用尽）不承诺一定可回工单，语义以 reason 为准
         module = self._load_workflow_module()
         draft_q = module._build_question(
@@ -793,7 +793,7 @@ class TestWorkflowQuestionAndAgentsDoc(unittest.TestCase):
             self.assertIn("不再承诺", q)
 
     def test_emit_hitl_escalated_exposes_status_reason_priors(self):
-        # [C 2026-09-11] 阻断2a：escalated 载荷经 _emit_hitl 必须向 Pi 透传
+        # 阻断2a：escalated 载荷经 _emit_hitl 必须向 Pi 透传
         # status / reason / prior_feedbacks（list 走 JSON），且不重复打印
         module = self._load_workflow_module()
         payload = {
@@ -828,7 +828,7 @@ class TestWorkflowQuestionAndAgentsDoc(unittest.TestCase):
         self.assertEqual(out.count("prior_feedbacks:"), 1)
 
     def test_emit_hitl_does_not_pollute_requirement_confirm(self):
-        # [C 2026-09-11] 阻断2a：升级三字段仅 issue_confirm / launch_confirm 输出；
+        # 阻断2a：升级三字段仅 issue_confirm / launch_confirm 输出；
         # 即便 requirement_confirm 载荷碰巧带同名键也不得泄漏进 STATUS 块
         module = self._load_workflow_module()
         payload = {

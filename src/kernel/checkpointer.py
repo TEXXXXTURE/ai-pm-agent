@@ -1,4 +1,4 @@
-# [C 2026-09-08] M1 内核骨架 - SQLite 断点持久化
+# 内核骨架 - SQLite 断点持久化
 """LangGraph SQLite Checkpointer 封装。"""
 import sqlite3
 
@@ -21,4 +21,3 @@ def get_checkpointer(db_path: str = "./ai_pm_agent.db") -> SqliteSaver:
     return SqliteSaver(conn)
 
 
-# [C 2026-09-08] checkpointer.py 实现完成

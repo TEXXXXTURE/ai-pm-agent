@@ -1,5 +1,5 @@
-# [C 2026-09-08] M2 组件框架 - PRD 自检 guards
-# [C 2026-09-09] M6 纵切联调 - 适配 sections 片段结构（title + body_html）
+# 组件框架 - PRD 自检 guards
+# 纵切联调 - 适配 sections 片段结构（title + body_html）
 """PRD 产物自检函数：技术术语检查 / 章节数检查 / HTML 片段标签检查。
 
 每个 guard 签名统一：(result: dict) -> tuple[bool, str]，返回 (passed, feedback)。
@@ -63,4 +63,3 @@ def html_self_contained(result: dict) -> tuple[bool, str]:
     return True, ""
 
 
-# [C 2026-09-09] guards/prd_checks.py 适配 sections 片段结构完成

@@ -1,4 +1,4 @@
-# [C 2026-09-15 by codebuddy-ds41flash] S046 runner JSON 解析失败重试自测
+# runner JSON 解析失败重试自测
 """NodeRunner._call_model_with_retry 的 JSON 失败重试测试（零网络、零真实 API）。
 
 覆盖任务书第三节口径 3 与第二节「数据流/失败边界」：
@@ -236,4 +236,3 @@ if __name__ == "__main__":
     unittest.main(verbosity=2)
 
 
-# [C 2026-09-15 by codebuddy-ds41flash] tests/test_kernel_runner.py 新增完成

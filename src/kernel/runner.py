@@ -1,4 +1,4 @@
-# [C 2026-09-08] M1 内核骨架 - 节点执行器
+# 内核骨架 - 节点执行器
 """NodeRunner：按 NodeSpec 执行单个节点（prompt 渲染 -> 模型调用 -> 校验 -> 自检 -> 输出映射）。"""
 from typing import Any
 
@@ -7,7 +7,7 @@ from jinja2 import Template
 from kernel.exceptions import CheckResult, NodeExecutionError
 from kernel.spec import NodeSpec
 
-# [C 2026-09-15 by codebuddy-ds41flash] S046 JSON 解析失败重试反馈文案：
+# JSON 解析失败重试反馈文案：
 # 与 schema 校验失败共用同一条重试路径、同一个 spec.max_retries 上限
 JSON_FORMAT_FEEDBACK = (
     "[输出格式反馈] 上次输出不是合法 JSON（可能被输出长度上限截断），"
@@ -45,10 +45,8 @@ class NodeRunner:
         """
         result = self.run_raw(spec, state)
         return self._map_outputs(spec, result)
-        # [C 2026-09-09] M6 抽出 run_raw：节点直接拿原始结果 dict，run 保留映射行为
-
     def run_text(self, spec: NodeSpec, state: dict) -> str:
-        """文本模式执行节点，返回模型原文 str（[C 2026-09-09] T1）。
+        """文本模式执行节点，返回模型原文 str。
 
         流程：组装上下文（复用 _assemble_context）-> 文本通道调用模型。
         与 run_raw/run 的区别：**不做 schema 校验、不做 guard 自检、不做输出映射**，
@@ -56,8 +54,6 @@ class NodeRunner:
         """
         context = self._assemble_context(spec, state)
         return self._invoke_model(context, as_text=True)
-        # [C 2026-09-09] T1 新增 run_text：文本通道，原文直返
-
     # ────────────────── 步骤 1：组装上下文 ──────────────────
     def _assemble_context(self, spec: NodeSpec, state: dict) -> str:
         """渲染 Jinja2 prompt 模板，并拼接知识库检索结果（kb=None 时为空串）。"""
@@ -78,7 +74,7 @@ class NodeRunner:
     def _call_model_with_retry(self, spec: NodeSpec, context: str) -> dict:
         """调用模型（mock 或真实 llm），失败则带 feedback 重试。
 
-        [C 2026-09-15 by codebuddy-ds41flash] S046 两类失败共用同一重试路径与
+        两类失败共用同一重试路径与
         同一 spec.max_retries 上限：
         - JSON 解析失败（NodeExecutionError，node="llm"，如输出被 max_tokens 截断）：
           追加 JSON_FORMAT_FEEDBACK 重试；
@@ -123,14 +119,12 @@ class NodeRunner:
         if self.llm is not None:
             return self.llm(context, as_text=as_text)
         return self.mock_llm(context, as_text=as_text)
-        # [C 2026-09-09] T1 _invoke_model 透传 as_text
-
     @staticmethod
     def mock_llm(context: str, as_text: bool = False) -> Any:
         """首版 mock LLM，不调网络。
 
         JSON 模式固定返回 {"mock_output": "ok"}；
-        文本模式（[C 2026-09-09] T1）返回占位 str "mock text output"。
+        文本模式返回占位 str "mock text output"。
         """
         if as_text:
             return "mock text output"
@@ -178,8 +172,6 @@ class NodeRunner:
         if feedbacks:
             return False, "; ".join(feedbacks)
         return True, ""
-        # [C 2026-09-09] M6 _check_all 兼容 tuple 与 CheckResult 两种 guard 返回值
-
     # ────────────────── 步骤 4：输出映射 ──────────────────
     @staticmethod
     def _map_outputs(spec: NodeSpec, result: dict) -> dict:
@@ -191,4 +183,3 @@ class NodeRunner:
         return updates
 
 
-# [C 2026-09-08] runner.py 实现完成

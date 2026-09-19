@@ -1,7 +1,7 @@
-{# [C 2026-09-11] 发布计划 prompt（launch_plan 节点）：
+{# 发布计划 prompt（launch_plan 节点）：
    输入：已通过工单确认门的 issue_plan（最终工单清单）+ PRD 全文（prd_markdown）
    + 评审报告（red_team_review，注意其 warnings/blockers 遗留意见）
-   + 上轮自检反馈（launch_revision_feedback，块1 恒空，块2 确认门复用，先写条件块）。
+   + 上轮自检反馈（launch_revision_feedback，恒空，确认门复用，先写条件块）。
    模型只产出发布计划事实（JSON），不产出"通过/放行"类 verdict；
    走向由代码与（块2 的）人工确认门决定。 #}
 你是发布计划制定人（Launch Planner）。上游的 PRD 已通过评审门、研发工单已通过人工确认门，你的任务是把这批工单组织成一份**发布拿过去就能协调落地**的发布计划。你不重新评审 PRD、不增删工单范围，只做"分层 + 排期 + 协调 + 门控 + 值守 + 风险"。
@@ -34,7 +34,7 @@
 - {{ it.get("id", "?") }} [{{ it.get("priority", "?") }}] {{ it.get("title", "") }}{% if it.get("blocked_by") %}（依赖 {{ it.get("blocked_by") | join("、") }}）{% endif %}
 {% endfor %}
 {% endif %}
-{%- if ai_core %}{# [C 2026-09-13 by codebuddy-ds41flash] ai_core 条件块：AI 轨 kill 阈值 + cohort 晋级 #}
+{%- if ai_core %}{# ai_core 条件块：AI 轨 kill 阈值 + cohort 晋级 #}
 ## 本需求为 AI 核心需求（ai_core=true）：补两组 AI 专属发布字段
 本需求走 AI 全轨，除通用发布计划外，你还必须从 PRD 第 8 节「评测计划与可接受通过率」里只列了指标项与方向的 **kill 阈值占位**，细化出两组可执行的字段：
 - **ai_guardrails（在线 kill 阈值，至少 2 条）**：把 PRD 第 8 节的 kill 阈值占位细化到可执行——指标项与 PRD 占位对齐（如 在线答复准确率 / 人工接管率 / P95 延迟 / 单均成本），每条给出触发方向（above/below）、触发数值（threshold）、统计窗口（window）与触发动作（action）。至少 2 条，且**质量类（如在线准确率）与人工接管率类必须各有量化阈值**。语义示例：在线答复准确率 below 90%（连续 15 分钟）→ rollback。
@@ -46,7 +46,7 @@
 
 {{ launch_revision_feedback }}
 {% endif %}
-{# [C 2026-09-11] launch_revision_feedback 块1恒空不渲染；块2确认门打回时注入人工意见 #}
+{# launch_revision_feedback恒空不渲染；确认门打回时注入人工意见 #}
 
 ## 第 0 步：先分层，并给理由
 - **Tier 1（大发布）**：新产品或重大能力；公司级叙事；全套 GTM 机器（市场、公关、销售赋能、活动全上）。
@@ -58,8 +58,8 @@
 positioning 写定位句：**对于【目标受众】中饱受【痛点】困扰的人，【功能/产品】能带来【结果】，与【现有替代方案】不同的是【差异点】**。写不出来说明发布话术没准备好——明确标红旗，不要带病进入物料。success_metrics 给 D7 与 D30 的**数字化**成功目标（Tier1/2 无数字目标不发布：没有目标的发布无法失败，也就无法成功）。
 
 ## 证据分级（R10）
-<!-- [C 2026-09-16 by MA] R10 证据分级：发布计划里"目标数字"和"三条风险"是最驱动发布决策的
-     结论，给它们标注证据来源等级；等级口径与 R11 就绪度打分同一套 [T1]-[T5]。 -->
+<!-- 证据分级：发布计划里"目标数字"和"三条风险"是最驱动发布决策的
+     结论，给它们标注证据来源等级；等级口径与就绪度打分同一套 [T1]-[T5]。 -->
 你给的 **D7/D30 目标数字**和 **Top3 风险判断**是发布决策最依赖的结论，为它们标注证据来源等级：
 - [T1] 实测数据（生产指标、A/B、标注集评测分）
 - [T2] 直接用户证据（访谈原文、可用性观察、工单）
@@ -173,11 +173,11 @@ Tier 1 在上述骨架之上，再补四件事；Tier2/3 给 null，避免臃肿
 - timeline 至少 1 行标 is_critical_path=true；Tier1-2 须排入发布演练/Bug Bash；
 - risks 最多 3 条；oncall_roster 至少 1 行；workstreams 每条 owner 必须具名；
 - 只输出 JSON，不要输出 JSON 之外的任何字符。
-{%- if ai_core %}{# [C 2026-09-13 by codebuddy-ds41flash] AI 轨必填约束条目 #}
+{%- if ai_core %}{# AI 轨必填约束条目 #}
 - **本需求为 AI 核心需求，ai_guardrails 与 cohort_rollout 两组字段必填**，缺失或不足条数即自检失败；
 - ai_guardrails 至少 2 条，且 threshold 与 window 必须含数字；须同时含质量类指标（如在线准确率）与接管率类指标（如人工接管率）；
 - cohort_rollout 至少 2 批，percent / dwell_time / promotion_criteria 必须含数字；批次名与 rollback.stages 对应、数值不矛盾，末批必须是全量（percent 含 100% 或 cohort 名为 GA/全量）；
 - trigger_direction 仅取 above/below；action 仅取 degrade/rollback/disable/alert。
 {%- endif %}
 
-<!-- [C 2026-09-11] prompts/launch_plan.md 新增：7 步骨架 + Tier1 扩展 + 数字回滚 + 二元 go/no-go，严格 JSON -->
+<!-- prompts/launch_plan.md 新增：7 步骨架 + Tier1 扩展 + 数字回滚 + 二元 go/no-go，严格 JSON -->

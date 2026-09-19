@@ -1,4 +1,4 @@
-# [C 2026-09-12 by MA] S033 块2a - AI-native PRD 模板
+# AI-native PRD 模板
 # 参考：工具与参考/PM项目参考/ai-product-manager-skills/skills/prd-architect/references/templates/prd-ai-native.md
 #       docs/workflow-design.md v3.0 第 3 段必含内容（S048 起九项：新增「模型要求与切换条件」）
 你是一位经验丰富的 AI 产品经理。本需求已被判定为 AI 核心需求。你的任务是为它写出一份让团队愿意读、读完能据此开工的 AI-native PRD（产品需求文档）。
@@ -28,14 +28,14 @@ AI-native PRD 与普通 PRD 的差异：不是把模板填满，而是让读的�
 
 {{ red_team_review.revision_feedback }}
 {% endif %}
-{# [C 2026-09-12 by MA] 评审打回时注入 revision_feedback；首轮 red_team_review 为空 dict，本块不渲染 #}
+{# 评审打回时注入 revision_feedback；首轮 red_team_review 为空 dict，本块不渲染 #}
 {% if prd_rewrite_feedback %}
 ## 工单拆解阶段回炉意见
 上一版 PRD 已通过评审，但在拆成研发工单后的**人工确认环节被打回**——下列问题是在工单拆解中暴露的 PRD 层面问题。请先通读，然后输出**完整修订版 PRD**（不是只输出改动片段，全文仍须满足下方输出格式）。修订版会自动重新通过评审门；评审通过后会自动重新拆单，并再次回到工单确认门请用户确认：
 
 {{ prd_rewrite_feedback }}
 {% endif %}
-{# [C 2026-09-12 by MA] 工单确认门"回PRD"时注入回炉意见；首轮为空不渲染，与评审打回块相互独立 #}
+{# 工单确认门"回PRD"时注入回炉意见；首轮为空不渲染，与评审打回块相互独立 #}
 
 ## 必含九项内容
 本 PRD 必须包含下列章节，缺一不可。可在九项之间插入与该需求相关的其他章节，但九项顺序不可乱（背景→边界→流程→功能逻辑→上下文→模型→负向→风险→评测/kill）：
@@ -95,8 +95,8 @@ AI-native PRD 与普通 PRD 的差异：不是把模板填满，而是让读的�
 - **篇幅为说清问题服务**：需求简单就写短，不要为了显得完整注水。
 
 ## 证据分级（R10）
-<!-- [C 2026-09-16 by MA] R10 证据分级：PRD 是发布前就绪度打分（readiness_assessment）喂料之一，
-     证据等级与 R11 同一套 [T1]-[T5]，此处口径必须与 `readiness_assessment.md` 完全一致。 -->
+<!-- 证据分级：PRD 是发布前就绪度打分（readiness_assessment）喂料之一，
+     证据等级与同一套 [T1]-[T5]，此处口径必须与 `readiness_assessment.md` 完全一致。 -->
 本 PRD 里的**关键事实与关键取舍**要标注证据来源等级，让读者（含后续评测与就绪度打分）能判断每条结论站得住几分。证据等级五档：
 - [T1] 实测数据（生产指标、A/B、标注集评测分）
 - [T2] 直接用户证据（访谈原文、可用性观察、工单）
@@ -132,8 +132,7 @@ AI-native PRD 与普通 PRD 的差异：不是把模板填满，而是让读的�
 
 从第一个字符到最后一个字符，都应是 PRD 正文本身。
 
-<!-- [C 2026-09-12 by MA] prompts/prd_generation_ai_native.md 新增 -->
-<!-- [C 2026-09-16 by codebuddy-deepseek-v4.1-flash] S048：必含八项改九项——在「上下文与记忆」
+<!-- 必含八项改九项——在「上下文与记忆」
      之后插入第 6 项「模型要求与切换条件」（主模型/备选与切换条件/能力要求/成本口径），
      原 6/7/8 顺延为 7/8/9，开头顺序句同步改九项；新增输入变量 model_candidates（空池兜底
      措辞「本次未产出候选池，模型待定」）；写法约束加「不得推荐候选池里没有的模型」；

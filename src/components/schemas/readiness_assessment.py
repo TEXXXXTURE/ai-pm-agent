@@ -1,4 +1,4 @@
-# [C 2026-09-16] 就绪度打分 schema（readiness_assessment 节点）
+# 就绪度打分 schema（readiness_assessment 节点）
 """ReadinessSchema：发布前就绪度打分（R11）。
 
 模型读全部上游产物（PRD / 评测报告 / 选型报告 / 发布计划 / 评审报告 / 工单清单），
@@ -73,4 +73,3 @@ class ReadinessAssessmentSchema(BaseModel):
     )
 
 
-# [C 2026-09-16] schemas/readiness_assessment.py 新增

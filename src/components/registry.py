@@ -1,4 +1,4 @@
-# [C 2026-09-08] M2 组件框架 - 组件注册表
+# 组件框架 - 组件注册表
 """ComponentRegistry：自动发现并加载 prompts / schemas / tools / guards 组件。
 
 扫描约定：
@@ -102,8 +102,6 @@ class ComponentRegistry:
         sys.modules[module_name] = module
         spec.loader.exec_module(module)
         return module
-        # [C 2026-09-09] M6 动态加载模块注册 sys.modules，修复 pydantic 前向引用解析
-
     # ────────────────── 公开 API ──────────────────
     def load_prompt(self, name: str) -> Template:
         """读取 prompts/{name}.md，返回 Jinja2 Template。"""
@@ -121,8 +119,6 @@ class ComponentRegistry:
         if name not in self._prompts:
             raise KeyError(f"prompt '{name}' 未注册")
         return self._prompts[name].read_text(encoding="utf-8")
-        # [C 2026-09-09] M6 新增 read_prompt：返回 prompt 原始文本供 NodeSpec 使用
-
     def load_schema(self, name: str) -> type:
         """从 schemas/{name}.py 动态导入，返回 Pydantic Model 类。
 
@@ -174,4 +170,3 @@ class ComponentRegistry:
         }
 
 
-# [C 2026-09-08] registry.py 实现完成

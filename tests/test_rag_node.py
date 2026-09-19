@@ -1,4 +1,4 @@
-# [C 2026-09-12 by codebuddy-ds41flash] R02 - 领域知识库检索接入 kb_lookup 节点自测
+# 领域知识库检索接入 kb_lookup 节点自测
 """R02 自测：kb_lookup 节点接领域知识库（kb.rag）+ 两个 prompt 的领域库条件块 + 启动装配函数。
 
 零网络、零真实模型 API、零真实 chroma 实例：
@@ -209,7 +209,7 @@ def test_feasibility_prompt_renders_and_hides():
 
     rendered_empty = Template(raw).render(domain_kb_context=[], **common)
     assert "AI 领域知识库参考" not in rendered_empty
-    # [C 2026-09-14 by S043-b2] 第 1 步标题由"三色判断"改为"三方对照"，同步断言
+    # 第 1 步标题由"三色判断"改为"三方对照"，同步断言
     assert "## 第 1 步：关键能力点三方对照" in rendered_empty
 
 
@@ -260,4 +260,3 @@ def test_build_rag_store_if_available_paths(tmp_path, monkeypatch):
     assert store.config == config
 
 
-# [C 2026-09-12 by codebuddy-ds41flash] tests/test_rag_node.py 新增完成

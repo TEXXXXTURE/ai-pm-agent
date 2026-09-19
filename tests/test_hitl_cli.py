@@ -1,4 +1,4 @@
-# [MA 2026-09-19] S056：CLI 交互层空答复不复用自测（零 API、零图）
+# CLI 交互层空答复不复用自测（零 API、零图）
 """cli.hitl_cli.handle_hitl 空答复口径测试。
 
 覆盖任务书第 1 条：
@@ -84,4 +84,3 @@ if __name__ == "__main__":
     unittest.main(verbosity=2)
 
 
-# [MA 2026-09-19] tests/test_hitl_cli.py 新增完成

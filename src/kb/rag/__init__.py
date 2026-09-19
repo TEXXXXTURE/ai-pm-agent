@@ -1,4 +1,4 @@
-# [C 2026-09-12] RAG 子库 - AI 领域知识库（向量检索层）
+# RAG 子库 - AI 领域知识库（向量检索层）
 """kb.rag 子包：AI 领域知识库（concept / curated-paper / tracked-paper 三层）。
 
 定位说明：
@@ -33,4 +33,4 @@ def build_rag_store_if_available(config: dict | None):
         return None
 
 
-# [C 2026-09-12 by codebuddy-ds41flash] R02：领域知识库启动装配（库缺失/为空/异常均降级）
+# 领域知识库启动装配（库缺失/为空/异常均降级）
