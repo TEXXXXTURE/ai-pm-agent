@@ -12,7 +12,7 @@
 | 项 | v2.0 | v3.0 |
 |---|---|---|
 | 立项依据 | 市面上 PM 工具的功能拼装 | **AI PM 职能标准**：一个优秀 AI PM 必须做到的 14 项职能（见 `docs/AI-PM职能标准与能力模型调研.md`） |
-| 主线 | PM 4 段（探索/规划/交付/增长），22 节点 | **12 段融合工作流**（AI 全轨 / 普通轨双轨分流），18 节点，6 扇 HITL 确认门 |
+| 主线 | PM 4 段（探索/规划/交付/增长），22 节点 | **12 段融合工作流**（AI 全轨 / 普通轨双轨分流），20 节点，8 处 HITL 确认点 |
 | 产物 | 自包含 HTML（可勾选、可打印） | **一律 Markdown**（进评审；演示类外置工具包） |
 | 模型能力判定 | 未定义 | **探针实测**：第 2 段进程内 ReAct 真跑探针，证据回填（不吃榜单） |
 | 评测 | 无 | 第 5 段设计评测体系、第 6 段模型横跑、第 8 段构建期真跑评测并硬判 |
@@ -62,7 +62,7 @@ AI 产品经理工作流 Agent——把优秀 AI PM 的职能做成**可执行�
 | 段 | 名称 | 承担方 | 产出 | 状态 |
 |---|---|---|---|---|
 | 0 | 接收需求 | 流水线 | 需求录入、知识库查家底（kb_lookup） | ✅ 已建 |
-| 0.5 | 需求修订整合 | 流水线 + HITL | 原需求与修订意见整合成新草案（限 2 版，第 3 版升级暂停） | ✅ 已建 |
+| 0.5 | 需求修订整合 | 流水线 + HITL | 原需求与修订意见整合成新草案（不设次数上限，每次重整合都要真人回话） | ✅ 已建 |
 | 1 | 挖需求并判断是否 AI 核心 | 流水线 + HITL | 用户洞察、`ai_core` 判定与理由、初始考题集 | ✅ 已建 |
 | 2 | 判断需求与 AI 的边界 | 流水线 + HITL | 三方对照表（需求 × 模型 × 工具）+ **探针真跑证据** + 能力边界结论 | ✅ 已建（探针自动真跑） |
 | 3 | 写 PRD | 流水线 | ai-native PRD（三层成功标准/协作边界表/失败接管列/负向验收/风险册/评测占位）或普通模板 | ✅ 已建 |
@@ -189,7 +189,7 @@ AI 产品经理工作流 Agent——把优秀 AI PM 的职能做成**可执行�
 ### 6.3 轻活（自主模式）
 
 - 问答、咨询、调研分析、单篇文档、会议纪要等由 Pi 加载技能直接完成
-- 8 个 PM 技能（research-investigation / feedback-triage / roadmap / metrics-tree / stakeholder-comms / experiment-design / retro / demo-handover）+ RAG 查询技能（domain-kb-query）
+- 11 个 Pi 技能（research-investigation / feedback-triage / roadmap / metrics-tree / stakeholder-comms / experiment-design / retro / demo-handover / domain-kb-query / model-selection / agent-manual）+ RAG 查询技能（domain-kb-query，已并入上表）
 - **单一载体规则**：与流水线段重复的技能已删（prd-review↔第 4 段、prd-to-issues↔第 7 段、launch-plan↔第 9 段），同一职能只留一个载体——有进度、有判定的走流水线段，无状态的轻量问答才留技能
 
 ### 6.4 演示类需求
@@ -219,7 +219,7 @@ AI 产品经理工作流 Agent——把优秀 AI PM 的职能做成**可执行�
 
 ### 8.1 代码交付
 
-- 流水线本体（18 节点 + 6 扇 HITL 门 + 条件边路由）
+- 流水线本体（20 节点 + 8 处 HITL 确认点 + 条件边路由）
 - 组件目录（prompt/schema/guard 文件式可插拔）
 - 外置工具接线（Promptfoo 评测与横跑）
 - RAG 知识库（建库与查询 CLI）
@@ -231,7 +231,7 @@ AI 产品经理工作流 Agent——把优秀 AI PM 的职能做成**可执行�
 - `docs/AI-PM职能标准与能力模型调研.md`（职能标准与达标证据，本项目的验收依据）
 - `docs/workflow-design.md` v3.0（12 段节点级设计）
 - `docs/technical-design.md`（技术方案）
-- Pi 技能 11 个 + 外置演示工具包 4 技能
+- 11 个 Pi 技能（research-investigation / feedback-triage / roadmap / metrics-tree / stakeholder-comms / experiment-design / retro / demo-handover / domain-kb-query / model-selection / agent-manual）+ 外置演示工具包 4 技能
 
 ---
 
@@ -251,4 +251,4 @@ AI 产品经理工作流 Agent——把优秀 AI PM 的职能做成**可执行�
 2. **判定级**：所有结论由代码硬判；HITL 门在无答复时只暂停、不放行；错误在产物中可见（不静默）。
 3. **标准级**：第四节 14 条要求中，R1-R11 保持达标（回归不破），R13 落地并通过真实需求验证。
 
-<!-- [MA 2026-09-15] S046：按 AI PM 职能标准重写；纠正 v2.0 与代码实况的漂移（HTML→Markdown、22 节点→18 节点、4 门→6 门、补两轨分流/探针真跑/评测体系/RAG） -->
+<!-- [MA 2026-09-15] S046：按 AI PM 职能标准重写；纠正 v2.0 与代码实况的漂移（HTML→Markdown、22 节点→20 节点、4 门→8 处停人点、补两轨分流/探针真跑/评测体系/RAG） -->
