@@ -23,17 +23,20 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
-# hermes venv 的 python（Git Bash 中 .exe 可省略扩展名）
-HERMES_BIN="/c/Users/A/AppData/Local/hermes/hermes-agent/venv/Scripts"
-HERMES_PY="$HERMES_BIN/python"
-
-if [ ! -x "$HERMES_PY" ] && [ ! -x "$HERMES_PY.exe" ]; then
-    echo "[run-tool.sh] 错误：未找到 hermes venv 的 python：$HERMES_PY" >&2
-    echo "[run-tool.sh] 请确认 hermes-agent 已安装，或修改脚本顶部 HERMES_BIN 路径。" >&2
+# 选择 Python 解释器：优先用环境变量 PYTHON_BIN（由使用方注入 venv），缺省回退 python3 / python
+if [ -n "${PYTHON_BIN:-}" ] && [ -x "$PYTHON_BIN" ]; then
+    HERMES_PY="$PYTHON_BIN"
+elif command -v python3 >/dev/null 2>&1; then
+    HERMES_PY="$(command -v python3)"
+elif command -v python >/dev/null 2>&1; then
+    HERMES_PY="$(command -v python)"
+else
+    echo "[run-tool.sh] 错误：未找到 Python。请设置环境变量 PYTHON_BIN 指向项目 venv 的 python，或确保 python3/python 在 PATH 中。" >&2
     exit 1
 fi
+HERMES_BIN="$(dirname "$HERMES_PY")"
 
-# 1) 让 hermes venv 的 python 优先
+# 1) 让该 python 的 Scripts 目录优先（保证依赖可用）
 export PATH="$HERMES_BIN:$PATH"
 
 # 2) PYTHONPATH：项目 src 目录

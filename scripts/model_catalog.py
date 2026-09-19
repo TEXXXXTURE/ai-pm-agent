@@ -10,8 +10,7 @@
     本脚本不调用任何模型、不写库。
 
 数据源
-    本地表（不变字段 + price 的回退源），litellm 包内自带，默认路径：
-    C:\\Users\\A\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\litellm\\model_prices_and_context_window_backup.json
+    本地表（不变字段 + price 的回退源），litellm 包内自带，默认路径随包自动定位（可用 `--table` 指定）；
     远端表（price 的首选源），litellm 官方仓库 raw 文件：
     https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json
     两侧字段格式一致（同一个 json）。litellm 升级后本地文件被覆盖，字段随之更新。
@@ -65,10 +64,22 @@ import json
 import os
 import sys
 
-DEFAULT_TABLE = (
-    r"C:\Users\A\AppData\Local\hermes\hermes-agent\venv\Lib\site-packages"
-    r"\litellm\model_prices_and_context_window_backup.json"
-)
+def _default_table_path() -> str:
+    """定位 litellm 包自带的模型价格表：优先随包路径，找不到返回空串（调用方走报错提示）。"""
+    try:
+        import litellm
+        base = os.path.dirname(litellm.__file__)
+    except Exception:
+        return ""
+    for name in ("model_prices_and_context_window_backup.json",
+                 "model_prices_and_context_window.json"):
+        cand = os.path.join(base, name)
+        if os.path.isfile(cand):
+            return cand
+    return ""
+
+
+DEFAULT_TABLE = _default_table_path()
 
 # price 子命令的首选源：litellm 官方仓库 raw 表（与本地备份同一个 json，字段一致）
 DEFAULT_REMOTE_URL = (

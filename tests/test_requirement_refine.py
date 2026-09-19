@@ -28,7 +28,7 @@ patch 掉 nodes.refine.interrupt / nodes.hitl.interrupt，假 LLM 回放预制�
 
 运行（PowerShell，cwd=项目根）：
   $env:PYTHONPATH="src"
-  C:\\Users\\A\\AppData\\Local\\hermes\\hermes-agent\\venv\\Scripts\\python.exe -m pytest tests/test_requirement_refine.py -v
+  PYTHONPATH=src python -m pytest tests/test_requirement_refine.py -v
 也可用脚本直接运行（无 pytest 时依赖标准库 unittest）。
 """
 from __future__ import annotations

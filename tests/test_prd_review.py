@@ -13,7 +13,7 @@
 
 运行（PowerShell，cwd=项目根）：
   $env:PYTHONPATH="src"
-  C:\\Users\\A\\AppData\\Local\\hermes\\hermes-agent\\venv\\Scripts\\python.exe tests/test_prd_review.py
+  PYTHONPATH=src python tests/test_prd_review.py
 也可用 pytest 收集（无 pytest 时直接脚本运行，仅依赖标准库 unittest）。
 """
 from __future__ import annotations

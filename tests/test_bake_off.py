@@ -33,7 +33,7 @@ S048（2026-09-16 第二块）补充覆盖：
 
 运行（PowerShell，cwd=项目根）：
   $env:PYTHONPATH="src"
-  C:\\Users\\A\\AppData\\Local\\hermes\\hermes-agent\\venv\\Scripts\\python.exe -m pytest tests/test_bake_off.py -v
+  PYTHONPATH=src python -m pytest tests/test_bake_off.py -v
 """
 from __future__ import annotations
 

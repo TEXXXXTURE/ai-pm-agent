@@ -26,7 +26,7 @@
 
 运行（cwd=项目根）：
   $env:PYTHONPATH="src"
-  C:\\Users\\A\\AppData\\Local\\hermes\\hermes-agent\\venv\\Scripts\\python.exe -m pytest tests/test_kernel_model.py -v
+  PYTHONPATH=src python -m pytest tests/test_kernel_model.py -v
 """
 from __future__ import annotations
 
