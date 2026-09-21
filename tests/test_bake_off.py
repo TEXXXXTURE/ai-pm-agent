@@ -22,7 +22,7 @@ subprocess 全部 mock，不发起任何真实模型调用、不跑真 Promptfoo
 8. QUESTION 文案：run_prd_workflow._build_question 对 bake_off 三态输出对应提示；
 9. 配置与字段：config.yaml bake_off 段候选、state 默认 bakeoff_artifacts、hitl_cli 展示 model_selection。
 
-S048（2026-09-16 第二块）补充覆盖：
+补充覆盖：
 10. classify_candidate_choice 六种答复（序号 / 名称 / 全部 / 跳过 / 其他 / 空）+ 点名优先于全选
     + 否定式优先 + 候选名里的版本号不被误当序号；
 11. 候选来源改为 state["model_candidates"]（停等材料含候选池全字段与「本次可实跑」一行）；
@@ -97,7 +97,7 @@ DEFAULT_CANDIDATES = {
     ]
 }
 
-# S048：第 2 段候选池形态（provider_id 用 litellm 斜杠格式；第 2 段已补价与接入状态）
+# 第 2 段候选池形态（provider_id 用 litellm 斜杠格式；第 2 段已补价与接入状态）
 POOL_CHAT = {
     "provider_id": "deepseek/deepseek-chat",
     "label": "DeepSeek-Chat",
@@ -238,7 +238,7 @@ def _base_state(ai_core: bool = True) -> dict:
 
 
 def _state_with_pool(pool: list) -> dict:
-    """带第 2 段候选池的 state（S048 第二块：第 6 段读候选池）。"""
+    """带第 2 段候选池的 state（第 6 段读候选池）。"""
     state = _base_state()
     state["model_candidates"] = pool
     return state
@@ -367,7 +367,7 @@ class TestBuildProviderConfig(unittest.TestCase):
         self.assertEqual(len(doc["tests"]), 8)
 
     def test_llm_rubric_judge_provider_backfilled(self):
-        # S039：旧草案里缺 provider 的 llm-rubric 断言必须补上固定阅卷模型
+        # 旧草案里缺 provider 的 llm-rubric 断言必须补上固定阅卷模型
         old_draft = yaml.safe_dump(
             {
                 "prompts": ["{{prd_core_task_prompt}}"],
@@ -815,7 +815,7 @@ class TestConfigAndFields(unittest.TestCase):
             self.assertEqual(Path(results).parent.name, "评测")
 
 
-# ──────────────────── 10. classify_candidate_choice（S048 第二块） ────────────────────
+# ──────────────────── 10. classify_candidate_choice ────────────────────
 
 
 class TestClassifyCandidateChoice(unittest.TestCase):
@@ -1069,7 +1069,7 @@ class TestBakeOffCandidatePool(unittest.TestCase):
         self.assertEqual([item["index"] for item in view], [1, 2])
 
 
-# ──────────────────── 15. QUESTION 文案与 CLI 载荷（S048 第二块） ────────────────────
+# ──────────────────── 15. QUESTION 文案与 CLI 载荷 ────────────────────
 
 
 class TestS048QuestionAndCli(unittest.TestCase):

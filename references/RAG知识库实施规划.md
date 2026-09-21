@@ -1,7 +1,7 @@
 # AI Agent 领域知识库 RAG 实施规划
 
 > 本文档是 RAG 知识库系统的完整实施规划，面向 Code 侧开发。
-> 依据：W01 选型结论 + W02 讨论细化（分类映射、持续更新 Chunk 策略）+ S031 修订（2026-09-12：嵌入模型 Doubao→硅基流动，规避 Agent Plan 合规红线；实施方式：派 CLI Agent 做骨架、主 Agent 验收；与主线 12 段融合工作流并行推进）+ S032 修订（2026-09-12：嵌入模型定为 Qwen/Qwen3-Embedding-8B 4096 维，真机实测通过；论文层种子从 40 篇扩为 514 篇全量；用户拍板质量优先）
+> 依据：选型结论 + 讨论细化（分类映射、持续更新 Chunk 策略）+ 2026-09-12 修订（嵌入模型 Doubao→硅基流动，规避 Agent Plan 合规红线；实施方式：派 CLI Agent 做骨架、主 Agent 验收；与主线 12 段融合工作流并行推进）+ 2026-09-12 修订（嵌入模型定为 Qwen/Qwen3-Embedding-8B 4096 维，真机实测通过；论文层种子从 40 篇扩为 514 篇全量；用户拍板质量优先）
 > 性质：功能模块开发，需走工作流报批
 
 ---
@@ -82,7 +82,7 @@
 | 组件 | 选型 | 理由 |
 |------|------|------|
 | 向量数据库 | ChromaDB（嵌入式） | 规模匹配（几千个 chunk）、零运维、Python 原生、支持 metadata 过滤 |
-| 嵌入模型 | 硅基流动 `Qwen/Qwen3-Embedding-8B`（4096 维） | MTEB 多语言榜第一（70.58）；S032 真机实测通过（4096 维、批量 32 条 0.84s、约 4 字符/token）；全量语料约 62 万 tokens，单轮嵌入成本约 ¥0.2，质量优先无成本负担 |
+| 嵌入模型 | 硅基流动 `Qwen/Qwen3-Embedding-8B`（4096 维） | MTEB 多语言榜第一（70.58）；真机实测通过（4096 维、批量 32 条 0.84s、约 4 字符/token）；全量语料约 62 万 tokens，单轮嵌入成本约 ¥0.2，质量优先无成本负担 |
 | 分块策略 | 按层差异化（概念层 section-aware / 论文层整篇） | 不同内容性质适配不同分块方式 |
 | 检索策略 | 分层加权混合检索 | 兼顾语义和精确，高质量内容优先 |
 | 更新机制 | 按层差异化频率（季/月/周） | 各层变化速度不同，节奏匹配 |
@@ -168,10 +168,10 @@ class EmbeddingModel:
 
 **实现要点**：
 - 直接调用硅基流动 Embeddings API（OpenAI 兼容格式）<!-- 原方案 Doubao 弃用：项目 ARK_API_KEY 是火山 Agent Plan 专属 key，按量端点 /api/v3 不认（401），且 Agent Plan 向量模型禁止脚本裸调（合规红线） -->
-- 批量请求（每批上限 32 条，S032 实测通过）
+- 批量请求（每批上限 32 条，实测通过）
 - 失败重试 2 次（指数退避）
 - API 端点：`https://api.siliconflow.cn/v1/embeddings`
-- 模型名：`Qwen/Qwen3-Embedding-8B`（4096 维；S032 真机实测通过：单条 0.32s、批量 32 条 0.84s，已定档，建库即用此模型）
+- 模型名：`Qwen/Qwen3-Embedding-8B`（4096 维；真机实测通过：单条 0.32s、批量 32 条 0.84s，已定档，建库即用此模型）
 - 密钥环境变量：`SILICONFLOW_API_KEY`（已入项目 .env，2026-09-12）
 - 账户有余额：不锁免费档；模型已选定（Qwen3-Embedding-8B），可建库
 
@@ -372,12 +372,12 @@ chromadb>=0.5
 | 层 | 状态 | 位置 |
 |----|------|------|
 | 概念解读层 | ✅ 已下载 | `domain_kb/source/concept/`（209 篇，32 分类） |
-| 精选论文层 | ⚠️ 元数据就绪，abstract 补全中（S032 已后台跑全量 514 篇，约 27 分钟） | `domain_kb/source/curated-papers/papers_raw.json`（514 篇）→ `papers_with_abstract.json` |
+| 精选论文层 | ⚠️ 元数据就绪，abstract 补全中（已后台跑全量 514 篇，约 27 分钟） | `domain_kb/source/curated-papers/papers_raw.json`（514 篇）→ `papers_with_abstract.json` |
 | 新论文追踪层 | ❌ 未开始 | 本期不做 |
 
-**精选层 abstract 补充策略**（S032 修订：从 40 篇扩为全量 514 篇，用户拍板）：
+**精选层 abstract 补充策略**（从 40 篇扩为全量 514 篇，用户拍板）：
 - 全量 514 篇补 abstract（arXiv 免费，限速 3 秒/篇，约 27 分钟，`fetch_abstracts.py --limit 0` 后台跑，支持断点续传）
-- 脚本已就绪：`domain_kb/source/curated-papers/fetch_abstracts.py`（S032 去交互化改 `--limit` 参数）
+- 脚本已就绪：`domain_kb/source/curated-papers/fetch_abstracts.py`（已去交互化改 `--limit` 参数）
 
 ---
 
@@ -418,7 +418,7 @@ chromadb>=0.5
 
 ## 十、风险与注意事项
 
-1. **嵌入渠道已定稿（S032：硅基流动 Qwen/Qwen3-Embedding-8B，4096 维，真机实测通过；用户拍板质量优先，弃 bge-m3 候选）**：S032 已实测端点、模型、维度、批量（32 条）；全量嵌入成本约 ¥0.2/轮；ChromaDB 建库后维度固定，嵌入模型中途更换需整库重建
+1. **嵌入渠道已定稿（硅基流动 Qwen/Qwen3-Embedding-8B，4096 维，真机实测通过；用户拍板质量优先，弃 bge-m3 候选）**：已实测端点、模型、维度、批量（32 条）；全量嵌入成本约 ¥0.2/轮；ChromaDB 建库后维度固定，嵌入模型中途更换需整库重建
 2. **ChromaDB 版本锁定**：安装时锁定主版本，避免 API 不兼容
 3. **概念层分类映射**：32 个目录映射到统一分类，大部分能按目录名直接映射，少数（如 AgenticFrameworks 下内容跨分类）可能需要按文件内容或 tags 辅助判断
 4. **arXiv API 限速**：补 abstract 时遵守每 3 秒 1 次的限制

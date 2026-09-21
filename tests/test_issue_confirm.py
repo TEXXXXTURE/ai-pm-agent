@@ -638,7 +638,7 @@ class TestGraphWiring(unittest.TestCase):
                 "prd_generation",
                 "prd_review",
                 "issue_splitting",
-                "issue_confirm",  # 块2 工单确认门
+                "issue_confirm",  # 工单确认门
                 "launch_plan",    # 发布计划节点
                 "artifact_persist",
             ):

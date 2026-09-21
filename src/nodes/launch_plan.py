@@ -1,8 +1,7 @@
 # 发布计划节点（launch_plan）
 """发布计划：模型输出 7 步骨架 + Tier1 扩展 JSON，关键字段非空由 Python 硬判。
 
-图位置（块1 临时形态）：issue_confirm 确认分支 -> launch_plan -> artifact_persist
-（块2 会在 launch_plan 与 artifact_persist 之间插入 launch_confirm HITL 门）。
+图位置：issue_confirm 确认分支 -> launch_plan -> launch_confirm（HITL）-> artifact_persist
 
 硬判内容（judge_launch_plan，纯函数，返回 (errors, warnings) tuple）：
 - errors（关键字段缺失，触发一次带反馈自检重调）：
@@ -240,8 +239,7 @@ def build_launch_self_fix_feedback(
 def make_launch_plan(deps):
     """发布计划节点工厂：返回签名 (state: dict) -> dict 的节点函数。
 
-    launch_plan 节点不做路由分支（无二元裁决）；产出后直连下游（块1 临时
-    直连 artifact_persist，块2 会插 launch_confirm HITL 门）。
+    launch_plan 节点不做路由分支（无二元裁决）；产出后进 launch_confirm 人工确认门。
     """
 
     def launch_plan(state: dict) -> dict:

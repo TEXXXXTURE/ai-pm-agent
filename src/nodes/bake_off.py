@@ -1,5 +1,5 @@
 # 对比选型模型节点（bake_off，第 6 段）
-"""对比选型模型：用第 5 段定稿的同一批考题，经 Promptfoo 对候选模型逐个横跑，
+"""对比选型模型：用第 5 段定稿的同一批考题，经 Promptfoo 逐个发给候选模型各跑一遍，
 产出质量（通过率）/ 成本 / 延迟（P50、P95）三维对比，**代码硬判推荐模型**，写入选型档案。
 
 图位置（第 6 段，仅 AI 核心需求经过；插在「确认评测体系」确认分支之后、「拆研发工单」之前）：
@@ -15,7 +15,7 @@
        解析 results.json；④ aggregate_candidate_stats 汇总三维；⑤ judge_bakeoff 硬判推荐；
     ⑥ 渲染报告 + 写 model_selection / eval_archive / bakeoff_artifacts。
 
-S048（2026-09-16 第二块）：候选来源从写死的 ``bake_off.candidates`` 改为**读候选池**
+候选来源从写死的 ``bake_off.candidates`` 改为**读候选池**
 （``state["model_candidates"]``），只对「选中 ∩ 本机已接入」的候选实跑；未接入的候选照列
 但标「需接入后验证」、不给三维数据（不编造）。候选池为空时退回配置候选并留痕。
 
@@ -49,7 +49,7 @@ from nodes.eval_run import (
     run_promptfoo_eval,
 )
 
-# 跳过横跑时的默认推荐模型（项目自有 DeepSeek 主模型）
+# 用户选择跳过对比选型时的默认推荐模型（项目自有 DeepSeek 主模型）
 _DEFAULT_RECOMMENDED_PROVIDER_ID = "deepseek:deepseek-chat"
 
 # prompts 段替换为同目录 txt 引用（口径同 eval_run：相对路径由 Promptfoo 按配置目录解析）
@@ -82,7 +82,7 @@ _SUMMARY_FIELDS: tuple[str, ...] = (
 )
 
 # ── classify_bakeoff_answer 词表 ──
-# 确认词（跑横跑）；跳过词（用默认/不跑）；否定前缀（否定"跳过"=要跑，否定"跑"=跳过）
+# 确认词（要跑）；跳过词（用默认/不跑）；否定前缀（否定"跳过"=要跑，否定"跑"=跳过）
 _BAKEOFF_RUN_WORDS: tuple[str, ...] = (
     "跑",
     "开始",
@@ -124,7 +124,7 @@ _BAKEOFF_NEGATION_PREFIXES: tuple[str, ...] = (
     "不用",
 )
 
-# ── S048 候选池口径（与第 2 段 feasibility 节点同一套取值文本，此处只读不改第 2 段）──
+# ── 候选池口径（与第 2 段 feasibility 节点同一套取值文本，此处只读不改第 2 段）──
 _ACCESS_READY = "本机已接入"
 _ACCESS_PENDING = "需接入后验证"
 _RUN_RAN = "已实跑"
@@ -145,7 +145,7 @@ _CANDIDATE_ALL_WORDS: tuple[str, ...] = (
     "所有",
     "all",
 )
-# 跳过词：沿用横跑门口径，但**去掉 deepseek**——本门里候选点名可能就带 deepseek-chat，
+# 跳过词：沿用对比选型确认门口径，但**去掉 deepseek**——本门里候选点名可能就带 deepseek-chat，
 # 若把 deepseek 当跳过词会把"点名 deepseek-chat"误判为跳过。
 _CANDIDATE_SKIP_WORDS: tuple[str, ...] = (
     "跳过",
@@ -185,13 +185,13 @@ def _is_negated(text: str, idx: int) -> bool:
 
 
 def classify_bakeoff_answer(text: object) -> str:
-    """纯函数：把模型横跑确认门用户答复归一化三分类为 run / skip / other。
+    """纯函数：把对比选型确认门用户答复归一化三分类为 run / skip / other。
 
     判定顺序（顺序不可换）：
     1. strip + 英文小写化；
     2. **否定式优先**：否定"跳过"（如"不跳过""别跳过""不用跳过"）= 要跑 → ``run``；
        否定"跑"（如"不跑"）= 跳过 → ``skip``；
-    3. 命中确认词（跑/开始/确认/横跑/run…）→ ``run``；
+    3. 命中确认词（跑/开始/确认/执行/run…）→ ``run``；
     4. 命中跳过词（跳过/不用/先用默认/直接用deepseek…）→ ``skip``；
     5. 其余（含空串、None、自由讨论文本）→ ``other``（调用方据此继续中断，不猜不空转）。
 
@@ -348,7 +348,7 @@ def classify_candidate_choice(answer: object, pool: list) -> dict:
     3. 命中跳过词（跳过 / 不用 / 先用默认 / 直接用 / 默认 / skip / no…）→ ``skip``；
     4. 命中点名（序号 ``1`` / ``第2个`` / ``1和3`` / ``1、3``，或候选 provider_id / label 片段）
        → ``pick``，并返回选中的 provider_id 列表（**点名与全选同时出现时以点名为准**）；
-    5. 命中全选词（全部 / 全跑 / 都跑 / 都试 / 所有…）或跑词（跑 / 确认 / 横跑 / run…）
+    5. 命中全选词（全部 / 全跑 / 都跑 / 都试 / 所有…）或跑词（跑 / 确认 / 执行 / run…）
        → ``all``；
     6. 其余（空答复、None、序号超池、自由讨论文本）→ ``other``（调用方继续停等，不猜）。
 
@@ -480,7 +480,7 @@ def build_provider_config(
     """纯函数：基于 eval_yaml_draft 生成"只留当前一个 provider"的可执行 Promptfoo YAML。
 
     - ``prompts`` 替换为 ``["./system_prompt.txt"]``（口径同 eval_run）；
-    - ``tests`` 保留；缺 provider 的 llm-rubric 断言统一补阅卷模型（S039 真机修复）；
+    - ``tests`` 保留；缺 provider 的 llm-rubric 断言统一补阅卷模型（真机实测后修复）；
     - ``providers`` 只留当前一条：``{"id": <provider_id>, "config": ...}``；
       kind=="reasoner" 用 ``{"max_tokens": 2048}``，其余（chat 等）用
       ``{"temperature": 0, "max_tokens": 2048, "showThinking": false}``。
@@ -502,7 +502,7 @@ def build_provider_config(
     else:
         config = dict(_CHAT_PROVIDER_CONFIG)
     document["providers"] = [{"id": str(provider_id), "config": config}]
-    # llm-rubric 断言统一由固定阅卷模型评分（S039 真机修复，与 eval_run 同口径）
+    # llm-rubric 断言统一由固定阅卷模型评分（真机实测后修复，与 eval_run 同口径）
     ensure_judge_provider(document)
     return yaml.safe_dump(document, allow_unicode=True, sort_keys=False)
 
@@ -647,7 +647,7 @@ def judge_bakeoff(candidates: list) -> dict:
 def route_after_bake_off(state: dict) -> str:
     """条件边路由：按 model_selection.status 两态。
 
-    - status in ("completed", "skipped") -> ``issue_splitting``（横跑完或人工跳过，均放行）；
+    - status in ("completed", "skipped") -> ``issue_splitting``（跑完或人工跳过，均放行）；
     - 缺失/其他（工具错误在节点内部 interrupt，graph 不应拿到）-> ``bake_off``（保守自环重跑）。
     """
     selection = state.get("model_selection") or {}
@@ -656,7 +656,7 @@ def route_after_bake_off(state: dict) -> str:
     return "bake_off"
 
 def _skipped_selection(candidates_cfg: list, answer: object, ran_at: str) -> dict:
-    """人工选择跳过横跑时的 model_selection（默认推荐项目自有 DeepSeek）。"""
+    """人工选择跳过对比选型时的 model_selection（默认推荐项目自有 DeepSeek）。"""
     label = _DEFAULT_RECOMMENDED_PROVIDER_ID
     for cand in candidates_cfg:
         if str(cand.get("id")) == _DEFAULT_RECOMMENDED_PROVIDER_ID:
@@ -749,7 +749,7 @@ def make_bake_off(deps):
         name = state.get("requirement_name") or "未命名需求"
         generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        # 3. 候选来源（S048）：优先第 2 段产出的候选池 state["model_candidates"]；
+        # 3. 候选来源：优先第 2 段产出的候选池 state["model_candidates"]；
         #    为空（老线程 / 降级）退回配置候选并留痕，材料里记一行原因。
         pool_raw = state.get("model_candidates") or []
         pool = [

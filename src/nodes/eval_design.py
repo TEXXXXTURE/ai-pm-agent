@@ -118,9 +118,9 @@ _PROMPTFOO_DEFAULT_PROVIDERS: dict[str, str] = {
     "deepseek": "deepseek:deepseek-v4-flash",
 }
 
-# llm-rubric 断言的阅卷模型（S039 真机修复）：不指定时 Promptfoo 回退默认 OpenAI/Codex
+# llm-rubric 断言的阅卷模型（真机实测后修复）：不指定时 Promptfoo 回退默认 OpenAI/Codex
 # 通道，本机该通道配置失效会导致评分器报错、题被误判失败。固定复用项目自有 DeepSeek，
-# 同一把 DEEPSEEK_API_KEY、零新密钥；横跑时所有候选也统一由它阅卷，避免候选自评。
+# 同一把 DEEPSEEK_API_KEY、零新密钥；对比选型时所有候选也统一由它阅卷，避免候选自评。
 PROMPTFOO_JUDGE_PROVIDER = "deepseek:deepseek-v4-flash"
 # 端到端真机修复：llm-rubric 必须显式指定阅卷模型
 
@@ -198,7 +198,7 @@ def _build_promptfoo_test(exam: dict, layer: str) -> dict:
         },
     }
     if scorer == "llm_judge":
-        # provider 显式指定阅卷模型（S039 真机修复）：缺省会回退到 Promptfoo 默认
+        # provider 显式指定阅卷模型（真机实测后修复）：缺省会回退到 Promptfoo 默认
         # OpenAI/Codex 通道，本机该通道配置失效时评分器直接报错、题被误判失败。
         test["assert"] = [
             {
@@ -360,7 +360,7 @@ def make_eval_design(deps):
             output_schema=schema,
         )
         result = deps.runner.run_raw(spec, state)
-        # S048 出题质量机械检查：生成后立即查「材料是否可投喂、评分方式是否可核对」，
+        # 出题质量机械检查：生成后立即查「材料是否可投喂、评分方式是否可核对」，
         # 结果写 state["eval_quality"] 随确认门停等材料展示；**只提示，不影响 verdict/路由/及格线**。
         eval_quality = _audit_eval_quality(result)
         # 消费即清零：确认门写入的重起草意见只注入本轮一次，避免陈旧意见被反复注入

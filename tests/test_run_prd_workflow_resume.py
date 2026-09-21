@@ -207,7 +207,7 @@ class TestResumeWithPendingInterruptUnchanged(unittest.TestCase):
 
 
 class TestResumeEmptyAnswerDoesNotAdvance(unittest.TestCase):
-    """S056：有待处理中断时，空答复 / 未传 --answer 不放行，重新输出当前节点 HITL。"""
+    """有待处理中断时，空答复 / 未传 --answer 不放行，重新输出当前节点 HITL。"""
 
     @staticmethod
     def _run(answer: str | None) -> tuple[int, str, _FakeGraph]:

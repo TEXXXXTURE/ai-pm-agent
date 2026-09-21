@@ -14,7 +14,7 @@
 
 模型：
 - 走项目统一层 kernel.model（config.yaml 的 llm.providers），产品不内置任何 key；
-- 分两档（S051 口径）：判类/提炼条目用便宜模型（provider 可指定），
+- 分两档：判类/提炼条目用便宜模型（provider 可指定），
   写每期总结用大上下文模型（provider 可指定）。
 
 产物（默认落 output/行业追踪/，可 --output 指定）：

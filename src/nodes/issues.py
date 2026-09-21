@@ -2,7 +2,7 @@
 # 追加工单确认门 issue_confirm（HITL）+ 三分支条件边路由
 """研发工单拆解：模型输出纵切工单方案 JSON，**跨工单结构正确性由 Python 硬判**。
 
-图位置（块2 最终形态）：prd_review 通过类 -> issue_splitting -> issue_confirm（HITL）
+图位置：prd_review 通过类 -> issue_splitting -> issue_confirm（HITL）
 -> 条件边三分支：
 - 确认 -> artifact_persist（落盘 prd/insights/review/issues 四份）；
 - 提修改意见（前 2 版）-> 回 issue_splitting 重拆，再回确认门；

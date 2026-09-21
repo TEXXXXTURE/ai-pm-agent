@@ -188,8 +188,7 @@ def make_requirement_confirm(deps):
 
     def requirement_confirm(state: dict) -> dict:
         # 1. AI 适用性分流建议（替换旧 capability_boundary 调用）
-        # 旧 capability_boundary 字段保留不写，
-        # 块 3 可行性门会重新设计为语义不同的产品能力三色表
+        # 旧 capability_boundary 字段保留不写
         prompt = deps.registry.read_prompt("ai_triage")
         schema = deps.registry.load_schema("ai_triage")
         spec = NodeSpec(

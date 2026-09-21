@@ -6,11 +6,11 @@
 feasibility_confirm 确认门录入并拍板（见 nodes/feasibility.py）。
 探针只产方案、由人工执行实测，流水线不自动调模型跑探针。
 
-S043-b2：CapabilityItem 从单看模型三色扩为三方对照结构
+CapabilityItem 从单看模型三色扩为三方对照结构
 （模型判定→工具补充→综合判定），为后续探针真跑打数据结构基础；
 ProbeStep 加 target_capability 与第 1 步能力点建关联。
 
-S048（2026-09-16）：新增 ModelCandidate 与 model_candidates（2–5 条）——
+ModelCandidate 与 model_candidates（2–5 条）——
 候选池提前到第 2 段产出，第 3 段 AI-native PRD「模型要求与切换条件」与
 第 6 段对比选型引用；节点代码补实时单价与接入状态。
 """

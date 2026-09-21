@@ -1,5 +1,5 @@
 # 构建期跑评测节点（eval_run，第 8 段）
-"""构建期跑评测：把 S035 产出的评测体系 YAML 草案变成真实执行 + 代码硬判结论。
+"""构建期跑评测：把评测设计那一阶段产出的评测体系 YAML 草案变成真实执行 + 代码硬判结论。
 
 图位置（第 8 段拆两步，仅 AI 核心需求经过；插在「确认工单」确认分支之后、「写发布计划」之前）：
     issue_confirm --(确认 且 ai_core=True)--> eval_run --(无条件普通边)--> eval_gate
@@ -58,7 +58,7 @@ _PROXY_ENV_KEYS = ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy")
 # stderr/stdout 摘录长度上限（中断载荷 reason 用）
 _REASON_TAIL_LENGTH = 500
 
-# provider 归一后的固定 config（S031 样例验证过的形态；showThinking:false 避免思考段污染断言）
+# provider 归一后的固定 config（样例验证过的形态；showThinking:false 避免思考段污染断言）
 # max_tokens=32768（2026-09-15 真机复测上调，原 2048）：deepseek-v4-flash 带隐藏思考，
 # 2048 会被 reasoning 全部占满、可见正文为空（finishReason=length、output=""），空正文再被
 # 判为「不通过」——把配置问题伪装成模型质量结论；32768 与 config.yaml 单次输出上限口径一致。
@@ -78,7 +78,7 @@ _JUDGE_ASSERTION_TYPES = ("llm-rubric", "llm-output-rubric", "model-graded-close
 
 
 def ensure_judge_provider(document: dict, judge_provider: str = PROMPTFOO_JUDGE_PROVIDER) -> dict:
-    """纯函数：给每条缺 provider 的模型阅卷断言补上阅卷模型（S039 真机修复）。
+    """纯函数：给每条缺 provider 的模型阅卷断言补上阅卷模型（真机实测后修复）。
 
     新草案在 eval_design 渲染时已带 provider；本函数兜底两类场景：
     ①修复前渲染、已冻结在 state 里的旧草案（正在 eval_failed 中断点的会话）；
@@ -103,15 +103,15 @@ def ensure_judge_provider(document: dict, judge_provider: str = PROMPTFOO_JUDGE_
 
 
 def finalize_eval_config(eval_yaml_draft: str) -> str:
-    """纯函数：把 S035 渲染的 Promptfoo YAML 草案归一为可执行配置文本。
+    """纯函数：把评测设计那一阶段渲染的 Promptfoo YAML 草案归一为可执行配置文本。
 
     处理：
     - `prompts` 从占位 ``{{prd_core_task_prompt}}`` 替换为 ``["file://system_prompt.txt"]``；
-    - `providers` 统一归一为 S031 样例验证过的字典形态
+    - `providers` 统一归一为样例验证过的字典形态
       ``{"id": <合法 provider id>, "config": {temperature:0, max_tokens:2048, showThinking:false}}``；
       原 provider 是合法 id 字符串时包成上述字典；providers 为空时补默认 DeepSeek id；
     - `tests` 保留；其中缺 provider 的 llm-rubric 类断言统一补阅卷模型
-      （``PROMPTFOO_JUDGE_PROVIDER``，S039 真机修复）。
+      （``PROMPTFOO_JUDGE_PROVIDER``，真机实测后修复）。
 
     Returns:
         归一后的 YAML 文本（``yaml.safe_dump``，allow_unicode=True，sort_keys=False）；
@@ -149,7 +149,7 @@ def finalize_eval_config(eval_yaml_draft: str) -> str:
         ]
     document["providers"] = normalized
 
-    # 旧草案里的 llm-rubric 断言可能缺阅卷模型，统一补齐（S039 真机修复）
+    # 旧草案里的 llm-rubric 断言可能缺阅卷模型，统一补齐（真机实测后修复）
     ensure_judge_provider(document)
 
     return yaml.safe_dump(document, allow_unicode=True, sort_keys=False)

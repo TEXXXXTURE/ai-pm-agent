@@ -73,7 +73,7 @@ foreach ($skillDir in $ExtSkillPaths) {
     }
 }
 
-# T5-3：ppt-master 独立 venv（Python 3.12，依赖装于此外置包内，与 hermes venv 隔离）。
+# ppt-master 独立 venv（Python 3.12，依赖装于此外置包内，与 hermes venv 隔离）。
 # 若该 venv 存在，将其 Scripts 前置到 PATH——技能脚本中的 python3/python 命令即命中本 venv
 # （Scripts 下有 python.exe 与 python3.cmd 别名）；不影响 run-tool.sh（它用 hermes 绝对路径）。
 $PptVenvScripts = Join-Path $DemoToolkit 'tools\ppt-master-venv\Scripts'

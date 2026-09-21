@@ -3,7 +3,7 @@
 patch 掉 nodes.refine.interrupt / nodes.hitl.interrupt，假 LLM 回放预制响应，
 不发起任何真实模型调用。
 
-覆盖（R1-R17 原用例 + R18/S047 追加）：
+覆盖（R1-R17 原用例 + R18 追加）：
 1. classify_refine_answer 纯函数四分类：确认词/改判关键词/放弃关键词/feedback；
 2. route_after_requirement_confirm：pending=True -> requirement_refine，False -> needs_discovery；
 3. route_after_requirement_refine：abandon->END，feedback->requirement_refine，confirm/reclassify->needs_discovery；
@@ -14,17 +14,17 @@ patch 掉 nodes.refine.interrupt / nodes.hitl.interrupt，假 LLM 回放预制�
 8. 整合节点首次调模型产草案，中断载荷含草案+变更说明+count；
 9. 整合节点确认 -> confirmed_requirement=草案，eval_cases 重初始化，pending=False；
 10. 整合节点 feedback -> verdict=feedback，count+1，草案存 state，自环；
-11. [S047 改写] 连续 5 轮 feedback 每轮都调模型整合，无升级暂停（原"第 3 版升级暂停"用例改写）；
-12. [S047 改写] 第 3 轮确认 -> 仍调模型、接受新版草案（原"升级暂停确认"用例改写）；
-13. [S047 改写] 第 3 轮改判 -> 仍调模型、接受新版草案 + 改 ai_core（含 AI核心 关键词）；
-14. [S047 改写] 第 3 轮放弃 -> END（原"升级暂停放弃"用例改写）；
+11. 连续 5 轮 feedback 每轮都调模型整合，无升级暂停（原"第 3 版升级暂停"用例改写）；
+12. 第 3 轮确认 -> 仍调模型、接受新版草案（原"升级暂停确认"用例改写）；
+13. 第 3 轮改判 -> 仍调模型、接受新版草案 + 改 ai_core（含 AI核心 关键词）；
+14. 第 3 轮放弃 -> END（原"升级暂停放弃"用例改写）；
 15. 普通轨路径不变：confirm -> needs_discovery -> prd_generation（逐字不变）；
 16. 图编译通过，节点数 18；
 17. 可行性门 reshape 回确认门后提 feedback -> 进整合节点；
-18. [S047] 重整合输入组装：已有上一版草案时「当前需求」用上一版草案（含反馈自环端到端），
+18. 重整合输入组装：已有上一版草案时「当前需求」用上一版草案（含反馈自环端到端），
     草案为空时（首轮）回落到 confirmed_requirement 原文；
-19. [S047] audit_draft_progress 纯函数：几乎相同提示 / 缩水提示 / 意见重复提示 / 首轮全空；
-20. [S047] 载荷接线：中断载荷含 draft_progress，PAYLOAD_RECAP_FIELDS 含该字段名。
+19. audit_draft_progress 纯函数：几乎相同提示 / 缩水提示 / 意见重复提示 / 首轮全空；
+20. 载荷接线：中断载荷含 draft_progress，PAYLOAD_RECAP_FIELDS 含该字段名。
 
 运行（PowerShell，cwd=项目根）：
   $env:PYTHONPATH="src"
@@ -460,7 +460,7 @@ class TestRequirementRefineNode(unittest.TestCase):
         self.assertEqual(out["confirmed_requirement"], "整合后的新需求-EEE")
 
     def test_prompt_current_requirement_prefers_previous_draft(self):
-        # R18（S047 主回归）：已有上一版草案时，「当前需求」段用上一版草案，不用原始需求
+        # R18（主回归）：已有上一版草案时，「当前需求」段用上一版草案，不用原始需求
         fake = FakeLLM(
             json_queue=[
                 {
@@ -484,7 +484,7 @@ class TestRequirementRefineNode(unittest.TestCase):
         self.assertEqual(out["confirmed_requirement"], "整合后的新需求-KKK")
 
     def test_second_round_prompt_carries_first_round_draft(self):
-        # R18b（S047 端到端）：feedback 自环后第二轮整合的输入含第一版草案
+        # R18b（端到端）：feedback 自环后第二轮整合的输入含第一版草案
         fake = FakeLLM(
             json_queue=[
                 {
@@ -582,7 +582,7 @@ class TestRequirementRefineNode(unittest.TestCase):
         self.assertEqual(route_after_requirement_refine(out), "requirement_refine")
 
     def test_five_rounds_feedback_each_round_calls_model(self):
-        # R11（S047 改写）：取消次数上限后，连续 5 轮 feedback 每轮都调模型整合，
+        # R11（改写）：取消次数上限后，连续 5 轮 feedback 每轮都调模型整合，
         # 不再出现 status=escalated（原"第 3 版升级暂停"用例改写）
         drafts = [
             "第一版草案：帮产品经理整理会议纪要，覆盖使用场景与痛点。",
@@ -618,7 +618,7 @@ class TestRequirementRefineNode(unittest.TestCase):
         self.assertEqual(state["requirement_refine_count"], 5)
 
     def test_confirm_at_third_round_still_calls_model(self):
-        # R12（S047 改写）：原"升级暂停确认"用例——count=2（旧上限）后仍调模型产新版草案，
+        # R12（改写）：原"升级暂停确认"用例——count=2（旧上限）后仍调模型产新版草案，
         # 确认则接受新版草案，不再是"接受上一版草案"
         fake = FakeLLM(
             json_queue=[
@@ -651,7 +651,7 @@ class TestRequirementRefineNode(unittest.TestCase):
         self.assertFalse(out["requirement_refine_pending"])
 
     def test_reclassify_at_third_round_changes_ai_core(self):
-        # R13（S047 改写）：原"升级暂停改判"用例——第 3 轮仍调模型，改判接受新版草案 + 改 ai_core
+        # R13（改写）：原"升级暂停改判"用例——第 3 轮仍调模型，改判接受新版草案 + 改 ai_core
         fake = FakeLLM(
             json_queue=[
                 {
@@ -675,7 +675,7 @@ class TestRequirementRefineNode(unittest.TestCase):
         self.assertFalse(out["requirement_refine_pending"])
 
     def test_reclassify_ai_core_keyword_at_third_round(self):
-        # R13b（S047 改写）：原"升级暂停 AI核心 关键词"用例——第 3 轮仍调模型，改判 ai_core=True
+        # R13b（改写）：原"升级暂停 AI核心 关键词"用例——第 3 轮仍调模型，改判 ai_core=True
         fake = FakeLLM(
             json_queue=[
                 {
@@ -699,7 +699,7 @@ class TestRequirementRefineNode(unittest.TestCase):
         self.assertFalse(out["requirement_refine_pending"])
 
     def test_abandon_at_third_round_goes_to_end(self):
-        # R14（S047 改写）：原"升级暂停放弃"用例——第 3 轮仍调模型，放弃走 END
+        # R14（改写）：原"升级暂停放弃"用例——第 3 轮仍调模型，放弃走 END
         fake = FakeLLM(
             json_queue=[
                 {
@@ -825,7 +825,7 @@ class TestNormalTrackUnchanged(unittest.TestCase):
             self.assertNotIn("AI 协作边界表", fake.calls[-1]["prompt"])
 
 
-# ────────────────────────── S047. audit_draft_progress 纯函数（零 API） ──────────────────────────
+# ────────────────────────── audit_draft_progress 纯函数（零 API） ──────────────────────────
 
 
 class TestAuditDraftProgress(unittest.TestCase):

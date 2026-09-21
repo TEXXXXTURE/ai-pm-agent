@@ -320,7 +320,7 @@ def test_empty_query_and_empty_collection(tmp_path):
     assert empty_store.search("alpha") == []
 
 
-# ── 7. 检索条例（S053/R03）：同源去重 + 相关性阈值 ────────────────
+# ── 7. 检索条例：同源去重 + 相关性阈值 ────────────────
 
 
 def _add_chunk_with_source(

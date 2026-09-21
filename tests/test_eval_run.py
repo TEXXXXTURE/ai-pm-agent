@@ -19,10 +19,10 @@
      恢复后返回码 0 -> 继续；
    - 达标路径：返回码 0 + judge=True -> eval_report.passed=True、eval_run_count=1、
      eval_artifacts 三路径；
-   - 未达标路径（S048 拆两步后）：返回码 100 + judge=False -> **不再中断**，仍 return
+   - 未达标路径（拆两步后）：返回码 100 + judge=False -> **不再中断**，仍 return
      eval_report（passed=False）/ eval_run_count / eval_artifacts 三字段；
    - eval_run_count 每次执行 +1；await_prompt 阶段不 +1；
-5. eval_gate（S048 第 8 段后半，纯函数）：达标返回空、不中断；未达标 interrupt 载荷六字段
+5. eval_gate（第 8 段后半，纯函数）：达标返回空、不中断；未达标 interrupt 载荷六字段
    与原一致（仅 node 改名 eval_gate）、report 只含判定字段；未达标答复按放行/重跑/追问三态
    分流：放行写 forced_pass 并进 launch_plan、空答复继续等、
    读不出意图追问一句）；eval_report 缺失/畸形保守返回空且路由回 eval_run；
@@ -30,7 +30,7 @@
 6. 路由：route_after_eval_gate 两态（passed -> launch_plan；否则 -> eval_run）；
    route_after_issue_confirm：确认且 ai_core=True -> eval_run；确认且普通轨 -> artifact_persist；
    重拆/回炉分支逐字不变；
-7. 图编译：19 节点齐（S048 新增 eval_gate）；eval_run -普通边-> eval_gate，
+7. 图编译：19 节点齐（含 eval_gate）；eval_run -普通边-> eval_gate，
    eval_gate 两态条件边；普通轨 issue_confirm 确认分支不经 eval_run / eval_gate；
 8. QUESTION 文案：run_prd_workflow._build_question 对 eval_run 两态、eval_gate 一态输出提示。
 """
@@ -306,7 +306,7 @@ class TestFinalizeEvalConfig(unittest.TestCase):
         self.assertEqual(len(doc["tests"]), 8)
 
     def test_llm_rubric_judge_provider_backfilled_for_old_draft(self):
-        # S039：修复前渲染、冻结在 state 里的旧草案，llm-rubric 缺阅卷模型，
+        # 修复前渲染、冻结在 state 里的旧草案，llm-rubric 缺阅卷模型，
         # finalize 必须统一补上 deepseek 阅卷模型；已有 provider 不覆盖。
         old_draft = yaml.safe_dump(
             {
@@ -574,7 +574,7 @@ def _fake_eval_report(passed: bool) -> dict:
 
 
 class TestEvalGate(unittest.TestCase):
-    """S048：判定 + 停等独立成节点（纯函数，不调模型）。"""
+    """判定 + 停等独立成节点（纯函数，不调模型）。"""
 
     def _run(self, report, answers=("再跑",)):
         """调 eval_gate，返回 (返回值, interrupt 载荷列表)。

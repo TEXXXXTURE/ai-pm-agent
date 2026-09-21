@@ -84,7 +84,7 @@ def _looks_truncated(text: str) -> bool:
 
 
 # 空正文的可执行提示。
-# 与 _looks_truncated 同一种情况——输出被长度上限吃掉（S046 真机：单次输出 31,046 token 中
+# 与 _looks_truncated 同一种情况——输出被长度上限吃掉（真机实测：单次输出 31,046 token 中
 # 隐藏思考占 16,805，把 8,192 额度吃光，可见正文为空）。空正文没有可扫描的文本，
 # 故改用响应元数据里的等价信号（finish_reason=length，或带 reasoning 段而正文为空），
 # 不新增第二套截断判据，也不改解析与重试逻辑。

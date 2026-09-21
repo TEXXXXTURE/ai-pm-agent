@@ -23,7 +23,7 @@ feasibility_check（make_feasibility_check）：
   - build_chat/build_llm 报错走 interrupt（status="tool_error"），等用户修复后重跑。
 - 阶段 3：证据回填报告——按 target_capability 匹配，绿能力点有对应探针但无证据时自动降级为黄，
   红能力点无证据保持红；证据列表写入 state["feasibility_evidence"]。
-- 阶段 4（S048 候选池前置）：把报告的 model_candidates（2–5 条）拆出模型名后调
+- 阶段 4（候选池前置）：把报告的 model_candidates（2–5 条）拆出模型名后调
   config model_catalog.price_script 取实时单价，逐条补 price / price_source /
   price_fetched_at / price_note / access_status，写 state["model_candidates"]；
   清单缺失 / 价格脚本失败 / 候选为空三条降级路径都只记原因（candidate_pool_note），不阻断。
@@ -369,7 +369,7 @@ def _prior_feasibility_feedbacks(state: dict) -> list[dict]:
     return summary
 
 
-# ────────────────────────── 探针真跑 ReAct 循环（S043-b3）──────────────────────────
+# ────────────────────────── 探针真跑 ReAct 循环 ──────────────────────────
 
 
 def _parse_react_results(content: object) -> list[dict] | None:
@@ -645,7 +645,7 @@ def _backfill_evidence_to_report(report: dict, evidence: list[dict]) -> dict:
     new_report["capability_matrix"] = new_matrix
     return new_report
 
-# ────────────────────────── 候选池前置（S048）──────────────────────────
+# ────────────────────────── 候选池前置 ──────────────────────────
 # 第 2 段在产可行性报告的同时产出候选池（2–5 个候选），由本节点代码补齐实时单价与
 # 「本机已接入 / 需接入后验证」，供第 3 段 AI-native PRD「模型要求与切换条件」引用。
 # 三条降级路径（清单缺失 / 价格脚本失败 / 候选为空）都不阻断流程，只在报告里记原因。
@@ -954,7 +954,7 @@ def make_feasibility_check(deps):
     阶段 3：证据回填报告——按 target_capability 匹配，绿能力点有对应探针但无证据
     时自动降级为黄，红能力点无证据保持红。
     阶段 4：候选池前置——给报告的 model_candidates 补实时单价与接入状态，写
-    state["model_candidates"]（S048，第 3 段 PRD 与第 6 段对比选型引用）。
+    state["model_candidates"]（第 3 段 PRD 与第 6 段对比选型引用）。
     """
 
     def feasibility_check(state: dict) -> dict:
@@ -1020,7 +1020,7 @@ def make_feasibility_check(deps):
         # 阶段 3：证据回填 + 降级规则
         report = _backfill_evidence_to_report(report, evidence)
 
-        # 阶段 4（S048）：候选池前置——补实时单价与接入状态，写 state["model_candidates"]；
+        # 阶段 4：候选池前置——补实时单价与接入状态，写 state["model_candidates"]；
         # 候选清单读不到 / 价格脚本失败 / 候选为空三条降级路径都只记原因，不阻断流程。
         model_candidates, candidate_note = build_model_candidates(report, deps)
         pool_notes = [n for n in (catalog_note, candidate_note) if n]
@@ -1073,7 +1073,7 @@ def make_feasibility_confirm(deps):  # noqa: ARG001 - 工厂签名与其他节�
             for item in (state.get("human_feedback") or [])
             if isinstance(item, dict)
         ]
-        # S045 块4：审计探针证据完整性，缺口随首次 interrupt 载荷透传给用户
+        # 审计探针证据完整性，缺口随首次 interrupt 载荷透传给用户
         evidence = state.get("feasibility_evidence") or []
         audit = audit_probe_evidence(evidence)
         audit_hint = _evidence_audit_hint(audit)

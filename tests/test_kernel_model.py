@@ -18,7 +18,7 @@
 
 口径 4（不改的部分）：围栏剥离、首尾 {} 截取、正常 JSON 解析行为保持不变。
 
-[S048 修复B] 空内容报错说明追加：
+空内容报错说明追加：
 - 空正文且 finish_reason == "length" -> 原句后补可执行提示（疑似隐藏思考占满输出额度…）；
 - 空正文但响应无截断信号 -> 文案逐字不变；
 - 空正文但 additional_kwargs 带 reasoning 段 -> 同样补提示；
@@ -81,7 +81,7 @@ class _FakeChat:
 
 
 class _FakeChatWithMeta:
-    """假 ChatLiteLLM：invoke 返回带响应元数据的预制响应对象（S048 修复B 用）。
+    """假 ChatLiteLLM：invoke 返回带响应元数据的预制响应对象（空内容报错说明用）。
 
     响应形态对齐 langchain AIMessage：content / response_metadata / additional_kwargs。
     """
@@ -246,7 +246,7 @@ class TestMaxTokensPassthrough(unittest.TestCase):
             _FakeChat.next_content = '{"status": "ok"}'
 
 
-# ────────────────────────── 4. S048 修复B：空内容报错文案 ──────────────────────────
+# ────────────────────────── 4. 空内容报错文案 ──────────────────────────
 
 EMPTY_PREFIX = "模型返回非JSON: 响应内容为空"
 

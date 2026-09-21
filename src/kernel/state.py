@@ -35,8 +35,7 @@ class PMState(TypedDict, total=False):
     user_insights: dict               # 从用户脑中挖出的信息
     ai_feasibility: dict              # G5: 必须AI做/传统就能做/AI更差
     capability_boundary: dict         # G8: 自动/工具/人工 三色表（
-                                       #   确认门不再调用此组件，仅保留字段供旧检查点兼容；
-                                       #   块 3 可行性门将重新设计为语义不同的产品能力三色表）
+                                       #   确认门不再调用此组件，仅保留字段供旧检查点兼容）
     # AI 适用性分流判定字段（v3.0 第 1 段分流）
     ai_triage: dict                   # 模型给出的分流建议 {suggestion, reason, signals}
     ai_core: bool | None              # 用户拍板的最终分流：True=AI 全轨 / False=普通轨 / None=未判定
@@ -91,15 +90,15 @@ class PMState(TypedDict, total=False):
     # 升级暂停后再给意见的硬深度上限计数
     issue_escalation_depth: int       # 已批准的升级后重拆轮数（达上限后保持 escalated 暂停不自动空转）
 
-    # ─── 发布计划（launch_plan 节点；块2 会插 launch_confirm HITL 门）───
+    # ─── 发布计划（launch_plan 节点；产出后进 launch_confirm 人工确认门）───
     # 工单确认门通过后产发布计划；关键字段非空由 judge 硬判
     launch_plan: dict                  # 发布计划 JSON（含 shape_errors/warnings/self_fixed）
     launch_plan_errors: list           # 发布计划字段自检 errors（随产物醒目展示）
     launch_plan_warnings: list         # 发布计划字段自检 warnings
     # 确认门预留字段（恒空/恒 0，不写回全局 state）
-    launch_revision_count: int         # 发布计划重调计数（块2 用）
-    launch_revision_feedback: str      # 发布计划上轮修改意见（块2 注入，消费即清零）
-    launch_issue_redo_count: int       # 发布计划回工单计数（块2 用）
+    launch_revision_count: int         # 发布计划重调计数
+    launch_revision_feedback: str      # 发布计划上轮修改意见（确认门注入，消费即清零）
+    launch_issue_redo_count: int       # 发布计划回工单计数
     # 升级暂停后再给意见的硬深度上限计数
     launch_escalation_depth: int       # 已批准的升级后重调轮数（达上限后保持 escalated 暂停不自动空转）
 

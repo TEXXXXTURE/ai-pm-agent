@@ -70,7 +70,7 @@ graph:
 eval_tools:
   promptfoo_dir: ./工具与参考/Agent外置工具包/AI评测工具包/tools/promptfoo
 
-# 第 6 段：对比选型候选模型清单（横跑范围）
+# 第 6 段：对比选型候选模型清单（候选范围）
 # 第一版只放 DeepSeek 自家两个模型，零新密钥零第三方端点（产品渠道干净红线）；
 # 以后加厂商只在本清单加行（id/label/kind/api_key_env），代码零改。
 # key 只放 .env（api_key_env 为环境变量名，不硬编码）；Promptfoo deepseek provider 原生读该变量。
@@ -135,7 +135,7 @@ domain_kb:
     # 检索条例参数：
     # min_vector_sim = 相关性阈值（vector_sim 低于此值过滤掉；0 = 不过滤，默认宽容）
     # max_per_source = 同一 source 文档最多保留几条（1 = 去重，保证 top_k 覆盖不同来源；
-    #                  治 S047 实测「5 条里 4 条同一文档」）
+    #                  治实测出现的「5 条里 4 条同一文档」）
     min_vector_sim: 0.0
     max_per_source: 1
 

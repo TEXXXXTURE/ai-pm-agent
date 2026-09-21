@@ -16,7 +16,7 @@
    - 修订升级暂停时二次答复改选回工单（redo=0）正常发起回工单；
    - 已超建议轮数：空答复继续等 / 具体意见按其再调一轮 / 确认落盘；
 3. route_after_launch_confirm 三分支 + 缺字段回本节点（不再兜底落盘）；
-4. make_launch_plan 返回 launch_revision_feedback=""（块2 补丁：消费即清零）；
+4. make_launch_plan 返回 launch_revision_feedback=""（消费即清零）；
    issue_splitting 消费 launch_confirm 回工单写入的 issue_revision_feedback 后清零；
 5. build_graph 编译通过且 11 节点含 launch_confirm；
 6. run_prd_workflow._build_question launch_confirm 特化文案含"发布计划确认门"；
@@ -636,7 +636,7 @@ class TestConsumeAndClearContracts(unittest.TestCase):
 
     def test_issue_splitting_clears_launch_redo_feedback(self):
         # launch_confirm 回工单写入的 issue_revision_feedback
-        # 由 issue_splitting 消费即清零（issue_splitting 已在 S023 块2 实现清零，
+        # 由 issue_splitting 消费即清零（issue_splitting 已实现清零，
         # 此处验证 launch_confirm → issue_splitting 的回工单意见链条闭环）
         with tempfile.TemporaryDirectory() as tmp:
             # issue_splitting 需要 valid issue plan JSON（对齐 IssueSplittingSchema，
@@ -713,8 +713,8 @@ class TestGraphWiring(unittest.TestCase):
                 "prd_generation",
                 "prd_review",
                 "issue_splitting",
-                "issue_confirm",     # 块2 工单确认门
-                "launch_plan",       # 块1 发布计划节点
+                "issue_confirm",     # 工单确认门
+                "launch_plan",       # 发布计划节点
                 "launch_confirm",    # 发布计划确认门
                 "artifact_persist",
             ):

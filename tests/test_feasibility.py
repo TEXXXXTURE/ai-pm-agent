@@ -23,16 +23,16 @@
 8. registry 注册 feasibility_check prompt 与 feasibility schema；
 9. run_prd_workflow 的 feasibility_confirm QUESTION 文案含四态关键词；
    DECISION_MATERIAL_FIELDS / PAYLOAD_RECAP_FIELDS 含 feasibility_report / feasibility_confirm。
-10. [S043-b3] TestProbeExecution：探针真跑 ReAct 循环零 API 测试（FakeChat + FakeLLM）：
+10. TestProbeExecution：探针真跑 ReAct 循环零 API 测试（FakeChat + FakeLLM）：
     - test_probe_loop_collects_evidence：FakeChat 发 tool_calls，FakeLLM 给探针输出，模型判定 pass；
     - test_probe_loop_max_iterations：FakeChat 永远发 tool_calls，8 轮硬上限不死循环；
     - test_probe_green_downgraded_without_evidence：绿能力点有对应探针但无证据，降级为黄；
     - test_probe_red_without_evidence_stays_red：红能力点无证据，保持红；
     - test_probe_model_error_does_not_crash：FakeLLM 抛异常，探针标"执行失败"，不中断；
     - test_tool_error_interrupt：build_chat 抛异常，走 interrupt（status=tool_error）。
-    - [S043 真机修复2] test_results_parsed_from_block_content：循环级复刻真机，
+    - test_results_parsed_from_block_content：循环级复刻真机，
       第 2 轮 content 为 thinking+text 块列表，判定 JSON 从 text 块解析不丢；
-    - [S043 真机修复2] test_parse_react_results_accepts_plain_str_and_blocks：
+    - test_parse_react_results_accepts_plain_str_and_blocks：
       _parse_react_results 纯函数三形态（纯字符串/thinking+text 块/仅 thinking 块）。
 
 运行（PowerShell，cwd=项目根）：
@@ -120,7 +120,7 @@ class FakeLLM:
 class FakeChat:
     """假 ChatLiteLLM：bind_tools 返回 self，invoke 按预设序列返回 AIMessage。
 
-    用于探针真跑 ReAct 循环的零 API 测试（S043-b3）。
+    用于探针真跑 ReAct 循环的零 API 测试。
     """
 
     def __init__(self, responses=None):
@@ -443,7 +443,7 @@ class TestFeasibilitySchema(unittest.TestCase):
 
 
 class TestCapabilityThreeWayLogic(unittest.TestCase):
-    """S043-b2：测试三方对照合法组合 schema 不拒绝。
+    """测试三方对照合法组合 schema 不拒绝。
 
     规则本身是 prompt 指引模型执行；测试层面验证 schema 结构能正确校验这些组合，
     不是测模型逻辑（模型可能不遵守，那是节点级 retry 的事，不在本块覆盖范围）。
@@ -821,11 +821,11 @@ class TestGraphWiring(unittest.TestCase):
             self.assertIn("feasibility", registered["schemas"])
 
 
-# ────────────────────────── 7b. AI 轨图流零 API 回归（S040 块1 分流点后移）──────────────────────────
+# ────────────────────────── 7b. AI 轨图流零 API 回归（分流点后移）──────────────────────────
 
 
 class TestAiTrackGraphFlow(unittest.TestCase):
-    """S040 块1 回归：AI 轨必须"确认需求 → 挖需求 → 判断需求与 AI 的边界"，user_insights 非空。
+    """回归：AI 轨必须"确认需求 → 挖需求 → 判断需求与 AI 的边界"，user_insights 非空。
 
     这是本次缺陷（AI 轨绕过 needs_discovery 导致需求洞察空壳）的回归测试：
     改动前 AI 轨从需求确认门直达 feasibility_check，checkpoint 里 user_insights={}。
@@ -894,7 +894,7 @@ class TestAiTrackGraphFlow(unittest.TestCase):
 
 
 class TestNormalTrackChaining(unittest.TestCase):
-    """S040 块1：普通轨确认门后同样经过挖需求，挖完直达写 PRD（零 API，不跑完整图）。"""
+    """普通轨确认门后同样经过挖需求，挖完直达写 PRD（零 API，不跑完整图）。"""
 
     def test_confirm_then_discovery_then_prd_route(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1029,7 +1029,7 @@ class TestWorkflowQuestionAndFields(unittest.TestCase):
         self.assertIn("⚠ 证据不齐：探针 probe-A 缺有效证据", out)
 
 
-# ────────────────────────── 10. 探针真跑 ReAct 循环（S043 块3 收尾）──────────────────────────
+# ────────────────────────── 10. 探针真跑 ReAct 循环（收尾）──────────────────────────
 
 
 class RaisingTextLLM(FakeLLM):
@@ -1060,7 +1060,7 @@ class RaisingChatOnce(FakeChat):
 
 
 class TestProbeToolSchema(unittest.TestCase):
-    """S043 块3 真机修复：bind_tools 注册名必须是 run_probe（与 tc_name 判定一致）。"""
+    """真机修复：bind_tools 注册名必须是 run_probe（与 tc_name 判定一致）。"""
 
     def test_probe_tool_schema_name(self):
         # 修前注册名是类名 RunProbeTool，
@@ -1073,7 +1073,7 @@ class TestProbeToolSchema(unittest.TestCase):
 
 
 class TestProbeExecution(unittest.TestCase):
-    """S043 块3 收尾：探针真跑 6 个分支，全 FakeChat/FakeLLM，零 API。"""
+    """收尾：探针真跑 6 个分支，全 FakeChat/FakeLLM，零 API。"""
 
     @staticmethod
     def _tool_call(probe_name="核心任务样例", call_id="call-1",
@@ -1319,7 +1319,7 @@ class TestProbeExecution(unittest.TestCase):
         self.assertIsNone(_parse_react_results(only_thinking))
 
 
-# ────────────────────────── 11. S045 块4：证据审计 + 二次确认协议 ──────────────────────────
+# ────────────────────────── 11. 证据审计 + 二次确认协议 ──────────────────────────
 # 证据必填二次确认门
 
 
@@ -1450,7 +1450,7 @@ class TestEvidencePassWords(unittest.TestCase):
 
 
 class TestEvidenceGapProtocol(unittest.TestCase):
-    """S045 块4：证据不齐二次确认 6 路径 + 回归保护 + failed 探针引导。"""
+    """证据不齐二次确认 6 路径 + 回归保护 + failed 探针引导。"""
 
     @staticmethod
     def _incomplete_evidence():
@@ -1613,7 +1613,7 @@ class TestEvidenceGapProtocol(unittest.TestCase):
         self.assertIn("证据不齐，经人工放行", out["feasibility_confirm"]["user_feedback"])
 
 
-# ────────────────────────── 12. S048 候选池前置 ──────────────────────────
+# ────────────────────────── 12. 候选池前置 ──────────────────────────
 # 候选池 schema（2–5 条）/ 候选清单读取降级 / 接入状态判定 / 价格脚本合并
 # （成功·本地备份·退出码·JSON 非法·超时·未配置六条）/ 节点级候选池写回 /
 # PRD 模板九项与模型要求节 / config+state+NodeDeps+两处装配接线。

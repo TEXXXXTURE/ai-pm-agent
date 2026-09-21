@@ -538,7 +538,7 @@ class TestRenderPromptfooYaml(unittest.TestCase):
         # assertion 题：contains 类型，value 去掉前缀
         self.assertEqual(by_id["T1"]["assert"][0]["type"], "contains")
         self.assertEqual(by_id["T1"]["assert"][0]["value"], "期望片段-T1")
-        # llm_judge 题：llm-rubric 类型，带 rubric 文本，并显式指定阅卷模型（S039）
+        # llm_judge 题：llm-rubric 类型，带 rubric 文本，并显式指定阅卷模型
         self.assertEqual(by_id["T2"]["assert"][0]["type"], "llm-rubric")
         self.assertEqual(by_id["T2"]["assert"][0]["value"], "裁判标准-T2")
         self.assertEqual(by_id["T2"]["assert"][0]["provider"], "deepseek:deepseek-v4-flash")
@@ -785,11 +785,11 @@ class TestWorkflowQuestionAndFields(unittest.TestCase):
         self.assertIn("证明-FFF", out)
 
 
-# ────────────────────────── 11. S048 出题质量接线 ──────────────────────────
+# ────────────────────────── 11. 出题质量接线 ──────────────────────────
 
 
 class TestEvalQualityWiring(unittest.TestCase):
-    """S048：出题质量机械检查的节点接线（写 state / 进档案 / 进停等载荷）与提示词内容。
+    """出题质量机械检查的节点接线（写 state / 进档案 / 进停等载荷）与提示词内容。
 
     检查本身只提示不阻断，故这里的断言全部只看「有没有带上」，
     不看 verdict / 路由 / 及格线（那三样必须逐字不变）。
@@ -890,11 +890,11 @@ class TestEvalQualityWiring(unittest.TestCase):
         self.assertIn("A1：assertion 只押单个词", out)
 
 
-# ────────────────────────── 12. 出题提示词内容（S048） ──────────────────────────
+# ────────────────────────── 12. 出题提示词内容 ──────────────────────────
 
 
 class TestEvalDesignPromptQuality(unittest.TestCase):
-    """S048：提示词里「示例给真材料 + 防模仿声明 + 评分方式两条硬要求 + 自检清单两条」。"""
+    """提示词里「示例给真材料 + 防模仿声明 + 评分方式两条硬要求 + 自检清单两条」。"""
 
     @staticmethod
     def _rendered_prompt() -> str:

@@ -338,7 +338,7 @@ class TestIssueSplittingNode(unittest.TestCase):
             self.assertFalse(plan["self_fixed"])
             self.assertEqual(len(plan["issues"]), 1)
             # 消费即清零——节点返回两个清零字段，
-            # 保证确认门条件边不会把已消化的意见再次路由回重拆/回炉（取代块1"不写回"契约）
+            # 保证确认门条件边不会把已消化的意见再次路由回重拆/回炉（取代早先的"不写回"契约）
             self.assertEqual(out["issue_revision_feedback"], "")
             self.assertEqual(out["prd_rewrite_feedback"], "")
 
@@ -445,7 +445,7 @@ class TestGraphWiring(unittest.TestCase):
                 "prd_generation",
                 "prd_review",
                 "issue_splitting",
-                "issue_confirm",  # 块2 新增工单确认门（第 9 个节点）
+                "issue_confirm",  # 工单确认门（第 9 个节点）
                 "artifact_persist",
             ]:
                 self.assertIn(n, names)
@@ -664,7 +664,7 @@ class TestIssuePromptConditional(unittest.TestCase):
             self.assertIn("AFK", rendered)
 
 
-# ────────────────────────── 9. AI 轨特殊项承接（块2 S038）──────────────────────────
+# ────────────────────────── 9. AI 轨特殊项承接 ──────────────────────────
 # 第 7 段：仅 AI 核心需求（ai_core=True）校验
 # ai_special_items（trace/fallback/eval_integration/risk_mitigation 四类齐全 +
 # covered_by 引用真实工单）；普通轨不产出、不校验。全部零 API（纯函数/模板渲染）。

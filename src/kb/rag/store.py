@@ -33,7 +33,7 @@ DEFAULT_VECTOR_WEIGHT = 0.6
 DEFAULT_LAYER_WEIGHTS = {"concept": 2.0, "curated-paper": 1.5, "tracked-paper": 1.0}
 DEFAULT_CURATED_BONUS = 1.2
 DEFAULT_FEISHU_REF_BONUS = 1.3
-# [S053/R03] 检索条例参数默认值：
+# 检索条例参数默认值：
 # min_vector_sim = 相关性阈值（vector_sim 低于此值视为与需求语义距离太远，过滤掉）
 # max_per_source = 同一 source 文档最多保留几条（默认 1 = 去重，保证 top_k 覆盖不同来源）
 DEFAULT_MIN_VECTOR_SIM = 0.0   # 0 = 不过滤（默认宽容，避免误杀弱相关但可能有用的内容）
@@ -68,7 +68,7 @@ class RAGStore:
         )
         self.curated_bonus = float(retrieval.get("curated_bonus", DEFAULT_CURATED_BONUS))
         self.feishu_ref_bonus = float(retrieval.get("feishu_ref_bonus", DEFAULT_FEISHU_REF_BONUS))
-        # [S053/R03] 检索条例参数：相关性阈值 + 同源去重上限（默认 1 = 同一文档最多 1 条）
+        # 检索条例参数：相关性阈值 + 同源去重上限（默认 1 = 同一文档最多 1 条）
         self.min_vector_sim = float(retrieval.get("min_vector_sim", DEFAULT_MIN_VECTOR_SIM))
         self.max_per_source = int(retrieval.get("max_per_source", DEFAULT_MAX_PER_SOURCE))
 
@@ -178,10 +178,10 @@ class RAGStore:
         # 4. 排序（分数降序；同分保持向量召回顺序，sorted 稳定）
         scored.sort(key=lambda item: item[0], reverse=True)
 
-        # 5. 检索条例（S053/R03）：相关性阈值过滤 + 同源去重
+        # 5. 检索条例：相关性阈值过滤 + 同源去重
         #    先按 vector_sim 阈值滤掉弱相关（低于阈值的与需求语义距离太远，留着是噪声）；
         #    再按「同一 source 文档最多保留 max_per_source 条」聚簇，保证 top_k 覆盖不同来源，
-        #    避免 S047 实测的「5 条里 4 条是同一份文档片段」。
+        #    避免实测出现的「5 条里 4 条是同一份文档片段」。
         filtered: list[tuple[float, dict]] = []
         per_source: dict[str, int] = {}
         for score, item in scored:

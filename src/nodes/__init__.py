@@ -1,7 +1,7 @@
 # 纵切联调 - nodes 包：NodeDeps 依赖容器 + build_nodes 汇总
 # prd_review 评审门节点：prd_generation 之后、artifact_persist 之前
 # issue_splitting 拆研发工单节点（8 节点）：
-#     prd_review 通过类 -> issue_splitting -> artifact_persist 直连（确认门块2再插）
+#     prd_review 通过类 -> issue_splitting -> issue_confirm（HITL）-> artifact_persist
 # issue_confirm 工单确认门（9 节点）：
 #     issue_splitting -> issue_confirm(HITL) -> 条件边三分支
 #     （确认落盘 / 意见回 issue_splitting 重拆 / 回PRD 回炉 prd_generation，回炉限 1 次）
@@ -13,7 +13,7 @@
 # requirement_confirm 内部 capability_boundary 调用换成
 #     ai_triage 分流判定 + resume 四态协议（确认/非AI/AI核心/自由文本修订）；
 #     prd_generation 按 ai_core 选 ai-native / 普通 PRD 模板。
-#     图结构不动（仍 11 节点），仅在节点内部分流，块 3 可行性门才插新节点与条件边。
+#     图结构不动（仍 11 节点），仅在节点内部分流。
 # 新增判断需求与 AI 的边界两节点（13 节点）：
 #     requirement_confirm 条件边（ai_core=True）→ feasibility_check → feasibility_confirm(HITL)
 #     → 四态条件边（pass/reclassify→prd_generation；reshape→requirement_confirm；abandon→END）；
@@ -140,7 +140,7 @@ def build_nodes(deps: NodeDeps) -> dict:
         # 确认评测体系门（HITL，不调模型），两态条件边由 graph.py 装配
         "eval_confirm": make_eval_confirm(deps),
         # 第 6 段对比选型模型：
-        # 评测体系确认后先横跑候选（AI 核心需求经此，普通轨由条件边直达 issue_splitting）
+        # 评测体系确认后先跑候选对比（AI 核心需求经此，普通轨由条件边直达 issue_splitting）
         "bake_off": make_bake_off(deps),
         # 评审通过类去拆单；拆单后先进工单确认门再落盘
         "issue_splitting": make_issue_splitting(deps),

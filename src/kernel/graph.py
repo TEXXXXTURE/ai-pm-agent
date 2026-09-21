@@ -2,8 +2,7 @@
 # 纵切联调 - 注册 nodes 包构建的 6 个真实节点，build_graph(deps,db_path)
 # 插入 prd_review 评审门：prd_generation → prd_review，
 #     条件边按硬判 verdict 回 prd_generation（打回，最多 3 轮）或去 artifact_persist
-# 插入 issue_splitting：评审通过分支改走拆单，拆单后直连 artifact_persist
-#     （人工确认门块2再插在 issue_splitting → artifact_persist 之间）
+# 插入 issue_splitting：评审通过分支改走拆单，拆单后进工单确认门
 # 插入 issue_confirm 工单确认门：拆单先进确认门，条件边三分支
 #     （确认落盘 / 意见回 issue_splitting 重拆 / 回PRD 回炉 prd_generation，回炉限 1 次、
 #       第 3 版仍有意见进入升级暂停中断，由人主动发起下一步，不自动空转）
@@ -15,7 +14,7 @@
 # requirement_confirm 内部 capability_boundary 调用换成
 #     ai_triage 分流判定 + resume 四态协议；prd_generation 按 state["ai_core"] 选
 #     ai-native / 普通 PRD 模板。图结构不动（仍 11 节点），分流判定在确认门节点内部完成，
-#     模板选择在 prd_generation 节点内部完成；块 3 可行性门才新增节点与条件边。
+#     模板选择在 prd_generation 节点内部完成。
 # 插入判断需求与 AI 的边界两节点（13 节点）。
 #     requirement_confirm 条件边分流：ai_core=True → feasibility_check → feasibility_confirm(HITL)
 #     → 四态条件边（pass/reclassify→prd_generation；reshape→requirement_confirm；abandon→END）；
@@ -60,8 +59,8 @@ feasibility_confirm / eval_confirm / issue_confirm / launch_confirm 六扇 HITL 
         → 条件边两态：pass → bake_off（确认落盘 YAML 草案与评测档案进 state）
                        redraft → eval_design（修改意见重起草；前 2 轮自动，第 3 版起升级暂停）
     →（非 reject 且普通轨）issue_splitting
-    → bake_off（第 6 段对比选型：经 Promptfoo 横跑候选，代码硬判推荐，写 model_selection）
-        → 条件边两态：issue_splitting（横跑完成/人工跳过）
+    → bake_off（第 6 段对比选型：经 Promptfoo 把考题逐个发给候选模型各跑一遍，代码硬判推荐，写 model_selection）
+        → 条件边两态：issue_splitting（跑完/人工跳过）
                        bake_off（工具错误在节点内 interrupt，恢复后自环重跑）
     → issue_confirm(HITL 工单确认门) → 条件边三分支：
         eval_run（确认 且 ai_core=True：第 8 段构建期跑评测）
@@ -220,7 +219,7 @@ def build_graph(deps: Any, db_path: str | None = None) -> Any:
         },
     )
     # 第 6 段对比选型（AI 核心需求经此，普通轨不经）：
-    # 横跑完成或人工跳过 -> issue_splitting；工具错误/待 prompt 在节点内 interrupt，
+    # 跑完或人工跳过 -> issue_splitting；工具错误/待 prompt 在节点内 interrupt，
     # route 保守兜底自环 bake_off->bake_off（恢复后重跑本节点）。
     graph.add_conditional_edges(
         "bake_off",
