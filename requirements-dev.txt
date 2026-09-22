@@ -1,0 +1,6 @@
+# 跑测试要额外装的东西（产品运行用不到）
+# 用法：pip install -r requirements-dev.txt
+-r requirements.txt
+
+# 测试运行器：tests/ 全套本地假模型测试靠它跑，不需要任何 API key
+pytest>=8.0

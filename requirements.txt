@@ -1,6 +1,4 @@
 langgraph>=0.2
-langchain>=0.3
-langchain-openai>=0.1
 # LiteLLM 统一模型层依赖
 litellm>=1.100
 langchain-litellm>=0.7
@@ -12,6 +10,4 @@ python-dotenv>=1.0
 rich>=13.0
 httpx>=0.27
 beautifulsoup4>=4.12
-# 测试运行器：tests/ 假 LLM 零 API 测试依赖（补登记，venv 重建后曾丢失）
-pytest>=8.0
 chromadb>=0.5,<1.0

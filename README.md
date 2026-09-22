@@ -100,9 +100,10 @@ pip install -r requirements.txt
 cp .env.example .env        # 填一个模型密钥，默认读 DEEPSEEK_API_KEY
 ```
 
-测试不用密钥，全跑本地的假模型，不花钱：
+测试不用密钥，全跑本地的假模型，不花钱。跑测试要多装一个 pytest —— 产品运行用不到它，所以单独放一份：
 
 ```bash
+pip install -r requirements-dev.txt
 PYTHONPATH=src python -m pytest tests/ -q        # 819 passed
 ```
 
@@ -149,6 +150,7 @@ docs/           核心规格：PRD、技术设计、工作流设计、职能标�
 AGENTS.md       给运行本产品的 Agent 读的人设与纪律
 config.yaml     模型、知识库、阈值等配置
 requirements.txt
+requirements-dev.txt
 .env.example
 LICENSE
 ```
