@@ -18,7 +18,7 @@
 
 **一条能从头跑到尾的流水线。** 一句需求进去，一路产出洞察、边界判定、PRD、评审结论、评测体系、选型结论、研发工单和发布计划。13 个节点代码文件、13 份提示词、9 套产物模板、11 个 Agent 技能。
 
-**结论由代码算，不由模型说。** 评审过不过、评测达不达标、就绪度打几档，模型只负责出分数和 JSON，结论由代码按数值算出来。这是「换模型不影响结论、同一份输入跑两遍结果一样」的地基。
+**结论由代码算，不由模型说。** 评审过不过、评测达不达标、就绪度打几档，模型只负责出分数和 JSON，结论由代码按数值算出来。这是「换模型不影响结论、同一份输入跑两遍结果一样」的基础。
 
 **819 个测试，且不花一分钱 API 费。** 全部跑本地假模型，进 CI，每次提交都验一遍。
 
@@ -29,6 +29,7 @@
 | 用在哪 | 用了什么 | 业界对应 |
 |---|---|---|
 | 流水线骨架 | LangGraph，20 节点状态机 | Anthropic 五大工作流里的 prompt chaining；LangGraph 官方主推形态 |
+| 能力怎么组织 | 14 项职能标准 + 固定流水线 | 业界两种范式（技能库 / 固定流程）的交集 |
 | 结论怎么出 | 代码按数值算，模型只给分 | Anthropic「hook not prompt」原则，且执行得更严 |
 | 该人拍板的地方 | 8 处暂停/恢复 | LangGraph interrupt，四大框架收敛的同一模式 |
 | 跑评测 | Promptfoo，考题先于开发 | EDD（Eval-Driven Development） |
@@ -38,8 +39,9 @@
 | 记忆 | 检查点 + 产物写成文件 | LangGraph checkpoint/store + Anthropic Memory tool |
 | 工具调用 | 路由表登记 | MCP 的工具目录（tools/list） |
 | 长期项目记忆 | 索引 + 内容仓两层 | 比语义检索更可控的一版简化 |
+| AI 需求评审看什么 | 数据底座 / 幻觉风险 / 内容安全 / 成本 | 业界五维共识的子集 |
 
-完整对照附 30 多条权威来源，见 `docs/技术选型与架构对位报告.md`。
+完整对照附 39 条权威来源，见 `docs/技术选型与架构对位报告.md`。
 
 ## 自己定的部分在业务层，不在架构层
 
@@ -54,31 +56,40 @@
 ## 跑一遍是什么样
 
 ```bash
-PYTHONPATH=src python scripts/run_prd_workflow.py --requirement "给社区团购加自动拼单"
+PYTHONPATH=src python scripts/run_prd_workflow.py \
+  --requirement "客服回复建议助手：客服与用户聊天时，AI 根据上下文生成 1-3 条回复建议供一键采用；识别到情绪激烈或涉及投诉赔付时不给建议，提示转人工组长。" \
+  --name 客服回复建议助手
 ```
 
-跑起来它先复述一遍需求，给一个「这算不算 AI 需求」的判断，然后停下来等你回话：
+`--requirement` 是原始需求，`--name` 是产物文件夹名。跑起来它先复述一遍需求、给一个「这算不算 AI 需求」的判断，然后停下来等你回话：
 
 ```
-STATUS: HITL   NODE: requirement_confirm   THREAD_ID: 8f3a1c...
-需求原文：给社区团购加自动拼单
-模型判断：算 AI 核心需求（要用模型匹配商品与参团人数）
-请确认需求原文，以及走 AI 轨道还是普通轨道。
+STATUS: HITL
+THREAD_ID: 4461143c-6ed5-4de8-9e51-981a3c45312e
+NODE: requirement_confirm
+QUESTION: 节点「requirement_confirm」进入需求确认门。请审阅下方需求理解与 AI 适用性分流建议，确认无误后回复 confirmed，或回复「非AI」改判普通轨、「AI核心」改判 AI 全轨；其他文本作为需求修订意见处理（分流沿用模型建议，不二次中断）。
+---
+[中断载荷]
+requirement_name: 客服回复建议助手
+raw_requirement: 客服回复建议助手：客服与用户聊天时，AI 根据上下文生成 1-3 条回复建议……
+（下面接着是需求信息完整度打分、AI 适用性判断）
+---
+END HITL
 ```
 
-你回一句「确认」，它接着往下走。全程有 8 个地方会这样停下来等你。跑完产物是文件：
+你回一句「确认」（或 `confirmed`），它接着往下走。全程有 8 个地方会这样停下来等你。跑完产物是文件：
 
 ```
-output/社区自动拼单/
-├── 需求文档.md      PRD
-├── 洞察.md          用户、场景与缺口
-├── 评审报告.md      五维评分 + AI 维度专项检查
-├── 研发工单.md      按「用户能做完一件事」切的工单
-├── 发布计划.md      7 步发布计划
-└── 就绪度打分.md    11 个维度打分，达不到的档位直接标出来
+output/客服回复建议助手/
+├── 需求文档/   客服回复建议助手-prd.md
+├── 需求洞察/   客服回复建议助手-insights.md
+├── review/     客服回复建议助手-review.md      五维评分 + AI 维度专项检查
+├── 研发工单/   客服回复建议助手-issues.md      按「用户能做完一件事」切的工单
+├── 发布计划/   客服回复建议助手-launch_plan.md  7 步发布计划
+└── 评测/       eval_report.md、bakeoff_report.md、results.json
 ```
 
-跑到一半想歇会儿也行，`--resume <THREAD_ID>` 从上次停的地方接着跑。
+跑到一半想歇会儿也行，记下 THREAD_ID，回头 `--resume <THREAD_ID> --answer "确认"` 从上次停的地方接着跑。
 
 ## 装起来
 
@@ -128,15 +139,15 @@ PYTHONPATH=src python -m pytest tests/ -q        # 819 passed
 ## 仓库结构
 
 ```
-src/
-tests/
-scripts/
-artifacts/
-.pi/
-references/
-docs/
-AGENTS.md
-config.yaml
+src/            流水线本体：节点、判定、状态机、提示词、校验
+tests/          819 个测试
+scripts/        入口脚本（run_prd_workflow.py 等）
+artifacts/      产物模板
+.pi/skills/     常驻对话 Agent 的 PM 技能与操作手册
+references/     项目自己写的参考：工具路由表、模型候选清单、流水线拓扑
+docs/           核心规格：PRD、技术设计、工作流设计、职能标准调研、选型对位报告
+AGENTS.md       给运行本产品的 Agent 读的人设与纪律
+config.yaml     模型、知识库、阈值等配置
 requirements.txt
 .env.example
 LICENSE
@@ -147,7 +158,7 @@ LICENSE
 ## 还没做的
 
 - 上线后的灰度监控和数据回流考题集只有接口，没实现
-- 演示类产物（PPT、图表、原型）依赖外面的工具，装不上就只能停在交接单
+- 演示类产物（PPT、图表、原型）依赖外面的工具；工具没装，这一段只能给出「要做什么」的说明，出不了成品
 - 领域知识库要自己建库；没有语料时，那一段的检索会直接跳过
 - 人工确认点的周边设施（通知、超时、升级、审计）还没做全
 
