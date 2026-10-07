@@ -17,7 +17,7 @@
 | 段 | 动作 | 产物 |
 |---|---|---|
 | 0–0.5 | 接收需求、修订整合 | 需求草案（等待确认） |
-| 1 | 挖需求、判断是否 AI 核心 | 用户洞察、初始考题 |
+| 1 | 挖需求、判断是否 AI 核心 | 需求理解记录、初始考题 |
 | 2 | 判断需求与 AI 的边界 | 三方对照 + 探针实测证据 |
 | 3 | 写 PRD | ai-native PRD |
 | 4 | 评审 PRD | 五维评审报告，一票否决 |
@@ -57,15 +57,16 @@
 src/            流水线本体：节点、判定、状态机、提示词、校验
 tests/          测试（本地假模型，零 API 费）
 scripts/        入口脚本
-artifacts/      产物模板
-.pi/skills/     常驻对话 Agent 的 PM 技能与操作手册
+artifacts/      产物模板（assets/ 素材、templates/ 模板）
+.pi/skills/     供本地 pi CLI Agent 加载的 PM 技能与操作手册
 references/     工具路由表、模型候选清单、流水线拓扑
 docs/           PRD、技术设计、工作流设计、职能标准调研、选型对位报告
+v2/             下一代工作台规划文档（统一前端工作台 PRD、规划书、设计共识、调研）
+学习文档/       评测方法论学习笔记（ai-evaluation）
+工具与参考/     自制工具包与第三方参考资料归档
 AGENTS.md       给运行本产品的 Agent 读的纪律
 config.yaml     模型、知识库、阈值等配置
 ```
-
-仓库仅含产品本体；会话记录、任务书、调研草稿等过程文档留在本地，不上仓库。
 
 ## 运行
 
@@ -103,7 +104,6 @@ output/客服回复建议助手/
 - `pip install -r requirements.txt`；`cp .env.example .env`（填 DEEPSEEK_API_KEY）
 - 测试免密钥、零 API 费：`pip install -r requirements-dev.txt`；`PYTHONPATH=src python -m pytest tests/ -q`
 - 模型默认 DeepSeek；Anthropic、Gemini、Ollama 在 `config.yaml` 的 `llm.providers` 取消注释切换；密钥只从环境变量读取
-- 红线：工作日 09-12 / 14-18 峰时不调 DeepSeek，真机与重活排谷时
 
 ## 不适用 / 未实现
 
