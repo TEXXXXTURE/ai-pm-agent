@@ -61,7 +61,6 @@ artifacts/      产物模板（assets/ 素材、templates/ 模板）
 .pi/skills/     供本地 pi CLI Agent 加载的 PM 技能与操作手册
 references/     工具路由表、模型候选清单、流水线拓扑
 docs/           PRD、技术设计、工作流设计、职能标准调研、选型对位报告
-学习文档/       评测方法论学习笔记（ai-evaluation）
 工具与参考/     自制工具包与第三方参考资料归档
 AGENTS.md       给运行本产品的 Agent 读的纪律
 config.yaml     模型、知识库、阈值等配置
