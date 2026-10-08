@@ -1,7 +1,7 @@
 # AI Agent 领域知识库 RAG 实施规划
 
 > 本文档是 RAG 知识库系统的完整实施规划，面向 Code 侧开发。
-> 依据：选型结论 + 讨论细化（分类映射、持续更新 Chunk 策略）+ 2026-09-12 修订（嵌入模型 Doubao→硅基流动，规避 Agent Plan 合规红线；实施方式：派 CLI Agent 做骨架、主 Agent 验收；与主线 12 段融合工作流并行推进）+ 2026-09-12 修订（嵌入模型定为 Qwen/Qwen3-Embedding-8B 4096 维，真机实测通过；论文层种子从 40 篇扩为 514 篇全量；用户拍板质量优先）
+> 依据：选型结论 + 讨论细化（分类映射、持续更新 Chunk 策略）+ 2026-09-12 修订（嵌入模型 Doubao→硅基流动，规避原 ARK key 在按量端点鉴权不兼容的问题；实施方式：独立任务搭骨架、主 Agent 验收；与主线 12 段融合工作流并行推进）+ 2026-09-12 修订（嵌入模型定为 Qwen/Qwen3-Embedding-8B 4096 维，真机实测通过；论文层种子从 40 篇扩为 514 篇全量；质量优先）
 > 性质：功能模块开发，需走工作流报批
 
 ---
@@ -167,7 +167,7 @@ class EmbeddingModel:
 ```
 
 **实现要点**：
-- 直接调用硅基流动 Embeddings API（OpenAI 兼容格式）<!-- 原方案 Doubao 弃用：项目 ARK_API_KEY 是火山 Agent Plan 专属 key，按量端点 /api/v3 不认（401），且 Agent Plan 向量模型禁止脚本裸调（合规红线） -->
+- 直接调用硅基流动 Embeddings API（OpenAI 兼容格式）<!-- 原方案 Doubao 弃用：项目所用 ARK key 在按量端点 /api/v3 返回 401，且其向量模型不允许脚本直接调用 -->
 - 批量请求（每批上限 32 条，实测通过）
 - 失败重试 2 次（指数退避）
 - API 端点：`https://api.siliconflow.cn/v1/embeddings`
@@ -446,4 +446,4 @@ chromadb>=0.5
 - 《飞书知识地图_目录结构设计》—— 飞书侧结构（后续阶段）
 
 <!-- RAG 知识库实施规划（最终版） -->
-<!-- 用户拍板：嵌入模型 Doubao→硅基流动 bge-m3（SILICONFLOW_API_KEY 已入 .env）；实施派 CLI Agent（CodeBuddy hy3）做骨架、主 Agent 验收；与主线并行，RAG 会话开场词「rag」、主线会话开场词「继续」 -->
+<!-- 决策：嵌入模型 Doubao→硅基流动（SILICONFLOW_API_KEY 已入 .env）；骨架由独立任务搭建、主 Agent 验收；与主线并行 -->
