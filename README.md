@@ -47,9 +47,15 @@
 
 - 内核（`src/`）：判定与契约。路由由代码决定，模型不决定走向；结论一律代码硬判。
 - SOP 层（`AGENTS.md`、`references/`、`docs/`）：规则与清单。
-- 外置层（`scripts/`、`.pi/skills/`、外置工具包、`domain_kb/`）：可替换执行件与内容。
+- 外置层（`scripts/`、`.pi/skills/`、外置工具包）：可替换执行件与内容。
 
 原则：执行可外置，判定留内核；内容可外置，契约留内核。
+
+### 领域知识库
+
+本地 ChromaDB 向量库，约 5300 个切块（概念词条与精选论文两层），参数在 `config.yaml` 的 `domain_kb` 段。`kb_lookup` 节点在流程开头检索一次，结果注入挖需求、修订整合、判边界三处提示词；检索失败或无命中时返回空，不阻断流程。
+
+语料与向量文件不入仓，克隆后需自行 `python scripts/rag_ingest.py` 建库。未配置 `SILICONFLOW_API_KEY` 时该次检索同样返回空。
 
 ## 目录
 
@@ -59,9 +65,10 @@ tests/          测试（本地假模型，零 API 费）
 scripts/        入口脚本
 artifacts/      产物模板（assets/ 素材、templates/ 模板）
 .pi/skills/     供本地 pi CLI Agent 加载的 PM 技能与操作手册
-references/     工具路由表、模型候选清单、流水线拓扑
+references/     工具路由表、模型候选清单、流水线拓扑、领域知识库实施规划与调优
 docs/           PRD、技术设计、工作流设计、职能标准调研、选型对位报告
-工具与参考/     自制工具包与第三方参考资料归档
+domain_kb/      领域知识库语料与向量（不入仓，克隆后自行建库）
+工具与参考/     自制技能；第三方参考与外置工具包不入仓（见 .gitignore）
 AGENTS.md       给运行本产品的 Agent 读的纪律
 config.yaml     模型、知识库、阈值等配置
 ```
@@ -99,7 +106,8 @@ output/客服回复建议助手/
 ## 安装与配置
 
 - 需要 Python 3.11+
-- `pip install -r requirements.txt`；`cp .env.example .env`（填 DEEPSEEK_API_KEY）
+- `pip install -r requirements.txt`；`cp .env.example .env`（填 `DEEPSEEK_API_KEY`）
+- 领域知识库另需 `SILICONFLOW_API_KEY`（`.env.example` 中的注释行）；未配置时检索返回空，流程照常
 - 测试免密钥、零 API 费：`pip install -r requirements-dev.txt`；`PYTHONPATH=src python -m pytest tests/ -q`
 - 模型默认 DeepSeek；Anthropic、Gemini、Ollama 在 `config.yaml` 的 `llm.providers` 取消注释切换；密钥只从环境变量读取
 
@@ -107,7 +115,7 @@ output/客服回复建议助手/
 
 - 代码编写、bug 修复、工程搭建——范围外
 - 运行时动态新增能力——节点与连线写死，不运行时扩展
-- 领域知识检索——语料自备；无语料时该段跳过
+- 领域知识库的语料建设与更新——语料自备、不随仓库分发（检索能力本身已实现，见「架构 · 领域知识库」）
 - 演示类产物（PPT、图表、原型）——依赖外置工具；未安装时仅输出说明，不生成成品
 - 人工确认点周边设施（通知、超时、升级、审计）——未实现完整
 - 上线后灰度监控与数据回流——接口已留，实现未做
