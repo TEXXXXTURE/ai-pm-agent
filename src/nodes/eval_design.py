@@ -110,18 +110,18 @@ _EVAL_CONFIRM_WORDS: frozenset[str] = frozenset(
 # Promptfoo prompts 段的 PRD 核心任务 prompt 模板占位（第 5 段只出草案，不接真调用）
 _PROMPTFOO_PROMPT_PLACEHOLDER = "{{prd_core_task_prompt}}"
 
-# Promptfoo provider 占位：项目自有 DeepSeek（config.yaml 的 litellm_model = deepseek/deepseek-v4-flash）。
+# Promptfoo provider 占位：项目自有 DeepSeek（config.yaml 的 litellm_model = deepseek/deepseek-flash）。
 # 第 5 段只出单 provider 草案，第 6 段对比选型才横向扩展候选 provider。
 # 说明：Promptfoo 的 provider id 是 "<provider>:<model>" 格式，裸 "deepseek" 会被 validate 拒绝，
 # 故默认参数 provider="deepseek" 需补成带模型的合法 id；调用方传已含 ":" 的完整 id 时原样使用。
 _PROMPTFOO_DEFAULT_PROVIDERS: dict[str, str] = {
-    "deepseek": "deepseek:deepseek-v4-flash",
+    "deepseek": "deepseek:deepseek-flash",
 }
 
 # llm-rubric 断言的阅卷模型（真机实测后修复）：不指定时 Promptfoo 回退默认 OpenAI/Codex
 # 通道，本机该通道配置失效会导致评分器报错、题被误判失败。固定复用项目自有 DeepSeek，
 # 同一把 DEEPSEEK_API_KEY、零新密钥；对比选型时所有候选也统一由它阅卷，避免候选自评。
-PROMPTFOO_JUDGE_PROVIDER = "deepseek:deepseek-v4-flash"
+PROMPTFOO_JUDGE_PROVIDER = "deepseek:deepseek-flash"
 # 端到端真机修复：llm-rubric 必须显式指定阅卷模型
 
 # 四层考题的层名（评测档案 exam_summary 恒定包含这四键）

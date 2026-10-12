@@ -18,7 +18,7 @@ llm:
   # api_key_env 为密钥所在环境变量名；本地模型（如 ollama）留空字符串 "" 即可。
   providers:
     deepseek:
-      litellm_model: "deepseek/deepseek-v4-flash"
+      litellm_model: "deepseek/deepseek-flash"
       api_key_env: "DEEPSEEK_API_KEY"
 
     # ── 以下 Provider 为注释模板，按需取消注释启用 ──

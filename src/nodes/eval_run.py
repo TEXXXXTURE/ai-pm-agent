@@ -143,7 +143,7 @@ def finalize_eval_config(eval_yaml_draft: str) -> str:
     if not normalized:
         normalized = [
             {
-                "id": "deepseek:deepseek-v4-flash",
+                "id": "deepseek:deepseek-flash",
                 "config": dict(_NORMALIZED_PROVIDER_CONFIG),
             }
         ]
