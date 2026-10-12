@@ -60,12 +60,15 @@ $piArgs = @('-ne')
 $DemoToolkit = Join-Path $ProjectRoot '工具与参考\Agent外置工具包\演示工具包'
 # AI 评测工具包（Promptfoo 执行器外置），薄技能 ai-eval
 $AiEvalToolkit = Join-Path $ProjectRoot '工具与参考\Agent外置工具包\AI评测工具包'
+# 原型工具包（figma-agent-cli：本地桥接 → Figma 真机原型制作）
+$ProtoToolkit = Join-Path $ProjectRoot '工具与参考\Agent外置工具包\原型工具包'
 $ExtSkillPaths = @(
     (Join-Path $DemoToolkit 'skills\frontend-slides'),
     (Join-Path $DemoToolkit 'skills\lieflat-charts'),
     (Join-Path $DemoToolkit 'skills\diagram-mermaid'),
     (Join-Path $DemoToolkit 'skills\ppt-master\skills\ppt-master'),
-    (Join-Path $AiEvalToolkit 'skills\ai-eval')
+    (Join-Path $AiEvalToolkit 'skills\ai-eval'),
+    (Join-Path $ProtoToolkit 'skills\figma-agent')
 )
 foreach ($skillDir in $ExtSkillPaths) {
     if (Test-Path (Join-Path $skillDir 'SKILL.md')) {
