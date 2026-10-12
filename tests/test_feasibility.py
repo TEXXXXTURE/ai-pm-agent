@@ -2249,7 +2249,7 @@ class TestPrdAiNativeModelSection(unittest.TestCase):
 # ── 12.7 接线：config / state / NodeDeps / 两处装配 ──
 
 
-class TestS048Wiring(unittest.TestCase):
+class TestWiring(unittest.TestCase):
     def test_config_has_model_catalog_section(self):
         cfg = load_config()
         self.assertIn("model_catalog", cfg)

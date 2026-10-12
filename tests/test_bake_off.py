@@ -1072,7 +1072,7 @@ class TestBakeOffCandidatePool(unittest.TestCase):
 # ──────────────────── 15. QUESTION 文案与 CLI 载荷 ────────────────────
 
 
-class TestS048QuestionAndCli(unittest.TestCase):
+class TestQuestionAndCli(unittest.TestCase):
     @staticmethod
     def _load_workflow_module():
         spec = importlib.util.spec_from_file_location(
