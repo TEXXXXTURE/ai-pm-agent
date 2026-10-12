@@ -110,19 +110,59 @@ _EVAL_CONFIRM_WORDS: frozenset[str] = frozenset(
 # Promptfoo prompts 段的 PRD 核心任务 prompt 模板占位（第 5 段只出草案，不接真调用）
 _PROMPTFOO_PROMPT_PLACEHOLDER = "{{prd_core_task_prompt}}"
 
-# Promptfoo provider 占位：项目自有 DeepSeek（config.yaml 的 litellm_model = deepseek/deepseek-flash）。
+# Promptfoo provider id：按 config 的 llm 段现算，代码与测试里都不写死模型名。
 # 第 5 段只出单 provider 草案，第 6 段对比选型才横向扩展候选 provider。
-# 说明：Promptfoo 的 provider id 是 "<provider>:<model>" 格式，裸 "deepseek" 会被 validate 拒绝，
-# 故默认参数 provider="deepseek" 需补成带模型的合法 id；调用方传已含 ":" 的完整 id 时原样使用。
-_PROMPTFOO_DEFAULT_PROVIDERS: dict[str, str] = {
-    "deepseek": "deepseek:deepseek-flash",
-}
+# Promptfoo 的 id 是 "<provider>:<model>" 格式（裸 provider 名会被 validate 拒绝），
+# 而 config 的 litellm_model 是 "<provider>/<model>" —— 只换分隔符。
+# 调用方传已含 ":" 的完整 id 时原样使用；配置里没写模型时退化为裸 provider 名。
 
-# llm-rubric 断言的阅卷模型（真机实测后修复）：不指定时 Promptfoo 回退默认 OpenAI/Codex
-# 通道，本机该通道配置失效会导致评分器报错、题被误判失败。固定复用项目自有 DeepSeek，
-# 同一把 DEEPSEEK_API_KEY、零新密钥；对比选型时所有候选也统一由它阅卷，避免候选自评。
-PROMPTFOO_JUDGE_PROVIDER = "deepseek:deepseek-flash"
-# 端到端真机修复：llm-rubric 必须显式指定阅卷模型
+_CONFIG_CACHE: dict | None = None
+
+
+def _load_config() -> dict:
+    """读一次项目 config.yaml（进程内缓存）。读不到返回空 dict，不抛错。"""
+    global _CONFIG_CACHE
+    if _CONFIG_CACHE is None:
+        try:
+            from kernel.config import load_config
+
+            _CONFIG_CACHE = load_config() or {}
+        except Exception:
+            _CONFIG_CACHE = {}
+    return _CONFIG_CACHE
+
+
+def promptfoo_provider_id(provider: str = "", config: dict | None = None) -> str:
+    """拼 Promptfoo 合法 provider id；模型名只从 config 取，不在代码里定死。
+
+    Args:
+        provider: 裸 provider 名；留空则取 config 的 ``llm.default_provider``；
+            已含 ":" 的完整 id 原样返回。
+        config: 显式配置（测试注入用）；缺省读项目 config.yaml。
+
+    Returns:
+        ``"<provider>:<model>"``；配置里没写模型时退化为裸 provider 名。
+    """
+    cfg = config if isinstance(config, dict) else _load_config()
+    llm = cfg.get("llm") if isinstance(cfg.get("llm"), dict) else {}
+    name = str(provider or "").strip() or str(llm.get("default_provider") or "").strip()
+    if not name or ":" in name:
+        return name
+    providers = llm.get("providers") if isinstance(llm.get("providers"), dict) else {}
+    entry = providers.get(name) if isinstance(providers.get(name), dict) else {}
+    model = str(entry.get("litellm_model") or "").strip()
+    short = model.split("/", 1)[1] if "/" in model else model
+    return f"{name}:{short}" if short else name
+
+
+def judge_provider_id(config: dict | None = None) -> str:
+    """llm-rubric 断言的阅卷模型 id（真机实测后修复）。
+
+    不指定阅卷模型时 Promptfoo 回退默认 OpenAI/Codex 通道，本机该通道配置失效会导致
+    评分器报错、题被误判失败；指定后复用默认 provider（同一把密钥、零新配置），
+    对比选型时所有候选也统一由它阅卷，避免候选自评。
+    """
+    return promptfoo_provider_id("", config)
 
 # 四层考题的层名（评测档案 exam_summary 恒定包含这四键）
 _ALL_LAYERS: tuple[str, ...] = ("typical", "boundary", "adversarial", "replay")
@@ -204,7 +244,7 @@ def _build_promptfoo_test(exam: dict, layer: str) -> dict:
             {
                 "type": "llm-rubric",
                 "value": str(exam.get("judge_rubric") or ""),
-                "provider": PROMPTFOO_JUDGE_PROVIDER,
+                "provider": judge_provider_id(),
             }
         ]
         ratio = exam.get("manual_review_ratio")
@@ -215,14 +255,15 @@ def _build_promptfoo_test(exam: dict, layer: str) -> dict:
     return test
 
 
-def render_promptfoo_yaml(eval_system: dict, provider: str = "deepseek") -> str:
+def render_promptfoo_yaml(eval_system: dict, provider: str = "") -> str:
     """纯函数：把结构化评测体系渲染成合法 Promptfoo YAML 文本。
 
     Args:
         eval_system: EvalDesignSchema 同构 dict（四层 exam_sets + pass_lines）。
-        provider: providers 段占位（默认 "deepseek"，第 5 段只出单 provider 占位，
-            第 6 段才横向扩展）；裸 provider 名按 ``_PROMPTFOO_DEFAULT_PROVIDERS`` 补成
-            Promptfoo 合法的 "<provider>:<model>" id，已含 ":" 的完整 id 原样使用。
+        provider: providers 段占位（缺省取 config 的 ``llm.default_provider``；
+            第 5 段只出单 provider 占位，第 6 段才横向扩展）；裸 provider 名按
+            ``promptfoo_provider_id`` 补成 Promptfoo 合法的 "<provider>:<model>" id，
+            已含 ":" 的完整 id 原样使用。
 
     Returns:
         含 prompts / providers / tests 三个顶层键的 YAML 文本（``yaml.safe_load`` 可解析）：
@@ -248,12 +289,7 @@ def render_promptfoo_yaml(eval_system: dict, provider: str = "deepseek") -> str:
             if isinstance(exam, dict):
                 tests.append(_build_promptfoo_test(exam, layer))
 
-    provider_text = str(provider or "")
-    provider_id = (
-        provider_text
-        if ":" in provider_text
-        else _PROMPTFOO_DEFAULT_PROVIDERS.get(provider_text, provider_text)
-    )
+    provider_id = promptfoo_provider_id(str(provider or ""))
     document = {
         "prompts": [_PROMPTFOO_PROMPT_PLACEHOLDER],
         "providers": [provider_id],

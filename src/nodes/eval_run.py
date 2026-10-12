@@ -42,7 +42,7 @@ import yaml
 from langgraph.types import interrupt
 
 from kernel.exceptions import NodeExecutionError
-from nodes.eval_design import PROMPTFOO_JUDGE_PROVIDER
+from nodes.eval_design import judge_provider_id, promptfoo_provider_id
 
 # Promptfoo 退出码（见 AI 评测工具包 skills/ai-eval/SKILL.md）
 EXIT_OK = 0            # 全部断言通过
@@ -77,14 +77,18 @@ _SYSTEM_PROMPT_REF = "./system_prompt.txt"
 _JUDGE_ASSERTION_TYPES = ("llm-rubric", "llm-output-rubric", "model-graded-closedqa")
 
 
-def ensure_judge_provider(document: dict, judge_provider: str = PROMPTFOO_JUDGE_PROVIDER) -> dict:
+def ensure_judge_provider(document: dict, judge_provider: str | None = None) -> dict:
     """纯函数：给每条缺 provider 的模型阅卷断言补上阅卷模型（真机实测后修复）。
 
     新草案在 eval_design 渲染时已带 provider；本函数兜底两类场景：
     ①修复前渲染、已冻结在 state 里的旧草案（正在 eval_failed 中断点的会话）；
     ②bake_off 从同一草案派生的单模型配置。
     已有 provider 的断言原样保留，tests/assert 结构异常时安全跳过。
+
+    judge_provider 留空时按 config 的默认 provider 现推，代码不写死模型名。
     """
+    if judge_provider is None:
+        judge_provider = judge_provider_id()
     tests = document.get("tests")
     if not isinstance(tests, list):
         return document
@@ -111,7 +115,7 @@ def finalize_eval_config(eval_yaml_draft: str) -> str:
       ``{"id": <合法 provider id>, "config": {temperature:0, max_tokens:2048, showThinking:false}}``；
       原 provider 是合法 id 字符串时包成上述字典；providers 为空时补默认 DeepSeek id；
     - `tests` 保留；其中缺 provider 的 llm-rubric 类断言统一补阅卷模型
-      （``PROMPTFOO_JUDGE_PROVIDER``，真机实测后修复）。
+      （``judge_provider_id()``，真机实测后修复）。
 
     Returns:
         归一后的 YAML 文本（``yaml.safe_dump``，allow_unicode=True，sort_keys=False）；
@@ -143,7 +147,7 @@ def finalize_eval_config(eval_yaml_draft: str) -> str:
     if not normalized:
         normalized = [
             {
-                "id": "deepseek:deepseek-flash",
+                "id": promptfoo_provider_id(),
                 "config": dict(_NORMALIZED_PROVIDER_CONFIG),
             }
         ]

@@ -68,7 +68,7 @@ class TestLoadToolCatalogActual(unittest.TestCase):
             self.assertIn(tool_name, names, msg=f"缺工具: {tool_name}")
 
     def test_categories_correct(self):
-        """第二节工具 category=产物能力，二·补节 Promptfoo category=执行器。"""
+        """第二节与二·之三（原型制作）category=产物能力；二·补与二·之二 category=执行器。"""
         catalog = load_tool_catalog(str(ROUTING_MD))
         product_tools = [
             t for t in catalog if t["category"] == "产物能力"
@@ -76,9 +76,15 @@ class TestLoadToolCatalogActual(unittest.TestCase):
         executor_tools = [
             t for t in catalog if t["category"] == "执行器"
         ]
-        self.assertEqual(len(product_tools), 4, f"产物能力应 4 个: {product_tools!r}")
-        self.assertEqual(len(executor_tools), 1, f"执行器应 1 个: {executor_tools!r}")
-        self.assertEqual(executor_tools[0]["name"], "Promptfoo 0.123.0")
+        product_names = {t["name"] for t in product_tools}
+        executor_names = {t["name"] for t in executor_tools}
+        # 原型制作补的是「Agent 做不了的产物」，必须归产物能力，不能落进执行器
+        proto = "figma-agent-cli（配 figma-agent 技能）"
+        self.assertIn(proto, product_names, f"原型工具应为产物能力: {catalog!r}")
+        self.assertNotIn(proto, executor_names)
+        self.assertEqual(len(product_tools), 5, f"产物能力应 5 个: {product_tools!r}")
+        self.assertEqual(len(executor_tools), 2, f"执行器应 2 个: {executor_tools!r}")
+        self.assertIn("Promptfoo 0.123.0", executor_names)
 
     def test_three_elements_nonempty(self):
         """已装工具的三要素（能做/不能做/调用前提）均非空。"""

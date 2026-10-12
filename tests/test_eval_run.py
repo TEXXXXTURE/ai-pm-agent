@@ -62,7 +62,11 @@ from kernel.artifact import ArtifactManager, sanitize_name  # noqa: E402
 from kernel.graph import build_graph  # noqa: E402
 from kernel.runner import NodeRunner  # noqa: E402
 from nodes import NodeDeps, build_nodes  # noqa: E402
-from nodes.eval_design import render_promptfoo_yaml  # noqa: E402
+from nodes.eval_design import (  # noqa: E402
+    judge_provider_id,
+    promptfoo_provider_id,
+    render_promptfoo_yaml,
+)
 from nodes.eval_run import (  # noqa: E402
     EXIT_CONTENT_FAIL,
     EXIT_OK,
@@ -293,7 +297,7 @@ class TestFinalizeEvalConfig(unittest.TestCase):
         text = finalize_eval_config(self.draft)
         doc = yaml.safe_load(text)
         prov = doc["providers"][0]
-        self.assertEqual(prov["id"], "deepseek:deepseek-v4-flash")
+        self.assertEqual(prov["id"], promptfoo_provider_id())
         self.assertEqual(prov["config"]["temperature"], 0)
         # max_tokens 只守下限：额度必须给隐藏思考留足余量
         self.assertGreaterEqual(prov["config"]["max_tokens"], 8192)
@@ -307,11 +311,11 @@ class TestFinalizeEvalConfig(unittest.TestCase):
 
     def test_llm_rubric_judge_provider_backfilled_for_old_draft(self):
         # 修复前渲染、冻结在 state 里的旧草案，llm-rubric 缺阅卷模型，
-        # finalize 必须统一补上 deepseek 阅卷模型；已有 provider 不覆盖。
+        # finalize 必须统一补上阅卷模型（按 config 现推，不写死）；已有 provider 不覆盖。
         old_draft = yaml.safe_dump(
             {
                 "prompts": ["{{prd_core_task_prompt}}"],
-                "providers": ["deepseek:deepseek-v4-flash"],
+                "providers": ["draft:placeholder"],
                 "tests": [
                     {
                         "description": "[typical] J1",
@@ -331,7 +335,7 @@ class TestFinalizeEvalConfig(unittest.TestCase):
             allow_unicode=True,
         )
         doc = yaml.safe_load(finalize_eval_config(old_draft))
-        self.assertEqual(doc["tests"][0]["assert"][0]["provider"], "deepseek:deepseek-v4-flash")
+        self.assertEqual(doc["tests"][0]["assert"][0]["provider"], judge_provider_id())
         # 非阅卷断言不加 provider；已有 provider 的阅卷断言不被覆盖
         self.assertNotIn("provider", doc["tests"][1]["assert"][0])
         self.assertEqual(doc["tests"][1]["assert"][1]["provider"], "custom:judge")

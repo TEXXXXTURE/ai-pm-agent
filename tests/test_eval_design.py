@@ -66,8 +66,10 @@ from nodes.eval_design import (  # noqa: E402
     MAX_EVAL_TOTAL_REVISIONS,
     _REVISION_ESCALATION_REASON,
     classify_eval_answer,
+    judge_provider_id,
     make_eval_confirm,
     make_eval_design,
+    promptfoo_provider_id,
     render_promptfoo_yaml,
     route_after_eval_confirm,
 )
@@ -523,8 +525,8 @@ class TestRenderPromptfooYaml(unittest.TestCase):
         self.assertIsInstance(parsed, dict)
         self.assertEqual(sorted(parsed.keys()), ["prompts", "providers", "tests"])
         self.assertEqual(len(parsed["prompts"]), 1)
-        # 裸 "deepseek" 占位补成 Promptfoo 合法的 "<provider>:<model>" id
-        self.assertEqual(parsed["providers"], ["deepseek:deepseek-v4-flash"])
+        # 裸 provider 占位补成 Promptfoo 合法的 "<provider>:<model>" id（模型名取自 config，不写死）
+        self.assertEqual(parsed["providers"], [promptfoo_provider_id()])
         # typical 3 + boundary 3 + adversarial 2 = 8；replay 空占位不产生条目
         self.assertEqual(len(parsed["tests"]), 8)
         for test in parsed["tests"]:
@@ -541,7 +543,7 @@ class TestRenderPromptfooYaml(unittest.TestCase):
         # llm_judge 题：llm-rubric 类型，带 rubric 文本，并显式指定阅卷模型
         self.assertEqual(by_id["T2"]["assert"][0]["type"], "llm-rubric")
         self.assertEqual(by_id["T2"]["assert"][0]["value"], "裁判标准-T2")
-        self.assertEqual(by_id["T2"]["assert"][0]["provider"], "deepseek:deepseek-v4-flash")
+        self.assertEqual(by_id["T2"]["assert"][0]["provider"], judge_provider_id())
         self.assertEqual(by_id["T2"]["vars"]["manual_review_ratio"], 0.2)
 
     def test_equals_and_regex_prefixes(self):

@@ -78,7 +78,7 @@ from nodes.bake_off import (  # noqa: E402
     make_bake_off,
     route_after_bake_off,
 )
-from nodes.eval_design import render_promptfoo_yaml  # noqa: E402
+from nodes.eval_design import judge_provider_id, render_promptfoo_yaml  # noqa: E402
 from nodes.eval_run import EXIT_CONTENT_FAIL, EXIT_OK, EXIT_TOOL_ERROR  # noqa: E402
 
 COMPONENTS_DIR = SRC_DIR / "components"
@@ -367,11 +367,11 @@ class TestBuildProviderConfig(unittest.TestCase):
         self.assertEqual(len(doc["tests"]), 8)
 
     def test_llm_rubric_judge_provider_backfilled(self):
-        # 旧草案里缺 provider 的 llm-rubric 断言必须补上固定阅卷模型
+        # 旧草案里缺 provider 的 llm-rubric 断言必须补上阅卷模型（按 config 现推）
         old_draft = yaml.safe_dump(
             {
                 "prompts": ["{{prd_core_task_prompt}}"],
-                "providers": ["deepseek:deepseek-v4-flash"],
+                "providers": ["draft:placeholder"],
                 "tests": [
                     {
                         "description": "[typical] J1 旧题",
@@ -390,7 +390,7 @@ class TestBuildProviderConfig(unittest.TestCase):
             allow_unicode=True,
         )
         doc = yaml.safe_load(build_provider_config(old_draft, "x:y", "chat"))
-        self.assertEqual(doc["tests"][0]["assert"][0]["provider"], "deepseek:deepseek-v4-flash")
+        self.assertEqual(doc["tests"][0]["assert"][0]["provider"], judge_provider_id())
         # 已有 provider 的断言原样保留
         self.assertEqual(doc["tests"][1]["assert"][0]["provider"], "custom:judge")
 
