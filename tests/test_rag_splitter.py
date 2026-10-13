@@ -104,7 +104,7 @@ def test_four_level_heading_is_not_a_split_point():
 # ── 3. 超长块二次切分与 overlap ───────────────────────────────────
 
 def test_long_block_secondary_split_with_overlap():
-    paragraphs = [f"第{i}段" + "甲" * 200 for i in range(6)]
+    paragraphs = [f"第{i}段" + "甲" * 20 for i in range(60)]
     text = "# 长节\n" + "\n\n".join(paragraphs) + "\n"
     assert len(text) > MAX_CHUNK_CHARS
 
@@ -113,9 +113,11 @@ def test_long_block_secondary_split_with_overlap():
     assert len(chunks) >= 2
     for chunk in chunks:
         assert len(chunk["content"]) <= MAX_CHUNK_CHARS
-    # 相邻块重叠：后一块开头含前一块尾部 100 字符
+    # 相邻块重叠取「完整行」：上一块最后一行必须出现在下一块里，跨块内容不丢。
+    # （曾按字符截尾部 100 字符，切出 `ation |` 这种半截表格行）
     for prev, nxt in zip(chunks, chunks[1:]):
-        assert prev["content"][-OVERLAP_CHARS:] in nxt["content"]
+        last_line = prev["content"].rstrip().split("\n")[-1]
+        assert last_line in nxt["content"]
     # section_title 与 chunk_index 在子块上保持一致/连续
     assert _titles(chunks) == ["长节"] * len(chunks)
     assert _indexes(chunks) == list(range(len(chunks)))
@@ -175,5 +177,41 @@ def test_metadata_not_mutated():
 def test_empty_text_returns_no_chunk():
     assert split_document("", "concept", {}) == []
     assert split_document("   \n\n", "paper", {}) == []
+
+
+def test_table_rows_are_not_split_mid_row():
+    """表格行与行之间没有空行，不能把刀砍在行中间。
+
+    回归：曾切出 `ion with guardrails |`（`automation` 被劈成两半），
+    检索回来没有列头，读者不知道这行在说谁。
+    """
+    rows = [f"| {i} | 名称{i} | " + ("能力说明第%d行" % i) * 12 + " | 场景{i} |" for i in range(8)]
+    text = "# 成熟度分级\n\n" + "\n".join(rows) + "\n"
+    chunks = split_document(text, "concept", {})
+    assert len(chunks) >= 2
+    for c in chunks:
+        for line in c["content"].split("\n"):
+            line = line.strip()
+            if not line or "|" not in line:
+                continue
+            assert line.startswith("|"), f"出现半截表格行: {line[:60]!r}"
+            assert line.endswith("|"), f"表格行未闭合: {line[:60]!r}"
+
+
+def test_heading_only_block_is_dropped():
+    """标题下面没写内容时切出的空壳块不入库（占名额、不给信息）。"""
+    text = "# 一级\n\n### 空标题\n\n### 有内容\n正文在这。\n"
+    chunks = split_document(text, "concept", {})
+    for c in chunks:
+        body = [ln for ln in c["content"].split("\n") if ln.strip()]
+        assert not (len(body) == 1 and body[0].lstrip().startswith("#")), c["content"]
+
+
+def test_single_huge_line_never_loops():
+    """退重叠时若切点离得太近，必须继续前进，否则死循环。"""
+    text = "a " + "乙" * 3000
+    chunks = split_document("# 长行\n" + text + "\n", "concept", {})
+    assert len(chunks) >= 2
+    assert all(len(c["content"]) <= MAX_CHUNK_CHARS for c in chunks)
 
 
