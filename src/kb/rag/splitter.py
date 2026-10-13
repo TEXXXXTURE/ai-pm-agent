@@ -238,6 +238,10 @@ def split_document(text: str, doc_type: str, metadata: dict) -> list[dict]:
         non_empty_lines = [ln for ln in content.split("\n") if ln.strip()]
         if len(non_empty_lines) == 1 and non_empty_lines[0].lstrip().startswith("#"):
             return
+        # 只有 markdown 分隔线（--- / *** / ___）的块同样不入库：纯噪声，
+        # 而且会因为「字符量大」在检索里拿到高分（曾是查询第一名）
+        if all(re.fullmatch(r"(-{3,}|\*{3,}|_{3,})", ln.strip()) for ln in non_empty_lines):
+            return
         chunks.append(
             {
                 "content": content,

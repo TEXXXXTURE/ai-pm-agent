@@ -14,6 +14,7 @@
 """
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -205,6 +206,15 @@ def test_heading_only_block_is_dropped():
     for c in chunks:
         body = [ln for ln in c["content"].split("\n") if ln.strip()]
         assert not (len(body) == 1 and body[0].lstrip().startswith("#")), c["content"]
+
+
+def test_separator_only_block_is_dropped():
+    """只有 markdown 分隔线（--- / ***）的块不入库——纯噪声，还会在检索里拿到高分。"""
+    text = "# 一级\n\n---\n\n### 有内容\n正文在这。\n\n---\n\n## 二级\n正文二。\n"
+    chunks = split_document(text, "concept", {})
+    for c in chunks:
+        body = [ln.strip() for ln in c["content"].split("\n") if ln.strip()]
+        assert not all(re.fullmatch(r"(-{3,}|\*{3,}|_{3,})", ln) for ln in body), c["content"]
 
 
 def test_single_huge_line_never_loops():
