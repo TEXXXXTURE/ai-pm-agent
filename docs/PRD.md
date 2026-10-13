@@ -189,7 +189,9 @@ AI 产品经理工作流 Agent——把优秀 AI PM 的职能做成**可执行�
 ### 6.3 轻活（自主模式）
 
 - 问答、咨询、调研分析、单篇文档、会议纪要等由 Pi 加载技能直接完成
-- 11 个 Pi 技能（research-investigation / feedback-triage / roadmap / metrics-tree / stakeholder-comms / experiment-design / retro / demo-handover / domain-kb-query / model-selection / agent-manual）+ RAG 查询技能（domain-kb-query，已并入上表）
+- 13 个 Pi 技能（以 `.pi/skills/` 实际为准），分两类：
+  - **绑定本产品**（4 个）：agent-manual（产品操作手册）、demo-handover（演示需求交接与工具调度）、model-selection（模型选型与规格问答）、domain-kb-query（领域知识库查询）
+  - **通用 PM 职能**（9 个）：research-investigation（四段式联网调研）、feedback-triage（反馈分类）、roadmap（Now/Next/Later 路线图）、metrics-tree（北极星与指标树）、stakeholder-comms（干系人话术）、experiment-design（A/B 实验设计）、retro（结构化复盘）、ai-evaluation（AI 系统评测）、product-analytics（产品数据分析）
 - **单一载体规则**：与流水线段重复的技能已删（prd-review↔第 4 段、prd-to-issues↔第 7 段、launch-plan↔第 9 段），同一职能只留一个载体——有进度、有判定的走流水线段，无状态的轻量问答才留技能
 
 ### 6.4 演示类需求
@@ -231,7 +233,7 @@ AI 产品经理工作流 Agent——把优秀 AI PM 的职能做成**可执行�
 - `docs/AI-PM职能标准与能力模型调研.md`（职能标准与达标证据，本项目的验收依据）
 - `docs/workflow-design.md` v3.0（12 段节点级设计）
 - `docs/technical-design.md`（技术方案）
-- 11 个 Pi 技能（research-investigation / feedback-triage / roadmap / metrics-tree / stakeholder-comms / experiment-design / retro / demo-handover / domain-kb-query / model-selection / agent-manual）+ 外置演示工具包 4 技能
+- 13 个 Pi 技能（绑定本产品 4：agent-manual / demo-handover / model-selection / domain-kb-query；通用 PM 职能 9：research-investigation / feedback-triage / roadmap / metrics-tree / stakeholder-comms / experiment-design / retro / ai-evaluation / product-analytics）+ 外置演示工具包 4 技能
 
 ---
 
