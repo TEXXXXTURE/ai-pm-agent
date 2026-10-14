@@ -68,6 +68,7 @@ $ExtSkillPaths = @(
     (Join-Path $DemoToolkit 'skills\diagram-mermaid'),
     (Join-Path $DemoToolkit 'skills\ppt-master\skills\ppt-master'),
     (Join-Path $AiEvalToolkit 'skills\ai-eval'),
+    (Join-Path $AiEvalToolkit 'skills\req-prompt-eval'),
     (Join-Path $ProtoToolkit 'skills\figma-agent')
 )
 foreach ($skillDir in $ExtSkillPaths) {
