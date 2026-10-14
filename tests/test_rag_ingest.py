@@ -31,7 +31,7 @@ if str(SRC_DIR) not in sys.path:
 
 import pytest  # noqa: E402
 
-from kb.rag.ingest import RAGIngest  # noqa: E402
+from kb.rag.ingest import CHUNKING_VERSION, RAGIngest  # noqa: E402
 from kb.rag.splitter import split_document  # noqa: E402
 
 VECTOR_DIM = 16
@@ -157,7 +157,7 @@ def test_ingest_concept_metadata_fields(tmp_path):
     assert meta["curated"] is True
     assert meta["chunk_index"] == 0
     assert meta["section_title"] == "Agent Definition"
-    assert meta["chunking_version"] == "v1"
+    assert meta["chunking_version"] == CHUNKING_VERSION
     assert meta["source_category"] == "Concepts"
     # 本期不写飞书对应关系：None 会撑爆 ChromaDB metadata 类型
     assert "feishu_ref" not in meta
@@ -285,7 +285,7 @@ def test_ingest_papers_metadata_and_skip(tmp_path):
     assert starter["title"] == "Starter Paper"
     assert starter["chunk_index"] == 0
     assert starter["section_title"] == ""
-    assert starter["chunking_version"] == "v1"
+    assert starter["chunking_version"] == CHUNKING_VERSION
     assert starter["source_category"] == "architectures"
     assert starter["arxiv_id"] == "2401.00001"
     assert len(starter) == 10  # 论文层比概念层多 arxiv_id

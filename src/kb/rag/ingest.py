@@ -27,7 +27,7 @@ from kb.rag.splitter import split_document
 # ChromaDB collection 名（三层共用一个 collection，靠 metadata.layer 区分）
 COLLECTION_NAME = "agent_knowledge"
 # 分块策略版本号，写进每个 chunk 的 metadata，便于日后整库重建比对
-CHUNKING_VERSION = "v1"
+CHUNKING_VERSION = "v2"
 # 论文 abstract 去空白后的最小有效长度（短于此视为不可用，跳过）
 MIN_ABSTRACT_CHARS = 50
 # 概念层目录跳过名单（图片等资源目录）
