@@ -51,8 +51,21 @@ llm:
 
 kb:
   store_path: ./kb_store
-  feishu_app_id: ""
-  feishu_app_secret: ""
+  # 飞书（零密钥：本段只声明「密钥所在的环境变量名」，真实值放各机器的 .env：
+  # 项目 .env 或 Hermes 的 .env；仓库里不出现任何密钥）
+  feishu:
+    app_id_env: FEISHU_APP_ID
+    app_secret_env: FEISHU_APP_SECRET
+    domain_env: FEISHU_DOMAIN
+    domain_default: feishu
+    # 额外环境变量文件（企业自建应用凭据放这里）；找不到就当没有
+    env_files:
+      - C:/Users/A/AppData/Local/hermes/.env
+    # 受控 token registry（存 access/refresh token，仓库外、不进版本库）
+    token_registry: D:/黑洞工作流/05自动化与发布/auth/feishu-oauth.json
+    # OAuth 参数：授权 URL 与回调登记值必须与这里完全一致
+    redirect_uri: http://127.0.0.1:8765/feishu/oauth/callback
+    scope: offline_access wiki:wiki drive:drive docx:document
 
 artifacts:
   output_root: ./output
@@ -113,6 +126,11 @@ industry_digest:
 domain_kb:
   chroma_path: ./domain_kb/chroma
   source_path: ./domain_kb/source
+  # 增量入库的源级状态表（content_hash / strategy_version / chunk id 集合）落盘目录；
+  # 缺省 ./domain_kb/state（该目录在 .gitignore 内，不入仓库）
+  state_path: ./domain_kb/state
+  # 切片策略版本：写进 chunk ID 中段与状态表；变更即意味着全库重建（不是原地改）
+  strategy_version: v2
 
   embedding:
     provider: siliconflow

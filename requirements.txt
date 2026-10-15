@@ -11,3 +11,6 @@ rich>=13.0
 httpx>=0.27
 beautifulsoup4>=4.12
 chromadb>=0.5,<1.0
+# 检索层双路召回：bm25s 词法索引（纯 Python/Numpy）+ jieba 中文分词
+bm25s>=0.2
+jieba>=0.42

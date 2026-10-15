@@ -8,10 +8,12 @@
 覆盖：
 1. 基础 top1 相关命中；
 2. layers（$in）/ category / 两者叠加过滤；
-3. 层权重（concept 2.0 > tracked 1.0）与 curated_bonus（1.2）；
-4. 融合排序：向量强（0.6 权重）压过关键词强（0.4 权重）；
+3. 层权在 v2 作废（三层权重不再参与打分）：同质量同 RRF 的两层并列；
+   curated 布尔仍映射质量乘数 1.2；
+4. 融合排序：RRF（score = Σ 1/(k+rank)）；「向量强 / 词法强」体现为 vector_rank / bm25_rank；
 5. feishu_ref_bonus（1.3）；
-6. 结果字段完整（11 键）、score 降序、top_k 截断、空 query / 空库返回 []。
+6. 结果字段完整（17 键，含 v2 融合明细与查询输出契约字段）、score 降序、
+   top_k 截断、空 query / 空库返回 []。
 
 运行：
   bash scripts/run-tool.sh -m pytest tests/test_rag_store.py -q
@@ -31,6 +33,8 @@ from kb.rag.ingest import RAGIngest  # noqa: E402
 from kb.rag.store import RAGStore  # noqa: E402
 
 KEYWORDS = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta"]
+# 检索结果必备字段：17 键 = v1 键 + v2 RRF 明细（bm25_rank / vector_rank / rrf_score）
+# + 查询输出契约（chunk_type / parent_id / heading_path）；子块另附 parent_content
 RESULT_FIELDS = {
     "id",
     "content",
@@ -43,6 +47,12 @@ RESULT_FIELDS = {
     "chunk_index",
     "vector_sim",
     "keyword_norm",
+    "bm25_rank",
+    "vector_rank",
+    "rrf_score",
+    "chunk_type",
+    "parent_id",
+    "heading_path",
 }
 
 
@@ -201,17 +211,41 @@ def test_layers_and_category_filters(tmp_path):
     assert empty == []
 
 
-# ── 3. 层权重与 curated bonus ───────────────────────────────────
+# ── 3. 层权作废 + curated 质量乘数（v2：排序由 RRF 决定） ────────
 
 def test_layer_weight_and_curated_bonus(tmp_path):
+    """v2 起层权不再参与打分：同质量的两层由 RRF 决定分数，名次镜像即同分；
+    curated 布尔仍按 quality 档映射质量乘数 1.2，作用在 RRF 分之上。"""
     ingest, store, embedder = _setup(tmp_path)
     _add_chunk(ingest, embedder, "c-gamma", "gamma 概念内容", layer="concept")
     _add_chunk(ingest, embedder, "t-gamma", "gamma 追踪内容", layer="tracked-paper")
 
     results = store.search("gamma")
-    assert results[0]["id"] == "c-gamma"
-    assert results[0]["score"] == round(results[1]["score"] * 2.0, 4)
+    by_id = {item["id"]: item for item in results}
+    assert set(by_id) == {"c-gamma", "t-gamma"}
 
+    # RRF 明细：两条都在两路命中（rank 从 1 起），分数 = Σ 1/(k+rank)
+    for item in results:
+        assert item["bm25_rank"] is not None and item["bm25_rank"] >= 1
+        assert item["vector_rank"] is not None and item["vector_rank"] >= 1
+        expected = sum(
+            1.0 / (store.rrf_k + rank)
+            for rank in (item["vector_rank"], item["bm25_rank"])
+        )
+        assert item["rrf_score"] == round(expected, 6)
+        assert item["score"] == round(item["rrf_score"], 4)
+
+    # 层权已作废：c-gamma 的 bm25_rank/vector_rank 与 t-gamma 互为镜像 → 同 rrf、同 score
+    # （v1 里这里会是 concept 层 ×2.0 的层权比例，v2 不再有层权）
+    c_gamma, t_gamma = by_id["c-gamma"], by_id["t-gamma"]
+    assert {c_gamma["bm25_rank"], c_gamma["vector_rank"]} == {
+        t_gamma["bm25_rank"],
+        t_gamma["vector_rank"],
+    }
+    assert c_gamma["rrf_score"] == t_gamma["rrf_score"]
+    assert c_gamma["score"] == t_gamma["score"]
+
+    # curated 布尔 → 质量乘数 1.2（同正文两条，RRF 相近，curated 的排在前面且分更高）
     _add_chunk(
         ingest, embedder, "p-curated", "delta 精选内容", layer="curated-paper", curated=True
     )
@@ -220,16 +254,21 @@ def test_layer_weight_and_curated_bonus(tmp_path):
     )
 
     curated_results = store.search("delta")
+    curated_by_id = {item["id"]: item for item in curated_results}
+    p_curated, p_plain = curated_by_id["p-curated"], curated_by_id["p-plain"]
+    assert p_curated["score"] == round(p_curated["rrf_score"] * 1.2, 4)
+    assert p_plain["score"] == round(p_plain["rrf_score"], 4)
+    assert p_curated["score"] > p_plain["score"]
     assert curated_results[0]["id"] == "p-curated"
-    assert curated_results[1]["id"] == "p-plain"
-    assert curated_results[0]["score"] == round(curated_results[1]["score"] * 1.2, 4)
 
 
-# ── 4. 融合排序：向量强 vs 关键词强 ─────────────────────────────
+# ── 4. 融合排序：RRF 明细（向量强 vs 词法强） ────────────────────
 
 def test_hybrid_fusion_prefers_strong_vector(tmp_path):
+    """v2 不再有 0.4/0.6 加权：融合分 = RRF。两条名次互为镜像 → 同 rrf；
+    「向量强 / 词法强」各自体现为 vector_rank / bm25_rank 的优势，排序在同分下取向量路 rank1。"""
     ingest, store, embedder = _setup(tmp_path)
-    # 关键词强 / 向量弱：关键词只出现在 title（×3 计入关键词分），正文无关键词 → 向量兜底方向
+    # 词法强 / 向量弱：关键词只出现在 title（索引文本含 title），正文无关键词 → 向量兜底方向
     _add_chunk(
         ingest,
         embedder,
@@ -238,7 +277,7 @@ def test_hybrid_fusion_prefers_strong_vector(tmp_path):
         title="epsilon epsilon epsilon",
         layer="tracked-paper",
     )
-    # 向量强 / 关键词弱：正文含关键词一次（向量最近、关键词分仅正文 ×1），title 无关键词
+    # 向量强 / 词法弱：正文含关键词一次（向量最近），title 无关键词
     _add_chunk(
         ingest,
         embedder,
@@ -249,18 +288,30 @@ def test_hybrid_fusion_prefers_strong_vector(tmp_path):
     )
 
     results = store.search("epsilon")
+    by_id = {item["id"]: item for item in results}
+    vec, kw = by_id["vec-strong"], by_id["kw-strong"]
 
-    assert results[0]["id"] == "vec-strong"
-    assert results[1]["id"] == "kw-strong"
-    # 关键词原始分：kw-strong = title 3 次 ×3 = 9（正文无命中）；vec-strong = 正文 1 次 ×1 = 1
-    # 归一化后 1/9 vs 9/9=1.0
-    assert results[0]["keyword_norm"] == round(1 / 9, 4)
-    assert results[0]["vector_sim"] == 1.0
-    assert results[1]["keyword_norm"] == 1.0
-    assert results[1]["vector_sim"] == 0.0
-    # 0.4×1/9 + 0.6×1.0 = 0.6444 > 0.4×1.0 + 0.6×0 = 0.4 → 向量强的一条在前
-    assert results[0]["score"] == round(0.4 / 9 + 0.6, 4)
-    assert results[1]["score"] == 0.4
+    # 两路召回明细都在
+    assert vec["bm25_rank"] is not None and vec["vector_rank"] is not None
+    assert kw["bm25_rank"] is not None and kw["vector_rank"] is not None
+
+    # 路径强弱可辨：向量强的一条 vector_sim=1.0 且 vector_rank=1；词法强的一条 bm25_rank=1
+    assert vec["vector_sim"] == 1.0 and kw["vector_sim"] == 0.0
+    assert vec["vector_rank"] == 1 and kw["vector_rank"] == 2
+    assert kw["bm25_rank"] == 1 and vec["bm25_rank"] == 2
+
+    # RRF 明细：score = round(Σ 1/(k+rank), 4)
+    for item in (kw, vec):
+        expected = sum(
+            1.0 / (store.rrf_k + rank)
+            for rank in (item["vector_rank"], item["bm25_rank"])
+        )
+        assert item["rrf_score"] == round(expected, 6)
+        assert item["score"] == round(item["rrf_score"], 4)
+
+    # 名次镜像 → RRF 同分；排序合理：同分下向量路 rank1 的一条在前
+    assert kw["rrf_score"] == vec["rrf_score"]
+    assert [item["id"] for item in results[:2]] == ["vec-strong", "kw-strong"]
 
 
 # ── 5. feishu_ref bonus ─────────────────────────────────────────

@@ -1,8 +1,8 @@
 # 知识库检索命令行工具
-"""rag_query.py — 领域知识库检索 CLI（分层加权混合检索）。
+"""rag_query.py — 领域知识库检索 CLI（双路召回 bm25s ∥ 向量 + RRF 融合）。
 
-用途：把问题文本交给 RAGStore 做分层加权混合检索（向量召回 + 候选内关键词分），
-默认输出人类可读结果段，--json 输出结构化结果。
+用途：把问题文本交给 RAGStore 做双路召回 + RRF 融合检索，默认输出人类可读结果段，
+--json 输出结构化结果（含查询输出契约字段，给下游 Agent 消费）。
 
 用法（项目根下）：
     python scripts/rag_query.py --query "什么是 ReAct"
@@ -19,7 +19,9 @@
 
 输出：
     默认人类可读——每条一段：序号 + title（空则用 source）、[layer/category] score=x.xxxx、
-    source: ...、正文 content 前 200 字符（换行压成空格）；条间空行。
+    融合明细（rrf=… bm25#n vec#n，未命中的那路显示 -）、source: ...、
+    查询输出契约（块类型 / 父块 / 标题路径）、正文 content 前 200 字符（换行压成空格）；
+    子块额外打「父块上下文」一行（父块全文预览）。条间空行。
     无结果打印"未检索到相关内容"，退出码仍为 0。
 
 退出码：0 成功；1 运行时错误；2 参数错误。
@@ -37,13 +39,15 @@ from kernel.config import load_config
 
 # 人类可读输出里正文预览的字符数上限
 CONTENT_PREVIEW_CHARS = 200
+# 人类可读输出里父块上下文预览的字符数上限（JSON 模式给全文）
+PARENT_PREVIEW_CHARS = 200
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """解析命令行参数；--layers 拆分成列表挂在 args._layers 上。"""
     parser = argparse.ArgumentParser(
         prog="rag_query.py",
-        description="领域知识库检索 CLI（分层加权混合检索）",
+        description="领域知识库检索 CLI（双路召回 + RRF 融合）",
     )
     parser.add_argument("--query", required=True, help="查询文本（必填）")
     parser.add_argument(
@@ -114,8 +118,39 @@ def run_query(args: argparse.Namespace) -> list[dict]:
     )
 
 
+def _rank_detail(item: dict) -> str:
+    """融合明细一行：rrf 分 + 两路各自排名（未命中的那路显示 -）。"""
+    parts: list[str] = []
+    if item.get("rrf_score") is not None:
+        try:
+            parts.append(f"rrf={float(item.get('rrf_score')):.6f}")
+        except (TypeError, ValueError):
+            parts.append(f"rrf={item.get('rrf_score')}")
+    for key, label in (("bm25_rank", "bm25"), ("vector_rank", "vec")):
+        if key not in item:
+            continue
+        value = item.get(key)
+        parts.append(f"{label}#{'-' if value is None else int(value)}")
+    return "  ".join(parts)
+
+
+def _contract_detail(item: dict) -> str:
+    """查询输出契约一行：块类型 / 父块 / 标题路径（都为空则该行不打）。"""
+    parts: list[str] = []
+    chunk_type = str(item.get("chunk_type") or "")
+    if chunk_type:
+        parts.append(f"块类型: {chunk_type}")
+    parent_id = str(item.get("parent_id") or "")
+    if parent_id:
+        parts.append(f"父块: {parent_id}")
+    heading_path = str(item.get("heading_path") or "")
+    if heading_path:
+        parts.append(f"标题路径: {heading_path}")
+    return "  ".join(parts)
+
+
 def _format_item(index: int, item: dict) -> str:
-    """把一条检索结果格式化成人类可读段落。"""
+    """把一条检索结果格式化成人类可读段落（含融合明细与查询输出契约字段）。"""
     title = str(item.get("title") or "").strip() or str(item.get("source") or "")
     layer = str(item.get("layer") or "")
     category = str(item.get("category") or "")
@@ -125,12 +160,28 @@ def _format_item(index: int, item: dict) -> str:
     except (TypeError, ValueError):
         score = 0.0
     content = " ".join(str(item.get("content") or "").split())[:CONTENT_PREVIEW_CHARS]
-    return (
-        f"{index}. {title}\n"
-        f"   [{layer}/{category}] score={score:.4f}\n"
-        f"   source: {source}\n"
-        f"   {content}"
-    )
+
+    lines = [
+        f"{index}. {title}",
+        f"   [{layer}/{category}] score={score:.4f}",
+    ]
+    rank_detail = _rank_detail(item)
+    if rank_detail:
+        lines.append(f"   {rank_detail}")
+    lines.append(f"   source: {source}")
+    contract_detail = _contract_detail(item)
+    if contract_detail:
+        lines.append(f"   {contract_detail}")
+    lines.append(f"   {content}")
+
+    # 子块的父块上下文（给下游 Agent 消费的同一份契约在 CLI 上也要看得见）
+    if "parent_content" in item:
+        parent_text = " ".join(str(item.get("parent_content") or "").split())
+        lines.append(
+            f"   父块上下文({len(str(item.get('parent_content') or ''))} 字): "
+            f"{parent_text[:PARENT_PREVIEW_CHARS]}"
+        )
+    return "\n".join(lines)
 
 
 def main(argv: list[str] | None = None) -> int:

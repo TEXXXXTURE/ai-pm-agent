@@ -83,7 +83,7 @@ class TestLoadToolCatalogActual(unittest.TestCase):
         self.assertIn(proto, product_names, f"原型工具应为产物能力: {catalog!r}")
         self.assertNotIn(proto, executor_names)
         self.assertEqual(len(product_tools), 5, f"产物能力应 5 个: {product_tools!r}")
-        self.assertEqual(len(executor_tools), 2, f"执行器应 2 个: {executor_tools!r}")
+        self.assertEqual(len(executor_tools), 3, f"执行器应 3 个: {executor_tools!r}")
         self.assertIn("Promptfoo 0.123.0", executor_names)
 
     def test_three_elements_nonempty(self):

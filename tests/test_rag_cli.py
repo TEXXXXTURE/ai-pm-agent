@@ -12,7 +12,8 @@
 4. --source 路径不存在：退出码 1；
 5. 缺 --layer：退出码 2（argparse 默认行为）；
 6. query 默认文本输出：含 title、[layer/category]、source，退出 0；
-7. query --json：可 json.loads 还原且 11 字段齐全，--layers 拆列表、--category/--top-k 透传；
+7. query --json：可 json.loads 还原且契约字段齐全（子块 17 键 + parent_content），
+   --layers 拆列表、--category/--top-k 透传；
 8. query 无结果：退出 0，文本模式含"未检索到"。
 
 运行：
@@ -56,7 +57,30 @@ def query_cli():
     return _load_module("rag_query_under_test", SCRIPTS_DIR / "rag_query.py")
 
 
-# 检索结果固定样例：11 个字段与 RAGStore.search 输出一致
+# 检索结果契约字段：17 键（v1 键 + v2 RRF 明细 + 查询输出契约字段）
+CONTRACT_FIELDS = {
+    "id",
+    "content",
+    "score",
+    "layer",
+    "category",
+    "source",
+    "title",
+    "section_title",
+    "chunk_index",
+    "vector_sim",
+    "keyword_norm",
+    "bm25_rank",
+    "vector_rank",
+    "rrf_score",
+    "chunk_type",
+    "parent_id",
+    "heading_path",
+}
+# 子块结果在 17 键之外多一个 parent_content（父块全文）；父块自身不带
+CHILD_FIELDS = CONTRACT_FIELDS | {"parent_content"}
+
+# 检索结果固定样例：子块形态（chunk_type=section + parent_id 非空 + parent_content）
 QUERY_RESULT = {
     "id": "curated-2401.00001",
     "content": "ReAct 让 Agent 交替进行推理与行动。",
@@ -69,6 +93,13 @@ QUERY_RESULT = {
     "chunk_index": 0,
     "vector_sim": 0.8123,
     "keyword_norm": 0.5,
+    "bm25_rank": 2,
+    "vector_rank": 1,
+    "rrf_score": 0.032522,
+    "chunk_type": "section",
+    "parent_id": "1",
+    "heading_path": "ReAct 综述 > 定义",
+    "parent_content": "父块整章全文：ReAct 综述的完整内容。",
 }
 
 
@@ -234,8 +265,14 @@ def test_query_json_and_filter_passthrough(query_cli, make_fake_store, capsys):
     payload = json.loads(out)
     assert len(payload) == 1
     assert payload[0]["title"] == "ReAct 综述"
-    assert len(payload[0]) == 11
-    assert set(payload[0]) == set(QUERY_RESULT)
+    # 按键名集合断言契约（不是数键数）：17 键 + 子块 parent_content
+    assert set(payload[0]) == CHILD_FIELDS
+    # 查询输出契约三件套确实在 payload 里
+    assert {"chunk_type", "parent_id", "heading_path", "parent_content"} <= set(payload[0])
+    assert payload[0]["chunk_type"] == "section"
+    assert payload[0]["parent_id"] == "1"
+    assert payload[0]["heading_path"] == "ReAct 综述 > 定义"
+    assert payload[0]["parent_content"].startswith("父块整章全文")
 
     kwargs = fake.calls[0]
     assert kwargs["layers"] == ["a", "b"]

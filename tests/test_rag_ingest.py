@@ -161,8 +161,9 @@ def test_ingest_concept_metadata_fields(tmp_path):
     assert meta["source_category"] == "Concepts"
     # 本期不写飞书对应关系：None 会撑爆 ChromaDB metadata 类型
     assert "feishu_ref" not in meta
-    # 概念层 metadata 共 9 个键（论文层多 arxiv_id 共 10 个）
-    assert len(meta) == 9
+    # 概念层 metadata 共 12 个键（v3 新增 heading_path / parent_id / chunk_type；
+    # 论文层多 arxiv_id 共 13 个）
+    assert len(meta) == 12
     assert "Agent 是能感知环境" in result["documents"][0]
 
     memory_result = ingest.collection.get(where={"source": "concept/AgentMemory/memory-overview.md"})
@@ -270,7 +271,11 @@ PAPERS = [
 
 
 def test_ingest_papers_metadata_and_skip(tmp_path):
-    ingest = RAGIngest(_config(tmp_path), embedder=FakeEmbedder())
+    # 独立临时库：该用例不与同模块其它用例共用 tmp_path/chroma，
+    # 避免全量运行（同进程内多个 ChromaDB PersistentClient）时库状态互相污染
+    papers_root = tmp_path / "papers_only"
+    papers_root.mkdir()
+    ingest = RAGIngest(_config(papers_root), embedder=FakeEmbedder())
 
     assert ingest.ingest_papers(PAPERS) == 2
     result = ingest.collection.get(where={"layer": "curated-paper"})
@@ -288,7 +293,7 @@ def test_ingest_papers_metadata_and_skip(tmp_path):
     assert starter["chunking_version"] == CHUNKING_VERSION
     assert starter["source_category"] == "architectures"
     assert starter["arxiv_id"] == "2401.00001"
-    assert len(starter) == 10  # 论文层比概念层多 arxiv_id
+    assert len(starter) == 13  # 论文层比概念层多 arxiv_id（v3 新增三键后：12 + 1）
 
     normal = by_source["2401.00002"]
     assert normal["category"] == "applications-other"
@@ -298,9 +303,11 @@ def test_ingest_papers_metadata_and_skip(tmp_path):
     # abstract 为空串的跳过，未写入任何层
     assert ingest.collection.get(where={"source": "2401.00003"})["ids"] == []
 
-    # 正文为 "# 标题 + 空行 + abstract"
+    # 正文为 "Contextual Header + 空行 + # 标题 + 空行 + abstract"：
+    # v3 起前缀行写进 content（参与嵌入与词法索引），原标题仍在正文里
     documents = ingest.collection.get(where={"source": "2401.00001"})["documents"]
-    assert documents[0].startswith("# Starter Paper")
+    assert documents[0].startswith("[architecture] > [Starter Paper] > [正文]\n\n")
+    assert "# Starter Paper" in documents[0]
     assert "A" * 80 in documents[0]
 
 
