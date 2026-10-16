@@ -6,9 +6,9 @@
 
 ![License](https://img.shields.io/badge/License-MIT-green)
 
-产品需求执行流水线。输入一句需求，按固定顺序走完 12 段节点，中间 8 处暂停等待人工确认，产出 PRD、评审结论、研发工单、发布计划。
+产品需求执行流水线。输入一句需求，按固定顺序走完 12 段节点，中间 8 处暂停等待人工确认，产出 PRD、评审结论、研发工单、发布计划。问答、查资料、小文档这类轻活走对话模式直接完成。
 
-范围：需求判定、PRD、评审、评测体系、模型选型、研发工单、发布计划。判定覆盖四类：需求是否 AI 核心、模型能否达成、完成标准定义、质量与成本责任归属。
+范围：需求判定、PRD、评审、评测体系、模型选型、研发工单、发布计划，外加一个本地领域知识库供检索。判定覆盖四类：需求是否 AI 核心、模型能否达成、完成标准定义、质量与成本责任归属。
 
 ## 流程
 
@@ -53,9 +53,23 @@
 
 ### 领域知识库
 
-本地 ChromaDB 向量库，约 5300 个切块（概念词条与精选论文两层），参数在 `config.yaml` 的 `domain_kb` 段。`kb_lookup` 节点在流程开头检索一次，结果注入挖需求、修订整合、判边界三处提示词；检索失败或无命中时返回空，不阻断流程。
+本地 ChromaDB 库，5655 个切块（概念解读 209 篇 + 精选论文 502 篇）。语料自备、不入仓，克隆后自行建库。
 
-语料与向量文件不入仓，克隆后需自行 `python scripts/rag_ingest.py` 建库。未配置 `SILICONFLOW_API_KEY` 时该次检索同样返回空。
+切片规则 v4：断点按标题、段落、约束词、字数的优先级找；条件句和结论不切开（中英约束词表，整词匹配）；每块带标题路径前缀参与检索；子块负责召回，父块进上下文；表格行、代码行不切半。
+
+检索走词法（jieba + bm25s）与向量双路召回，RRF 融合后按质量标记加权；结果带溯源（source + chunk_index）、父块上下文和融合明细，给 Agent 消费不用再加工。
+
+入库三个入口，格式契约把关（frontmatter 四必填，缺项退回清单，不静默丢）；入库幂等：按源先删后插、内容没变跳过、孤儿块清理。
+
+```bash
+python scripts/rag_ingest.py --layer concept --source domain_kb/source/concept   # 存量批量
+python scripts/rag_ingest.py --incremental --file <path>                         # 单文档（契约格式）
+python scripts/rag_ingest.py --inbox domain_kb/source/inbox                      # 目录投递
+python scripts/rag_ingest.py --from-feishu --space <id>                          # 飞书知识库拉取
+python scripts/rag_query.py --query "Agent 记忆机制"                              # 检索
+```
+
+`kb_lookup` 节点在流程开头检索一次，结果注入挖需求、修订整合、判边界三处提示词；检索失败或无命中时返回空，不阻断流程。
 
 ## 目录
 
@@ -65,7 +79,7 @@ tests/          测试（本地假模型，零 API 费）
 scripts/        入口脚本
 artifacts/      产物模板（assets/ 素材、templates/ 模板）
 .pi/skills/     供本地 pi CLI Agent 加载的 PM 技能与操作手册
-references/     工具路由表、模型候选清单、流水线拓扑、领域知识库实施规划与调优
+references/     工具路由表、模型候选清单、流水线拓扑、知识库选型笔记与实施规划、起步域划分
 docs/           PRD、技术设计、工作流设计、职能标准调研、选型对位报告
 domain_kb/      领域知识库语料与向量（不入仓，克隆后自行建库）
 工具与参考/     自制技能；第三方参考与外置工具包不入仓（见 .gitignore）
@@ -108,6 +122,7 @@ output/客服回复建议助手/
 - 需要 Python 3.11+
 - `pip install -r requirements.txt`；`cp .env.example .env`（填 `DEEPSEEK_API_KEY`）
 - 领域知识库另需 `SILICONFLOW_API_KEY`（`.env.example` 中的注释行）；未配置时检索返回空，流程照常
+- 飞书同步可选：`.env` 填 `FEISHU_APP_ID` / `FEISHU_APP_SECRET`，跑一次 `python scripts/feishu_auth.py` 授权（token 存仓外，不进版本库）
 - 测试免密钥、零 API 费：`pip install -r requirements-dev.txt`；`PYTHONPATH=src python -m pytest tests/ -q`
 - 模型默认 DeepSeek；Anthropic、Gemini、Ollama 在 `config.yaml` 的 `llm.providers` 取消注释切换；密钥只从环境变量读取
 
@@ -115,7 +130,7 @@ output/客服回复建议助手/
 
 - 代码编写、bug 修复、工程搭建——范围外
 - 运行时动态新增能力——节点与连线写死，不运行时扩展
-- 领域知识库的语料建设与更新——语料自备、不随仓库分发（检索能力本身已实现，见「架构 · 领域知识库」）
+- 领域知识库的语料建设——语料自备、不随仓库分发（检索与入库能力已实现，见「架构 · 领域知识库」）
 - 演示类产物（PPT、图表、原型）——依赖外置工具；未安装时仅输出说明，不生成成品
 - 人工确认点周边设施（通知、超时、升级、审计）——未实现完整
 - 上线后灰度监控与数据回流——接口已留，实现未做
