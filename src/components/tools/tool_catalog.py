@@ -45,8 +45,8 @@ def load_tool_catalog(routing_md_path: str | Path) -> list[dict[str, Any]]:
 
     Returns:
         list[dict]，每项：{name, can_do, cannot_do, prerequisite, category}。
-        category 为 "产物能力"（第二节、二·之三原型制作）或 "执行器"（二·补评测、
-        二·之二通用执行器）。
+        category 为 "产物能力"（第二节、二·之三原型制作）、"执行器"（二·补评测、
+        二·之二通用执行器）或 "取数通道"（二·之四云数据工具，外部数据获取类）。
         文件不存在/无法解析时安全降级返回空列表（不抛错）。
     """
     path = Path(routing_md_path)
@@ -73,6 +73,9 @@ def load_tool_catalog(routing_md_path: str | Path) -> list[dict[str, Any]]:
             continue
         if stripped.startswith("## 二·补") or stripped.startswith("## 二·之二"):
             current_category = "执行器"
+            continue
+        if stripped.startswith("## 二·之四"):
+            current_category = "取数通道"
             continue
         # 第三节起不再有工具表格
         if stripped.startswith("## 三"):

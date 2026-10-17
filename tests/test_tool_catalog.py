@@ -38,7 +38,7 @@ from components.tools.tool_catalog import load_tool_catalog  # noqa: E402
 ROUTING_MD = REPO_ROOT / "references" / "外置工具路由.md"
 
 _REQUIRED_KEYS = ("name", "can_do", "cannot_do", "prerequisite", "category")
-_VALID_CATEGORIES = ("产物能力", "执行器")
+_VALID_CATEGORIES = ("产物能力", "执行器", "取数通道")
 
 
 # ────────────────────────── 1. 正常解析项目路由表 ──────────────────────────
@@ -85,6 +85,12 @@ class TestLoadToolCatalogActual(unittest.TestCase):
         self.assertEqual(len(product_tools), 5, f"产物能力应 5 个: {product_tools!r}")
         self.assertEqual(len(executor_tools), 3, f"执行器应 3 个: {executor_tools!r}")
         self.assertIn("Promptfoo 0.123.0", executor_names)
+        # 云数据工具（二·之四）归取数通道，不落进产物能力/执行器
+        channel_names = {
+            t["name"] for t in catalog if t["category"] == "取数通道"
+        }
+        self.assertIn("monid（云工具目录）", channel_names, f"取数通道缺 monid: {catalog!r}")
+        self.assertEqual(len(channel_names), 1, f"取数通道应 1 个: {channel_names!r}")
 
     def test_three_elements_nonempty(self):
         """已装工具的三要素（能做/不能做/调用前提）均非空。"""
