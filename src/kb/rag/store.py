@@ -165,8 +165,14 @@ class RAGStore:
         layers: list[str] | None = None,
         category: str | None = None,
         feishu_refs: list[str] | None = None,
+        phase: str | None = None,
+        version: str | None = None,
     ) -> list[dict]:
-        """双路召回 + RRF 融合检索，返回按最终分降序的结果列表（空 query / 无候选返回 []）。"""
+        """双路召回 + RRF 融合检索，返回按最终分降序的结果列表（空 query / 无候选返回 []）。
+
+        phase / version：阶段与版本硬过滤（Three.js 预设方案 2.3），在候选段执行、
+        进 RRF 之前——宁可少召回，不可召回来错的。无标记条目视为通用，始终放行。
+        """
         if not str(query or "").strip() or top_k <= 0:
             return []
 
@@ -179,6 +185,13 @@ class RAGStore:
         lexical_rows = self._lexical_recall(str(query), where_pred)
         if not vector_rows and not lexical_rows:
             return []
+
+        # 2.5 阶段/版本硬过滤（候选段，进 RRF 之前）
+        if phase or version:
+            vector_rows = _hard_filter(vector_rows, phase, version)
+            lexical_rows = _hard_filter(lexical_rows, phase, version)
+            if not vector_rows and not lexical_rows:
+                return []
 
         # 3. 合并候选 + RRF 融合 + 质量乘数
         candidates = self._merge_candidates(vector_rows, lexical_rows)
@@ -455,6 +468,77 @@ class RAGStore:
 
 
 # ── 模块级工具：配置解析 / 质量乘数 / 软删 / where 谓词 ─────────────
+
+
+def _split_csv(value) -> list[str]:
+    """逗号串（入库侧把列表压成 CSV）拆回列表；空值返回 []。"""
+    return [item.strip() for item in str(value or "").split(",") if item.strip()]
+
+
+def _version_num(value):
+    """版本串转可比较序号：r184 / 184 → 184；解析不了返回 None。"""
+    text = str(value or "").strip().lower()
+    if text.startswith("r"):
+        text = text[1:]
+    try:
+        return int(text)
+    except ValueError:
+        return None
+
+
+def _phase_ok(meta: dict, phase) -> bool:
+    """阶段硬过滤：条目没标 phase_tags 视为通用（放行）；标了则须命中。"""
+    if not phase:
+        return True
+    tags = [t.strip() for t in _split_csv((meta or {}).get("phase_tags"))]
+    if not tags:
+        return True
+    return str(phase).strip() in tags
+
+
+def _version_ok(meta: dict, version) -> bool:
+    """版本硬过滤：valid_for_versions 非空则须命中；invalid_after = 该版本起失效。
+    版本号解析不出序号时不误杀（放行），与「宁可少召回」的取舍见预设方案 2.3。"""
+    if not version:
+        return True
+    meta = meta or {}
+    want = str(version).strip()
+    valid = [v.strip() for v in _split_csv(meta.get("valid_for_versions"))]
+    if valid:
+        want_num = _version_num(want)
+        valid_nums = [_version_num(v) for v in valid]
+        hit = want in valid or (
+            want_num is not None and want_num in [n for n in valid_nums if n is not None]
+        )
+        if not hit:
+            comparable = want_num is not None and any(n is not None for n in valid_nums)
+            if comparable:
+                return False
+            # 版本号解析不出序号时不误杀（放行）
+    after = str(meta.get("invalid_after") or "").strip()
+    if after:
+        want_num, stop_num = _version_num(want), _version_num(after)
+        if want_num is not None and stop_num is not None:
+            if want_num >= stop_num:
+                return False
+        elif want == after:
+            return False
+    return True
+
+
+def _hard_filter(rows: list, phase, version) -> list:
+    """阶段 + 版本硬过滤（候选段，进 RRF 之前）：宁可少召回，不可召回来错的。"""
+    if not phase and not version:
+        return list(rows or [])
+    out = []
+    for row in rows or []:
+        meta = row.get("metadata") or {}
+        if not _phase_ok(meta, phase):
+            continue
+        if not _version_ok(meta, version):
+            continue
+        out.append(row)
+    return out
 
 
 def _config_number(value, default, cast):

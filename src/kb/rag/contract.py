@@ -161,6 +161,73 @@ def normalize_tags(value) -> list[str]:
     return [part.strip() for part in parts if part.strip()]
 
 
+# 检索元数据（可选，Three.js/WebGPU 预设方案 2.2）：阶段路由、版本有效性、约束类型等。
+# Chroma 元数据只收标量（str/int/float/bool），列表一律归一化为逗号串，检索侧按逗号拆。
+RETRIEVAL_META_FIELDS: tuple[str, ...] = (
+    "phase_tags",
+    "valid_for_versions",
+    "invalid_after",
+    "constraint_type",
+    "entity_type",
+    "weight",
+    "last_verified",
+    "why_not_the_obvious_way",
+    "evidence_source",
+    "evidence_url",
+    "evidence_date",
+    "evidence_level",
+)
+# constraint_type / entity_type 参考取值（不做强校验，未知值原样放行）
+CONSTRAINT_TYPES: tuple[str, ...] = ("hard", "soft", "negative")
+ENTITY_TYPES: tuple[str, ...] = ("api", "param", "pattern", "failure", "script")
+
+
+def _retrieval_meta(front: dict) -> dict:
+    """从 frontmatter 提取检索元数据（全部 Chroma 安全的标量）。
+
+    evidence 可写成嵌套映射（evidence: {source, url, date, level}）或扁平键
+    （evidence_source 等），两种写法等价。weight 非数字时置 None（由入库侧丢弃）。
+    """
+    front = dict(front or {})
+    evidence = front.get("evidence") if isinstance(front.get("evidence"), dict) else {}
+
+    def _csv(value) -> str:
+        return ",".join(normalize_tags(value))
+
+    def _text(value) -> str:
+        return "" if value is None else str(value).strip()
+
+    try:
+        weight = float(front.get("weight"))
+    except (TypeError, ValueError):
+        weight = None
+
+    return {
+        "phase_tags": _csv(front.get("phase_tags")),
+        "valid_for_versions": _csv(front.get("valid_for_versions")),
+        "invalid_after": _text(front.get("invalid_after")),
+        "constraint_type": _text(front.get("constraint_type")),
+        "entity_type": _text(front.get("entity_type")),
+        "weight": weight,
+        "last_verified": normalize_updated(front.get("last_verified")) or "",
+        "why_not_the_obvious_way": _text(front.get("why_not_the_obvious_way")),
+        "evidence_source": _text(evidence.get("source") or front.get("evidence_source")),
+        "evidence_url": _text(evidence.get("url") or front.get("evidence_url")),
+        "evidence_date": normalize_updated(evidence.get("date") or front.get("evidence_date"))
+        or "",
+        "evidence_level": _text(evidence.get("level") or front.get("evidence_level")),
+    }
+
+
+def _nonempty_retrieval(front: dict) -> dict:
+    """检索元数据里非空的键（空值不入库，老文档的 metadata 形态不变）。"""
+    return {
+        key: value
+        for key, value in _retrieval_meta(front).items()
+        if value not in ("", None)
+    }
+
+
 def parse_document(
     text,
     *,
@@ -205,6 +272,7 @@ def parse_document(
             "tags": normalize_tags(front.get("tags")),
             "auto_wrapped": True,
             "body": body,
+            **_nonempty_retrieval(front),
         }
 
     problems: list[str] = []
@@ -237,4 +305,5 @@ def parse_document(
         "tags": normalize_tags(front.get("tags")),
         "auto_wrapped": False,
         "body": body,
+        **_nonempty_retrieval(front),
     }
