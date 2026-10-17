@@ -89,15 +89,22 @@ from kernel.state import PMState
 # 避免 kernel <-> nodes 循环导入（见下方函数注释）。
 
 
-def build_graph(deps: Any, db_path: str | None = None) -> Any:
+def build_graph(
+    deps: Any, db_path: str | None = None, *, with_checkpointer: bool = True
+) -> Any:
     """构建并编译 LangGraph 状态图。
 
     Args:
         deps: nodes.NodeDeps 依赖容器（runner / registry / artifacts / kb）。
         db_path: SQLite 检查点数据库路径；None 时使用默认路径。
+        with_checkpointer: 是否由本图自带 SqliteSaver。CLI 两条入口（cli.main、
+            scripts/run_prd_workflow）保持 True，断点仍落本地 ai_pm_agent.db；
+            交给 LangGraph API Server（langgraph dev / Studio）时必须为 False——
+            平台自己管持久化，图自带 BaseCheckpointSaver 会被 local_dev 直接
+            拒绝加载（langgraph_api/graph.py:815-836 抛 ValueError）。
 
     Returns:
-        编译后的 LangGraph（带 SqliteSaver checkpointer，支持断点续跑）。
+        编译后的 LangGraph；with_checkpointer=True 时带 SqliteSaver，支持断点续跑。
     """
     # 延迟导入：nodes 依赖 kernel，kernel.__init__ 又会导入本模块，
     # 放函数内导入可避免 kernel <-> nodes 循环导入。
@@ -283,6 +290,10 @@ def build_graph(deps: Any, db_path: str | None = None) -> Any:
         },
     )
     graph.add_edge("artifact_persist", END)
+
+    if not with_checkpointer:
+        # 交给 LangGraph API Server：持久化由平台注入，图不能自带 checkpointer
+        return graph.compile()
 
     # 编译 + SQLite 断点持久化
     checkpointer = get_checkpointer(db_path) if db_path else get_checkpointer()
